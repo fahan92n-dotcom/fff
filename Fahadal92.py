@@ -1,3 +1,4 @@
+
 import os
 import requests
 import pandas as pd
@@ -143,7 +144,8 @@ lines += [
 f"⚠️ أكثر سبب فشل: <b>{DIAG_LABELS.get(worst_k, worst_k)}</b> ({worst_v})",
 ]
 if reset:
-for k in diag_counts: diag_counts[k] = 0
+for k in diag_counts:
+diag_counts[k] = 0
 return "\n".join(lines)
 
 def send_diag_report():
@@ -167,7 +169,8 @@ r = get_session().post(
 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
 json={"drop_pending_updates": True}, timeout=10,
 ).json()
-if r.get("ok"): log.info("✅ تم حذف الـ Webhook")
+if r.get("ok"):
+log.info("✅ تم حذف الـ Webhook")
 except Exception as e:
 log.error(f"deleteWebhook error: {e}")
 
@@ -176,14 +179,16 @@ now = datetime.now(timezone.utc)
 with alerted_keys_lock:
 expired = [k for k, t in list(alerted_keys.items())
 if now - t > timedelta(hours=ALERT_EXPIRY_HOURS)]
-for k in expired: del alerted_keys[k]
+for k in expired:
+del alerted_keys[k]
 
 def cleanup_near6():
 now = datetime.now(timezone.utc)
 with near_signals_6_lock:
 expired = [k for k, v in list(near_signals_6.items())
 if now - v["time"] > timedelta(hours=NEAR6_EXPIRY_HOURS)]
-for k in expired: del near_signals_6[k]
+for k in expired:
+del near_signals_6[k]
 
 def save_signal(symbol, price, entry_min, confirm_min, third_min):
 with trades_lock:
@@ -221,7 +226,8 @@ start = now - timedelta(days=7)
 end, title = now, "🗓️ آخر 7 أيام"
 with trades_lock:
 rows = [t for t in trades_history if start <= t["time"] < end]
-if not rows: return f"<b>{title}:</b>\nلا توجد إشارات."
+if not rows:
+return f"<b>{title}:</b>\nلا توجد إشارات."
 lines = [f"<b>{title} ({len(rows)})</b>\n" + "━" * 15]
 for t in rows:
 lines.append(
@@ -275,23 +281,30 @@ timeout=15,
 ).json()
 if not isinstance(resp, list) or not resp:
 retries += 1
-if retries >= 3: break
-time.sleep(2 ** retries); continue
+if retries >= 3:
+break
+time.sleep(2 ** retries)
+continue
 df = _parse_binance_klines(resp)
 all_dfs.insert(0, df)
-fetched += len(df); retries = 0
+fetched += len(df)
+retries = 0
 end_ms = start_ms - 1
-if len(df) < batch: break
+if len(df) < batch:
+break
 except Exception as e:
 retries += 1
-if retries >= 3: break
+if retries >= 3:
+break
 time.sleep(2)
 return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
 if all_dfs else pd.DataFrame())
 
 def cache_merge(symbol, tf, new_df):
-if new_df.empty: return
-key = (symbol, tf); maxc = CACHE_MAX_CANDLES.get(tf, 5000)
+if new_df.empty:
+return
+key = (symbol, tf)
+maxc = CACHE_MAX_CANDLES.get(tf, 5000)
 with ohlcv_cache_lock:
 old = ohlcv_cache.get(key)
 if old is not None and not old.empty:
@@ -321,29 +334,37 @@ send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعم
 def _update_batch(symbols, tf, limit):
 def fetch_one(sym):
 df = get_ohlcv(sym, tf, limit=limit)
-if not df.empty: cache_merge(sym, tf, df)
+if not df.empty:
+cache_merge(sym, tf, df)
 with ThreadPoolExecutor(max_workers=30) as ex:
 ex.map(fetch_one, symbols)
 
 def cache_updater_1m():
 while True:
-if not fast_prefetch_done.is_set(): time.sleep(5); continue
-with symbols_cache_lock: syms = list(symbols_cache)
-if syms: _update_batch(syms, "1m", limit=5)
+if not fast_prefetch_done.is_set():
+time.sleep(5)
+continue
+with symbols_cache_lock:
+syms = list(symbols_cache)
+if syms:
+_update_batch(syms, "1m", limit=5)
 time.sleep(55)
 
 def cache_updater_60m():
 while True:
 time.sleep(3600)
 if fast_prefetch_done.is_set():
-with symbols_cache_lock: syms = list(symbols_cache)
-if syms: _update_batch(syms, "60m", limit=5)
+with symbols_cache_lock:
+syms = list(symbols_cache)
+if syms:
+_update_batch(syms, "60m", limit=5)
 
 # ──────────────────────────────────────────────
 # المؤشرات الفنية
 # ──────────────────────────────────────────────
 def resample_ohlcv(df, minutes):
-if df.empty: return pd.DataFrame()
+if df.empty:
+return pd.DataFrame()
 return (df.copy().set_index("ts")
 .resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
 .agg({"open":"first","high":"max","low":"min","close":"last","vol":"sum"})
@@ -366,17 +387,20 @@ histogram = macd_line - signal_line
 return macd_line, signal_line, histogram
 
 def check_macd_red(df):
-if len(df) < WARMUP_MACD: return False
+if len(df) < WARMUP_MACD:
+return False
 return bool(_calc_macd_hist(df["close"]).iloc[-2] < 0)
 
 def check_macd_green(df):
-if len(df) < WARMUP_MACD: return False
+if len(df) < WARMUP_MACD:
+return False
 return bool(_calc_macd_hist(df["close"]).iloc[-2] > 0)
 
 def check_donchian_ribbon(df, direction="green"):
 hh = df["high"].rolling(20).max().shift(1)
 ll = df["low"].rolling(20).min().shift(1)
-if direction == "green": return bool(df["close"].iloc[-2] > hh.iloc[-2])
+if direction == "green":
+return bool(df["close"].iloc[-2] > hh.iloc[-2])
 return bool(df["close"].iloc[-2] < ll.iloc[-2])
 
 def check_ema50_below(df):
@@ -398,12 +422,14 @@ sig = smi.ewm(span=ema_len, min_periods=ema_len, adjust=False).mean()
 return smi, sig
 
 def check_smi_oversold(df, threshold=-40):
-if len(df) < WARMUP_SMI: return False
+if len(df) < WARMUP_SMI:
+return False
 smi, _ = calc_smi(df["high"], df["low"], df["close"])
 return bool(smi.iloc[-2] <= threshold)
 
 def get_smi_value(df):
-if len(df) < WARMUP_SMI: return None, None
+if len(df) < WARMUP_SMI:
+return None, None
 smi, sig = calc_smi(df["high"], df["low"], df["close"])
 return round(float(smi.iloc[-2]), 2), round(float(sig.iloc[-2]), 2)
 
@@ -424,7 +450,8 @@ d = k.rolling(d_smooth, min_periods=d_smooth).mean()
 return k, d
 
 def check_rsi_stoch(df):
-if len(df) < WARMUP_RSI: return False
+if len(df) < WARMUP_RSI:
+return False
 delta = df["close"].diff()
 rsi = 100 - (100 / (1 + (delta.clip(lower=0).ewm(span=14).mean() /
 (-delta.clip(upper=0).ewm(span=14).mean() + 1e-10))))
@@ -477,9 +504,12 @@ smi_val, smi_sig = get_smi_value(df5)
 
 don_green = check_donchian_ribbon(df5, direction="green")
 don_red = check_donchian_ribbon(df5, direction="red")
-if don_green: don_color = "🟢 أخضر (صاعد)"
-elif don_red: don_color = "🔴 أحمر (هابط)"
-else: don_color = "⚪ محايد"
+if don_green:
+don_color = "🟢 أخضر (صاعد)"
+elif don_red:
+don_color = "🔴 أحمر (هابط)"
+else:
+don_color = "⚪ محايد"
 
 rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
 stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
@@ -525,7 +555,8 @@ while True:
 nxt = get_next_close(5)
 wait = (nxt - datetime.now(timezone.utc)).total_seconds()
 time.sleep(max(wait, 0) + 2.0)
-if not fast_prefetch_done.is_set(): continue
+if not fast_prefetch_done.is_set():
+continue
 handle_check5(TELEGRAM_CHAT_ID, "BTCUSDT")
 
 # ──────────────────────────────────────────────
@@ -535,10 +566,12 @@ def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
 raw_ec = get_cached(symbol, ec_api)
 raw_t = get_cached(symbol, t_api)
 
-with diag_lock: diag_counts["total"] += 1
+with diag_lock:
+diag_counts["total"] += 1
 
 if raw_ec.empty or raw_t.empty:
-with diag_lock: diag_counts["no_data"] += 1
+with diag_lock:
+diag_counts["no_data"] += 1
 return
 
 df_entry = resample_ohlcv(raw_ec, entry_min)
@@ -546,45 +579,55 @@ df_confirm = resample_ohlcv(raw_ec, confirm_min)
 df_third = resample_ohlcv(raw_t, third_min)
 
 if df_entry.empty or df_confirm.empty or df_third.empty:
-with diag_lock: diag_counts["no_data"] += 1
+with diag_lock:
+diag_counts["no_data"] += 1
 return
 
 if not check_smi_oversold(df_entry):
-with diag_lock: diag_counts["smi_oversold"] += 1
+with diag_lock:
+diag_counts["smi_oversold"] += 1
 return
 
 next_tf = NEXT_TF.get(entry_min)
 if next_tf:
 df_next = resample_ohlcv(raw_ec, next_tf)
 if not df_next.empty and check_smi_oversold(df_next):
-with diag_lock: diag_counts["active_skip"] += 1
+with diag_lock:
+diag_counts["active_skip"] += 1
 return
 
 if not check_macd_red(df_entry):
-with diag_lock: diag_counts["macd_red"] += 1
+with diag_lock:
+diag_counts["macd_red"] += 1
 return
 
 if not check_donchian_ribbon(df_entry, "green"):
-with diag_lock: diag_counts["donchian_entry"] += 1
+with diag_lock:
+diag_counts["donchian_entry"] += 1
 return
 
 if not check_donchian_ribbon(df_confirm, "green"):
-with diag_lock: diag_counts["donchian_confirm"] += 1
+with diag_lock:
+diag_counts["donchian_confirm"] += 1
 return
 
 if not check_macd_green(df_confirm):
-with diag_lock: diag_counts["macd_confirm"] += 1
+with diag_lock:
+diag_counts["macd_confirm"] += 1
 return
 
 if not check_ema50_below(df_entry):
-with diag_lock: diag_counts["ema50"] += 1
+with diag_lock:
+diag_counts["ema50"] += 1
 return
 
 if not check_rsi_stoch(df_third):
-with diag_lock: diag_counts["rsi_stoch"] += 1
+with diag_lock:
+diag_counts["rsi_stoch"] += 1
 return
 
-with diag_lock: diag_counts["passed"] += 1
+with diag_lock:
+diag_counts["passed"] += 1
 
 price = df_entry["close"].iloc[-2]
 save_signal(symbol, price, entry_min, confirm_min, third_min)
@@ -596,8 +639,10 @@ f"💰 السعر: {price:.6g}"
 def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):
 while True:
 time.sleep(30)
-if not fast_prefetch_done.is_set(): continue
-with symbols_cache_lock: syms = list(symbols_cache)
+if not fast_prefetch_done.is_set():
+continue
+with symbols_cache_lock:
+syms = list(symbols_cache)
 fn = partial(scan_symbol,
 entry_min=entry_min, confirm_min=confirm_min,
 third_min=third_min, ec_api=ec_api, t_api=t_api)
@@ -619,12 +664,16 @@ for upd in r.get("result", []):
 last_id = upd["update_id"]
 txt = upd.get("message", {}).get("text", "").strip()
 chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
-if not txt or not chat_id: continue
+if not txt or not chat_id:
+continue
 
 if txt == "/status":
-with trades_lock: cnt = len(trades_history)
-with alerted_keys_lock: active = len(alerted_keys)
-with ohlcv_cache_lock: keys = len(ohlcv_cache)
+with trades_lock:
+cnt = len(trades_history)
+with alerted_keys_lock:
+active = len(alerted_keys)
+with ohlcv_cache_lock:
+keys = len(ohlcv_cache)
 send_telegram(
 f"🤖 البوت يعمل — Binance API\n"
 f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
@@ -650,7 +699,8 @@ chat_id,
 elif txt.startswith("/check5"):
 parts = txt.split()
 symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
-if not symbol.endswith("USDT"): symbol += "USDT"
+if not symbol.endswith("USDT"):
+symbol += "USDT"
 threading.Thread(
 target=handle_check5, args=(chat_id, symbol), daemon=True
 ).start()
@@ -667,7 +717,7 @@ send_telegram(
 "📋 <code>/help</code> — قائمة الأوامر",
 chat_id,
 )
-except:
+except Exception:
 time.sleep(10)
 
 # ──────────────────────────────────────────────
@@ -701,8 +751,12 @@ time.sleep(3600)
 
 class HealthHandler(BaseHTTPRequestHandler):
 def do_GET(self):
-self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
-def log_message(self, *_): pass
+self.send_response(200)
+self.end_headers()
+self.wfile.write(b"OK")
+
+def log_message(self, *_):
+pass
 
 # ──────────────────────────────────────────────
 # Main
