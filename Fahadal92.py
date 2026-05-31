@@ -47,9 +47,9 @@ TRIPLING_PAIRS = [
 TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 180]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i+1] for i in range(len(TIMEFRAME_CHAIN)-1)}
 
-FAST_FETCH_CANDLES = {"1m": 3500,  "60m": 250}
-API_FETCH_CANDLES  = {"1m": 15_000, "60m": 2_000}
-CACHE_MAX_CANDLES  = {"1m": 16_000, "60m": 2_500}
+FAST_FETCH_CANDLES = {"1m": 500,  "60m": 100}
+API_FETCH_CANDLES  = {"1m": 500,  "60m": 100}
+CACHE_MAX_CANDLES  = {"1m": 600,  "60m": 150}
 EPOCH = pd.Timestamp("1970-01-01", tz="UTC")
 
 WARMUP_EMA   = 200
@@ -881,6 +881,19 @@ class HealthHandler(BaseHTTPRequestHandler):
 # Main
 # ──────────────────────────────────────────────
 def main():
+    import sys
+    import traceback
+
+    # ✅ يلتقط أي خطأ غير متوقع ويسجّله قبل أن يموت البوت
+    def handle_exception(exc_type, exc_value, exc_tb):
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        log.error(f"💥 خطأ غير متوقع أوقف البوت:\n{msg}")
+        try:
+            send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")
+        except Exception:
+            pass
+    sys.excepthook = handle_exception
+
     # ✅ HTTP server أول شيء قبل أي thread — يمنع Railway من restart بسبب health check
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -898,20 +911,24 @@ def main():
     for params in TRIPLING_PAIRS:
         threading.Thread(target=candle_watcher, args=params, daemon=True).start()
 
-    # ✅ keep-alive loop — log كل 5 دقايق لإثبات أن البوت حي ومنع Railway من إيقافه
+    # ✅ keep-alive loop مع exception handler — يمنع البوت من الموت بصمت
     while True:
-        time.sleep(300)
-        with ohlcv_cache_lock:
-            cache_size = len(ohlcv_cache)
-        with trades_lock:
-            signals_count = len(trades_history)
-        log.info(
-            f"💓 البوت يعمل | "
-            f"كاش: {cache_size} مفتاح | "
-            f"إشارات: {signals_count} | "
-            f"تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'} | "
-            f"تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}"
-        )
+        try:
+            time.sleep(300)
+            with ohlcv_cache_lock:
+                cache_size = len(ohlcv_cache)
+            with trades_lock:
+                signals_count = len(trades_history)
+            log.info(
+                f"💓 البوت يعمل | "
+                f"كاش: {cache_size} مفتاح | "
+                f"إشارات: {signals_count} | "
+                f"سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'} | "
+                f"كامل: {'✅' if prefetch_done.is_set() else '⏳'}"
+            )
+        except Exception as e:
+            log.error(f"❌ خطأ في main loop: {e}\n{traceback.format_exc()}")
+            time.sleep(10)
 
 
 if __name__ == "__main__":
