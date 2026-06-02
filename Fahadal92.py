@@ -135,40 +135,41 @@ STEP_LABELS = {
 
 def build_diag_msg(reset=False):
     with diag_lock:
-    t = diag_counts["total"] or 1
-    non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
-    worst_k   = max(non_total, key=lambda k: non_total[k])
-    worst_v   = non_total[worst_k]
-    lines = [
-    "🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
-    f"📊 إجمالي الفحوصات: <b>{t}</b>", "",
-    ]
-    remaining = t
-    for k, pass_label in STEP_LABELS.items():
-    failed   = diag_counts[k]
-    passed   = remaining - failed
-    pass_pct = int(passed / t * 100)
-    fail_pct = int(failed / t * 100)
-    bar      = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
-    lines.append(
-    f"{pass_label}\n"
-    f"  {bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
-    )
-    remaining = passed
-    lines += [
-    "", f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
-    "━━━━━━━━━━━━━━━",
-    f"⚠️ أكثر سبب فشل: <b>{DIAG_LABELS.get(worst_k, worst_k)}</b> ({worst_v})",
-    ]
-    if reset:
-    for k in diag_counts:
-    diag_counts[k] = 0
-    return "\n".join(lines)
+        t = diag_counts["total"] or 1
+        non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
+        worst_k   = max(non_total, key=lambda k: non_total[k])
+        worst_v   = non_total[worst_k]
+        lines = [
+            "🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
+            f"📊 إجمالي الفحوصات: <b>{t}</b>", "",
+        ]
+        remaining = t
+        for k, pass_label in STEP_LABELS.items():
+            failed   = diag_counts[k]
+            passed   = remaining - failed
+            pass_pct = int(passed / t * 100)
+            fail_pct = int(failed / t * 100)
+            bar      = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
+            lines.append(
+                f"{pass_label}\n"
+                f"  {bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
+            )
+            remaining = passed
+        lines += [
+            "", f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
+            "━━━━━━━━━━━━━━━",
+            f"⚠️ أكثر سبب فشل: <b>{DIAG_LABELS.get(worst_k, worst_k)}</b> ({worst_v})",
+        ]
+        if reset:
+            for k in diag_counts:
+                diag_counts[k] = 0
+        return "\n".join(lines)
+
 
 def send_diag_report():
-while True:
-time.sleep(3600)
-send_telegram(build_diag_msg(reset=True))
+    while True:
+        time.sleep(3600)
+        send_telegram(build_diag_msg(reset=True))
 
 #------------------------------------------
 
