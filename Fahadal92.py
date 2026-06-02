@@ -444,7 +444,7 @@ return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
 ------------------------------------------
 
-Donchian Ribbon — مطابق لـ Pine Script
+Donchian Ribbon - مطابق لـ Pine Script
 
 ------------------------------------------
 
