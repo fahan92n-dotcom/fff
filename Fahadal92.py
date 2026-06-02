@@ -12,12 +12,10 @@ from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger(__name__)
+log = logging.getLogger(name)
 
 #------------------------------------------
-
 #Main Settings
-
 #------------------------------------------
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",   "8988740597:AAE_I7M7zB5VM2NykUwreQQMws0vk7qlU78")
@@ -64,9 +62,7 @@ WARMUP_DON   = 50
 MIN_CANDLES  = 250
 
 #------------------------------------------
-
 #Shared State
-
 #------------------------------------------
 
 alerted_keys        = {}
@@ -96,7 +92,7 @@ _local            = threading.local()
 
 #------------------------------------------
 
-# Last Check
+Last Check
 
 #------------------------------------------
 
@@ -104,9 +100,7 @@ last_diag = {"symbol": None, "step": None, "entry_min": None, "time": None}
 last_diag_lock = threading.Lock()
 
 #------------------------------------------
-
 #Diagnostics
-
 #------------------------------------------
 
 DIAG_LABELS = {
@@ -134,47 +128,44 @@ STEP_LABELS = {
 }
 
 def build_diag_msg(reset=False):
-    with diag_lock:
-        t = diag_counts["total"] or 1
-        non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
-        worst_k   = max(non_total, key=lambda k: non_total[k])
-        worst_v   = non_total[worst_k]
-        lines = [
-            "🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
-            f"📊 إجمالي الفحوصات: <b>{t}</b>", "",
-        ]
-        remaining = t
-        for k, pass_label in STEP_LABELS.items():
-            failed   = diag_counts[k]
-            passed   = remaining - failed
-            pass_pct = int(passed / t * 100)
-            fail_pct = int(failed / t * 100)
-            bar      = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
-            lines.append(
-                f"{pass_label}\n"
-                f"  {bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
-            )
-            remaining = passed
-        lines += [
-            "", f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
-            "━━━━━━━━━━━━━━━",
-            f"⚠️ أكثر سبب فشل: <b>{DIAG_LABELS.get(worst_k, worst_k)}</b> ({worst_v})",
-        ]
-        if reset:
-            for k in diag_counts:
-                diag_counts[k] = 0
-        return "\n".join(lines)
-
+with diag_lock:
+t = diag_counts["total"] or 1
+non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
+worst_k   = max(non_total, key=lambda k: non_total[k])
+worst_v   = non_total[worst_k]
+lines = [
+"🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
+f"📊 إجمالي الفحوصات: <b>{t}</b>", "",
+]
+remaining = t
+for k, pass_label in STEP_LABELS.items():
+failed   = diag_counts[k]
+passed   = remaining - failed
+pass_pct = int(passed / t * 100)
+fail_pct = int(failed / t * 100)
+bar      = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
+lines.append(
+f"{pass_label}\n"
+f"  {bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
+)
+remaining = passed
+lines += [
+"", f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
+"━━━━━━━━━━━━━━━",
+f"⚠️ أكثر سبب فشل: <b>{DIAG_LABELS.get(worst_k, worst_k)}</b> ({worst_v})",
+]
+if reset:
+for k in diag_counts:
+diag_counts[k] = 0
+return "\n".join(lines)
 
 def send_diag_report():
-    while True:
-        time.sleep(3600)
-        send_telegram(build_diag_msg(reset=True))
+while True:
+time.sleep(3600)
+send_telegram(build_diag_msg(reset=True))
 
 #------------------------------------------
-
 #Helpers
-
 #------------------------------------------
 
 def get_session():
@@ -258,9 +249,7 @@ f"{t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}"
 return "\n".join(lines)
 
 #------------------------------------------
-
 #Binance OHLCV
-
 #------------------------------------------
 
 def _parse_binance_klines(resp):
@@ -395,12 +384,11 @@ _update_batch(syms, "60m", limit=5)
 
 #------------------------------------------
 
-# Technical Indicators
+Technical Indicators
 
 #------------------------------------------
 
 def resample_ohlcv(df, minutes):
-"""يُعيد شموع مغلقة فقط — يحذف الشمعة الأخيرة غير المكتملة"""
 if df.empty:
 return pd.DataFrame()
 return (df.copy().set_index("ts")
@@ -409,7 +397,6 @@ return (df.copy().set_index("ts")
 .dropna().iloc[:-1].reset_index())
 
 def resample_ohlcv_closed(df, minutes):
-"""يُعيد كل الشموع بما فيها الحالية"""
 if df.empty:
 return pd.DataFrame()
 return (df.copy().set_index("ts")
@@ -445,7 +432,7 @@ return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
 #------------------------------------------
 
-# Donchian Ribbon - Pine Script
+Donchian Ribbon
 
 #------------------------------------------
 
@@ -525,34 +512,27 @@ d   = k.rolling(d_smooth,   min_periods=d_smooth).mean()
 return k, d
 
 #------------------------------------------
-
 #check_rsi_stoch
-
 #------------------------------------------
 
 def check_rsi_stoch(df, lookback=5):
 if len(df) < WARMUP_RSI + lookback:
 return False
-
-rsi     = calc_rsi_tv(df["close"], period=14)  
-rsi_sig = rsi.rolling(14).mean()  
-k, _    = calc_stoch_tv(df["close"], df["high"], df["low"])  
-
-for i in range(-lookback, 0):  
-    stoch_cross = (float(k.iloc[i - 1]) < 20) and (float(k.iloc[i]) >= 20)  
-    rsi_cross = (  
-        float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1])  
-        and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i])  
-    )  
-    if stoch_cross or rsi_cross:  
-        return True  
-
+rsi     = calc_rsi_tv(df["close"], period=14)
+rsi_sig = rsi.rolling(14).mean()
+k, _    = calc_stoch_tv(df["close"], df["high"], df["low"])
+for i in range(-lookback, 0):
+stoch_cross = (float(k.iloc[i - 1]) < 20) and (float(k.iloc[i]) >= 20)
+rsi_cross = (
+float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1])
+and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i])
+)
+if stoch_cross or rsi_cross:
+return True
 return False
 
 #------------------------------------------
-
 #handle_check5
-
 #------------------------------------------
 
 def handle_check5(chat_id, symbol="BTCUSDT"):
@@ -596,7 +576,6 @@ df_raw = get_cached(symbol, "1m")
         send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)  
         return  
 
-# Current price from last 1m candle  
     price     = float(df_raw["close"].iloc[-1])  
     candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")  
     fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")  
@@ -666,9 +645,7 @@ except Exception as e:
     send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
 
 #------------------------------------------
-
 #check5_watcher
-
 #------------------------------------------
 
 def get_next_close(tf_minutes):
@@ -709,7 +686,7 @@ if wait < -60:
 
 #------------------------------------------
 
-المسح والمراقبة#
+المسح والمراقبة
 
 #------------------------------------------
 
@@ -833,7 +810,7 @@ list(ex.map(fn, syms))
 
 #------------------------------------------
 
-# Telegram Commands
+Telegram Commands
 
 #------------------------------------------
 
@@ -917,9 +894,7 @@ if txt == "/status":
         time.sleep(10)
 
 #------------------------------------------
-
 #Symbols Loop
-
 #------------------------------------------
 
 def update_symbols_loop():
@@ -949,9 +924,7 @@ top = sorted(
     time.sleep(3600)
 
 #------------------------------------------
-
 #Health Server
-
 #------------------------------------------
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -964,9 +937,7 @@ def log_message(self, *_):
     pass
 
 #------------------------------------------
-
 #Main
-
 #------------------------------------------
 
 def main():
@@ -1017,5 +988,5 @@ while True:
         log.error(f"❌ خطأ في main loop: {e}\n{traceback.format_exc()}")  
         time.sleep(10)
 
-if __name__ == "__main__":
+if name == "main":
 main()
