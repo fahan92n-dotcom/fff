@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 #------------------------------------------
 
-الإعدادات الرئيسية#
+#Main Settings
 
 #------------------------------------------
 
@@ -65,7 +65,7 @@ MIN_CANDLES  = 250
 
 #------------------------------------------
 
-الحالة المشتركة#
+#Shared State
 
 #------------------------------------------
 
@@ -96,7 +96,7 @@ _local            = threading.local()
 
 #------------------------------------------
 
-آخر فحص (للأمر /سبب)#
+# Last Check
 
 #------------------------------------------
 
@@ -105,7 +105,7 @@ last_diag_lock = threading.Lock()
 
 #------------------------------------------
 
-تشخيص /سبب#
+#Diagnostics
 
 #------------------------------------------
 
@@ -394,7 +394,7 @@ _update_batch(syms, "60m", limit=5)
 
 #------------------------------------------
 
-المؤشرات الفنية#
+# Technical Indicators
 
 #------------------------------------------
 
@@ -444,7 +444,7 @@ return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
 #------------------------------------------
 
-#Donchian Ribbon - مطابق لـ Pine Script
+# Donchian Ribbon - Pine Script
 
 #------------------------------------------
 
@@ -595,7 +595,7 @@ df_raw = get_cached(symbol, "1m")
         send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)  
         return  
 
-    السعر الحالي من آخر شمعة 1m مباشرة#  
+# Current price from last 1m candle  
     price     = float(df_raw["close"].iloc[-1])  
     candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")  
     fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")  
@@ -832,7 +832,7 @@ list(ex.map(fn, syms))
 
 #------------------------------------------
 
-أوامر تيليغرام#
+# Telegram Commands
 
 #------------------------------------------
 
