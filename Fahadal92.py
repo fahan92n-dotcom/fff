@@ -14,11 +14,12 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(name)
 
-----------------------------------------------
+# ------------------------------------------
 
-⚙️ الإعدادات الرئيسية
+ ⚙️ الإعدادات الرئيسية#   
 
-----------------------------------------------
+# ------------------------------------------
+
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",   "8988740597:AAE_I7M7zB5VM2NykUwreQQMws0vk7qlU78")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7801703329")
