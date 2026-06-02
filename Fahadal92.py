@@ -12,13 +12,13 @@ from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger(name)
+log = logging.getLogger(__name__)
 
-------------------------------------------
+#------------------------------------------
 
 الإعدادات الرئيسية
 
-------------------------------------------
+#------------------------------------------
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",   "8988740597:AAE_I7M7zB5VM2NykUwreQQMws0vk7qlU78")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7801703329")
@@ -1016,5 +1016,5 @@ while True:
         log.error(f"❌ خطأ في main loop: {e}\n{traceback.format_exc()}")  
         time.sleep(10)
 
-if name == "main":
+if __name__ == "__main__":
 main()
