@@ -169,22 +169,22 @@ def send_diag_report():
 #------------------------------------------
 
 def get_session():
-if not hasattr(_local, "s"):
-s = requests.Session()
-s.headers.update({"Accept-Encoding": "gzip", "User-Agent": "Mozilla/5.0"})
-_local.s = s
-return _local.s
+    if not hasattr(_local, "s"):
+        s = requests.Session()
+        s.headers.update({"Accept-Encoding": "gzip", "User-Agent": "Mozilla/5.0"})
+        _local.s = s
+    return _local.s
 
 def delete_webhook():
-try:
-r = get_session().post(
-f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
-json={"drop_pending_updates": True}, timeout=10,
-).json()
-if r.get("ok"):
-log.info("✅ تم حذف الـ Webhook")
-except Exception as e:
-log.error(f"deleteWebhook error: {e}")
+    try:
+        r = get_session().post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
+            json={"drop_pending_updates": True}, timeout=10,
+        ).json()
+        if r.get("ok"):
+            log.info("✅ تم حذف الـ Webhook")
+    except Exception as e:
+        log.error(f"deleteWebhook error: {e}")
 
 def cleanup_alerted_keys():
 now = datetime.now(timezone.utc)
