@@ -14,12 +14,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(name)
 
-# ------------------------------------------
+------------------------------------------
 
- ⚙️ الإعدادات الرئيسية#   
+⚙️ الإعدادات الرئيسية
 
-# ------------------------------------------
-
+------------------------------------------
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",   "8988740597:AAE_I7M7zB5VM2NykUwreQQMws0vk7qlU78")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7801703329")
@@ -64,11 +63,11 @@ WARMUP_STOCH = 100
 WARMUP_DON   = 50
 MIN_CANDLES  = 250
 
-----------------------------------------------
+------------------------------------------
 
 الحالة المشتركة
 
-----------------------------------------------
+------------------------------------------
 
 alerted_keys        = {}
 alerted_keys_lock   = threading.Lock()
@@ -95,11 +94,11 @@ diag_lock         = threading.Lock()
 cache_diag_logged = threading.Event()
 _local            = threading.local()
 
-----------------------------------------------
+------------------------------------------
 
 تشخيص /سبب
 
-----------------------------------------------
+------------------------------------------
 
 DIAG_LABELS = {
 "no_data"          : "بيانات ناقصة",
@@ -162,11 +161,11 @@ while True:
 time.sleep(3600)
 send_telegram(build_diag_msg(reset=True))
 
-----------------------------------------------
+------------------------------------------
 
 Helpers
 
-----------------------------------------------
+------------------------------------------
 
 def get_session():
 if not hasattr(_local, "s"):
@@ -248,11 +247,11 @@ f"{t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}"
 )
 return "\n".join(lines)
 
-----------------------------------------------
+------------------------------------------
 
 Binance OHLCV
 
-----------------------------------------------
+------------------------------------------
 
 def _parse_binance_klines(resp):
 df = pd.DataFrame(resp, columns=[
@@ -384,11 +383,11 @@ syms = list(symbols_cache)
 if syms:
 _update_batch(syms, "60m", limit=5)
 
-----------------------------------------------
+------------------------------------------
 
 المؤشرات الفنية
 
-----------------------------------------------
+------------------------------------------
 
 def resample_ohlcv(df, minutes):
 """يُعيد شموع مغلقة فقط — يحذف الشمعة الأخيرة غير المكتملة"""
@@ -434,11 +433,11 @@ if len(df) < WARMUP_MACD:
 return False
 return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
-----------------------------------------------
+------------------------------------------
 
 ✅ Donchian Ribbon — مطابق لـ Pine Script
 
-----------------------------------------------
+------------------------------------------
 
 def calc_donchian_trend(df, length=20):
 if len(df) < length + 2:
@@ -515,55 +514,36 @@ k   = raw.rolling(k_smooth, min_periods=k_smooth).mean()
 d   = k.rolling(d_smooth,   min_periods=d_smooth).mean()
 return k, d
 
-----------------------------------------------
+------------------------------------------
 
-✅ check_rsi_stoch — مُصحَّح
+✅ check_rsi_stoch
 
-
-
-الشرط: خلال آخر 5 شموع، يوجد تقاطع صعودي واحد على الأقل من:
-
-- Stoch K يتجاوز 20 من أسفل (خروج من تشبع بيعي)
-
-- RSI يتقاطع مع signal (EMA 9) من أسفل
-
-لا يُشترط أن يكون في نفس الشمعة.
-
-----------------------------------------------
+------------------------------------------
 
 def check_rsi_stoch(df, lookback=5):
-"""
-يبحث عن تقاطع صعودي لـ Stoch أو RSI خلال آخر lookback شموع.
-يكفي تقاطع واحد من أي منهما خلال الفترة.
-"""
 if len(df) < WARMUP_RSI + lookback:
 return False
 
-rsi       = calc_rsi_tv(df["close"], period=14)  
-rsi_sig = rsi.rolling(14).mean()  # SMA 14 مطابق TradingView  
-k, _      = calc_stoch_tv(df["close"], df["high"], df["low"])  
+rsi     = calc_rsi_tv(df["close"], period=14)  
+rsi_sig = rsi.rolling(14).mean()  
+k, _    = calc_stoch_tv(df["close"], df["high"], df["low"])  
 
-# نفحص آخر `lookback` شموع (كل شمعة مقارنةً بالسابقة)  
 for i in range(-lookback, 0):  
-    # Stoch: كان تحت 20 والآن فوق أو عند 20  
     stoch_cross = (float(k.iloc[i - 1]) < 20) and (float(k.iloc[i]) >= 20)  
-
-    # RSI: كان تحت signal والآن فوقها  
     rsi_cross = (  
         float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1])  
         and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i])  
     )  
-
     if stoch_cross or rsi_cross:  
         return True  
 
 return False
 
-----------------------------------------------
+------------------------------------------
 
 ✅ handle_check5
 
-----------------------------------------------
+------------------------------------------
 
 def handle_check5(chat_id, symbol="BTCUSDT"):
 send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
@@ -674,11 +654,11 @@ except Exception as e:
     log.error(f"check5 error: {e}")  
     send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
 
-----------------------------------------------
+------------------------------------------
 
 ✅ check5_watcher
 
-----------------------------------------------
+------------------------------------------
 
 def get_next_close(tf_minutes):
 now   = datetime.now(timezone.utc)
@@ -716,11 +696,11 @@ if wait < -60:
         log.error(f"check5_watcher error: {e}")  
         time.sleep(10)
 
-----------------------------------------------
+------------------------------------------
 
 المسح والمراقبة
 
-----------------------------------------------
+------------------------------------------
 
 def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
 raw_ec = get_cached(symbol, ec_api)
@@ -743,13 +723,11 @@ if df_entry.empty or df_confirm.empty or df_third.empty:
         diag_counts["no_data"] += 1  
     return  
 
-# ① تشبع بيعي SMI  
 if not check_smi_oversold(df_entry):  
     with diag_lock:  
         diag_counts["smi_oversold"] += 1  
     return  
 
-# ⭐ الفريم الأكبر ليس في تشبع بيعي  
 next_tf = NEXT_TF.get(entry_min)  
 if next_tf:  
     df_next = resample_ohlcv(raw_ec, next_tf)  
@@ -758,43 +736,36 @@ if next_tf:
             diag_counts["active_skip"] += 1  
         return  
 
-# ③ MACD أحمر  
 if not check_macd_red(df_entry):  
     with diag_lock:  
         diag_counts["macd_red"] += 1  
     return  
 
-# ④ Donchian Ribbon أخضر (entry)  
 if not check_donchian_ribbon(df_entry, "green"):  
     with diag_lock:  
         diag_counts["donchian_entry"] += 1  
     return  
 
-# ⑤ Donchian Ribbon أخضر (confirm)  
 if not check_donchian_ribbon(df_confirm, "green"):  
     with diag_lock:  
         diag_counts["donchian_confirm"] += 1  
     return  
 
-# ⑥ MACD أخضر (confirm)  
 if not check_macd_green(df_confirm):  
     with diag_lock:  
         diag_counts["macd_confirm"] += 1  
     return  
 
-# ⑦ السعر تحت EMA50  
 if not check_ema50_below(df_entry):  
     with diag_lock:  
         diag_counts["ema50"] += 1  
     return  
 
-# ⑧ RSI/Stochastic — تقاطع صعودي خلال آخر 5 شموع  
 if not check_rsi_stoch(df_third):  
     with diag_lock:  
         diag_counts["rsi_stoch"] += 1  
     return  
 
-# ✅ كل الشروط اتحققت  
 key = (symbol, entry_min, confirm_min, third_min)  
 now = datetime.now(timezone.utc)  
 
@@ -832,11 +803,11 @@ third_min=third_min, ec_api=ec_api, t_api=t_api)
 with ThreadPoolExecutor(max_workers=20) as ex:
 list(ex.map(fn, syms))
 
-----------------------------------------------
+------------------------------------------
 
 أوامر تيليغرام
 
-----------------------------------------------
+------------------------------------------
 
 def poll_telegram_commands():
 last_id = 0
@@ -906,11 +877,11 @@ if txt == "/status":
     except Exception:  
         time.sleep(10)
 
-----------------------------------------------
+------------------------------------------
 
 Symbols Loop
 
-----------------------------------------------
+------------------------------------------
 
 def update_symbols_loop():
 while True:
@@ -938,11 +909,11 @@ top = sorted(
         log.error(f"update_symbols_loop: {e}")  
     time.sleep(3600)
 
-----------------------------------------------
+------------------------------------------
 
 Health Server
 
-----------------------------------------------
+------------------------------------------
 
 class HealthHandler(BaseHTTPRequestHandler):
 def do_GET(self):
@@ -953,11 +924,11 @@ self.wfile.write(b"OK")
 def log_message(self, *_):  
     pass
 
-----------------------------------------------
+------------------------------------------
 
 Main
 
-----------------------------------------------
+------------------------------------------
 
 def main():
 import sys
