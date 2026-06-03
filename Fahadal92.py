@@ -741,9 +741,9 @@ if raw_ec.empty or raw_t.empty:
             save_last("no_data")
             return
 
-    df_entry   = resample_ohlcv(raw_ec, entry_min)
-    df_confirm = resample_ohlcv(raw_ec, confirm_min)
-    df_third   = resample_ohlcv(raw_t,  third_min)  
+df_entry   = resample_ohlcv(raw_ec, entry_min)
+df_confirm = resample_ohlcv(raw_ec, confirm_min)
+df_third   = resample_ohlcv(raw_t,  third_min)  
 
     if df_entry.empty or df_confirm.empty or df_third.empty:  
         with diag_lock:  
