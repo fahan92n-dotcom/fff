@@ -627,7 +627,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         smi_val = round(float(smi_series.iloc[-1]),     2)
         smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
 
-don_trend = calc_donchian_trend(df5)
+        don_trend = calc_donchian_trend(df5)
         if don_trend:
             don_val = don_trend[-1]
             if don_val == 1:
@@ -639,7 +639,7 @@ don_trend = calc_donchian_trend(df5)
         else:
             don_color = "⚪ محايد"  
 
-    rsi_zone   = ("🔴 تشبع بيعي"  if rsi_val  < 30  
+rsi_zone   = ("🔴 تشبع بيعي"  if rsi_val  < 30  
                   else ("🟠 تشبع شرائي" if rsi_val  > 70 else "🟡 محايد"))  
     stoch_zone = ("🔴 تشبع بيعي"  if stoch_k  < 20  
                   else ("🟠 تشبع شرائي" if stoch_k  > 80 else "🟡 محايد"))  
