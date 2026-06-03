@@ -902,28 +902,28 @@ def poll_telegram_commands():
                             chat_id,
                         )
            elif txt.startswith("/check5"):
-                    parts  = txt.split()
-                    symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
-                    if not symbol.endswith("USDT"):
-                        symbol += "USDT"
-                    threading.Thread) 
-                        target=handle_check5, args=(chat_id, symbol), daemon=True
-                    ).start()
-                elif txt == "/help":
-                    send_telegram(
-                        "📋 <b>الأوامر المتاحة:</b>\n"
-                        "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
-                        "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
-                        "1️⃣ <code>1</code> — إشارات اليوم\n"
-                        "2️⃣ <code>2</code> — إشارات أمس\n"
-                        "3️⃣ <code>3</code> — آخر 7 أيام\n"
-                        "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
-                        "📊 <code>/status</code> — حالة البوت\n"
-                        "📋 <code>/help</code> — قائمة الأوامر",
-                        chat_id,
-       ) 
-        except Exception:
-            time.sleep(10)
+    parts  = txt.split()
+    symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+    if not symbol.endswith("USDT"):
+        symbol += "USDT"
+    threading.Thread(
+        target=handle_check5, args=(chat_id, symbol), daemon=True
+    ).start()
+elif txt == "/help":
+    send_telegram(
+        "📋 <b>الأوامر المتاحة:</b>\n"
+        "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
+        "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
+        "1️⃣ <code>1</code> — إشارات اليوم\n"
+        "2️⃣ <code>2</code> — إشارات أمس\n"
+        "3️⃣ <code>3</code> — آخر 7 أيام\n"
+        "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
+        "📊 <code>/status</code> — حالة البوت\n"
+        "📋 <code>/help</code> — قائمة الأوامر",
+        chat_id,
+    )
+except Exception:
+    time.sleep(10)
 
 #------------------------------------------
 #Symbols Loop
