@@ -12,7 +12,7 @@ from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger(name)
+log = logging.getLogger(__name__)
 
 #------------------------------------------
 #Main Settings
@@ -105,7 +105,7 @@ last_diag_lock = threading.Lock()
 
 DIAG_LABELS = {
 "no_data"          : "بيانات ناقصة",
-"smi_oversold"     : "SMI مش في التشبع البيعي",
+"smi_oversold"     : "SMI مش في ا��تشبع البيعي",
 "active_skip"      : "SMI الفريم الأكبر لم يتأكد",
 "macd_red"         : "MACD الرئيسي مش أحمر",
 "donchian_entry"   : "Donchian Ribbon الرئيسي مش أخضر",
@@ -589,15 +589,14 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 
         if age_minutes > 10:
             try:
-                log.warning(...)
-                send_telegram(...)
+                log.warning(f"Data age: {age_minutes:.1f} minutes, refreshing...")
                 df_fresh = get_ohlcv(symbol, "1m", limit=1000)
                 if not df_fresh.empty:
                     cache_merge(symbol, "1m", df_fresh)
                 df_raw = get_cached(symbol, "1m")
                 df5    = resample_ohlcv_closed(df_raw, 5)
             except Exception as e:
-                log.error(f"Error: {e}")
+                log.error(f"Error refreshing data: {e}")
 
         if now < last_candle_end:
             df5 = df5.iloc[:-1]
@@ -640,11 +639,11 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             don_color = "⚪ محايد"  
 
         rsi_zone   = ("🔴 تشبع بيعي"  if rsi_val  < 30  
-                  else ("🟠 تشبع شرائي" if rsi_val  > 70 else "🟡 محايد"))  
+                   else ("🟠 تشبع شرائي" if rsi_val  > 70 else "🟡 محايد"))  
         stoch_zone = ("🔴 تشبع بيعي"  if stoch_k  < 20  
-                  else ("🟠 تشبع شرائي" if stoch_k  > 80 else "🟡 محايد"))  
+                   else ("🟠 تشبع شرائي" if stoch_k  > 80 else "🟡 محايد"))  
         smi_zone   = ("🔴 تشبع بيعي"  if smi_val  <= -40  
-                  else ("🟠 تشبع شرائي" if smi_val  >= 40 else "🟡 محايد"))  
+                   else ("🟠 تشبع شرائي" if smi_val  >= 40 else "🟡 محايد"))  
 
         send_telegram(
             f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
@@ -694,21 +693,21 @@ def check5_watcher():
             wait = (nxt - now).total_seconds()
 
             if wait < -60:
-               log.warning(f"⚠️ check5_watcher تأخر {abs(wait):.0f}ث — تخطي للشمعة التالية")
-               next_nxt  = get_next_close(5)
-               next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
-               time.sleep(max(next_wait, 0) + 5)
-               continue
+                log.warning(f"⚠️ check5_watcher تأخر {abs(wait):.0f}ث — تخطي للشمعة التالية")
+                next_nxt  = get_next_close(5)
+                next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
+                time.sleep(max(next_wait, 0) + 5)
+                continue
 
             time.sleep(max(wait, 0) + 5)
 
             if not fast_prefetch_done.is_set():
-               continue
+                continue
 
             threading.Thread(
-               target=handle_check5,
-               args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
-               daemon=True,
+                target=handle_check5,
+                args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
+                daemon=True,
             ).start()
 
         except Exception as e:  
@@ -721,41 +720,41 @@ def check5_watcher():
 
 #------------------------------------------
 
-    def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
-        raw_ec = get_cached(symbol, ec_api)
-        raw_t  = get_cached(symbol, t_api)
+def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
+    raw_ec = get_cached(symbol, ec_api)
+    raw_t  = get_cached(symbol, t_api)
 
+    with diag_lock:
+        diag_counts["total"] += 1
+
+    def save_last(step):
+        with last_diag_lock:
+            last_diag["symbol"]    = symbol
+            last_diag["step"]      = step
+            last_diag["entry_min"] = entry_min
+            last_diag["time"]      = datetime.now(timezone.utc)
+
+    if raw_ec.empty or raw_t.empty:
         with diag_lock:
-            diag_counts["total"] += 1
+            diag_counts["no_data"] += 1
+        save_last("no_data")
+        return
 
-        def save_last(step):
-            with last_diag_lock:
-                last_diag["symbol"]    = symbol
-                last_diag["step"]      = step
-                last_diag["entry_min"] = entry_min
-                last_diag["time"]      = datetime.now(timezone.utc)
+    df_entry   = resample_ohlcv(raw_ec, entry_min)
+    df_confirm = resample_ohlcv(raw_ec, confirm_min)
+    df_third   = resample_ohlcv(raw_t,  third_min)
 
-        if raw_ec.empty or raw_t.empty:
-            with diag_lock:
-                diag_counts["no_data"] += 1
-            save_last("no_data")
-            return
+    if df_entry.empty or df_confirm.empty or df_third.empty:
+        with diag_lock:
+            diag_counts["no_data"] += 1
+        save_last("no_data")
+        return
 
-        df_entry   = resample_ohlcv(raw_ec, entry_min)
-        df_confirm = resample_ohlcv(raw_ec, confirm_min)
-        df_third   = resample_ohlcv(raw_t,  third_min)
-
-        if df_entry.empty or df_confirm.empty or df_third.empty:
-            with diag_lock:
-                diag_counts["no_data"] += 1
-            save_last("no_data")
-            return
-
-        if not check_smi_oversold(df_entry):
-            with diag_lock:
-                diag_counts["smi_oversold"] += 1
-            save_last("smi_oversold")
-            return
+    if not check_smi_oversold(df_entry):
+        with diag_lock:
+            diag_counts["smi_oversold"] += 1
+        save_last("smi_oversold")
+        return
 
     next_tf = NEXT_TF.get(entry_min)  
     if next_tf:  
@@ -764,67 +763,67 @@ def check5_watcher():
             with diag_lock:  
                 diag_counts["active_skip"] += 1  
             save_last("active_skip")  
-        return  
+            return  
 
     if not check_macd_red(df_entry):
-       with diag_lock:
-           diag_counts["macd_red"] += 1
-       save_last("macd_red")
-       return
+        with diag_lock:
+            diag_counts["macd_red"] += 1
+        save_last("macd_red")
+        return
 
     if not check_donchian_ribbon(df_entry, "green"):
-            with diag_lock:
-                diag_counts["donchian_entry"] += 1
-            save_last("donchian_entry")
-            return
+        with diag_lock:
+            diag_counts["donchian_entry"] += 1
+        save_last("donchian_entry")
+        return
 
     if not check_donchian_ribbon(df_confirm, "green"):
-            with diag_lock:
-                diag_counts["donchian_confirm"] += 1
-            save_last("donchian_confirm")
-            return
+        with diag_lock:
+            diag_counts["donchian_confirm"] += 1
+        save_last("donchian_confirm")
+        return
 
     if not check_macd_green(df_confirm):
-            with diag_lock:
-                diag_counts["macd_confirm"] += 1
-            save_last("macd_confirm")
-            return
+        with diag_lock:
+            diag_counts["macd_confirm"] += 1
+        save_last("macd_confirm")
+        return
 
     if not check_ema50_below(df_entry):
-            with diag_lock:
-                diag_counts["ema50"] += 1
-            save_last("ema50")
-            return
+        with diag_lock:
+            diag_counts["ema50"] += 1
+        save_last("ema50")
+        return
 
     if not check_rsi_stoch(df_third):
-            with diag_lock:
-                diag_counts["rsi_stoch"] += 1
-            save_last("rsi_stoch")
-            return
+        with diag_lock:
+            diag_counts["rsi_stoch"] += 1
+        save_last("rsi_stoch")
+        return
 
     key = (symbol, entry_min, confirm_min, third_min)  
     now = datetime.now(timezone.utc)  
 
     with alerted_keys_lock:
-            last_alert = alerted_keys.get(key)
-            if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
-                return
-            alerted_keys[key] = now
+        last_alert = alerted_keys.get(key)
+        if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
+            return
+        alerted_keys[key] = now
 
     try:
-            with diag_lock:
-                diag_counts["passed"] += 1
-            price      = df_entry["close"].iloc[-1]
-            entry_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            save_signal(symbol, price, entry_min, confirm_min, third_min)
-            send_telegram(
-                f"🚨 <b>إشارة دخول:</b> {symbol}\n"
-                f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
-                f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
-                f"🕐 وقت الدخول: <b>{entry_time}</b>"
-            )
+        with diag_lock:
+            diag_counts["passed"] += 1
+        price      = df_entry["close"].iloc[-1]
+        entry_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        save_signal(symbol, price, entry_min, confirm_min, third_min)
+        send_telegram(
+            f"🚨 <b>إشارة دخول:</b> {symbol}\n"
+            f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
+            f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
+            f"🕐 وقت الدخول: <b>{entry_time}</b>"
+        )
     except Exception as e:
-            log.error(f"❌ خطأ في إرسال الإشارة {symbol}: {e}")
+        log.error(f"❌ خطأ في إرسال الإشارة {symbol}: {e}")
 
 
 def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):
@@ -901,7 +900,7 @@ def poll_telegram_commands():
                             f"🕐 الوقت: {t_str}",
                             chat_id,
                         )
-                    elif txt.startswith("/check5"):
+                elif txt.startswith("/check5"):
                     parts  = txt.split()
                     symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
                     if not symbol.endswith("USDT"):
@@ -940,20 +939,20 @@ def update_symbols_loop():
             else:
                 tickers = []
 
-top = sorted(  
-            [t for t in tickers if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")],  
-            key=lambda x: float(x.get("quoteVolume", 0)),  
-            reverse=True  
-        )[:TOP_SYMBOLS_LIMIT]  
+            top = sorted(  
+                [t for t in tickers if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")],  
+                key=lambda x: float(x.get("quoteVolume", 0)),  
+                reverse=True  
+            )[:TOP_SYMBOLS_LIMIT]  
 
-        with symbols_cache_lock:  
-            symbols_cache[:] = [t["symbol"] for t in top]  
-        log.info(f"✅ عملات: {len(symbols_cache)} — أول 5: {symbols_cache[:5]}")  
-        if not fast_prefetch_done.is_set():  
-            threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()  
-    except Exception as e:  
-        log.error(f"update_symbols_loop: {e}")  
-    time.sleep(3600)
+            with symbols_cache_lock:  
+                symbols_cache[:] = [t["symbol"] for t in top]  
+            log.info(f"✅ عملات: {len(symbols_cache)} — أول 5: {symbols_cache[:5]}")  
+            if not fast_prefetch_done.is_set():  
+                threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()  
+        except Exception as e:  
+            log.error(f"update_symbols_loop: {e}")  
+        time.sleep(3600)
 
 #------------------------------------------
 #Health Server
