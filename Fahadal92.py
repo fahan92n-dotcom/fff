@@ -900,7 +900,7 @@ def poll_telegram_commands():
                             f"❌ سبب الفشل: <b>{step_ar}</b>\n"
                             f"🕐 الوقت: {t_str}",
                             chat_id,
-
+              (
            elif txt.startswith("/check5"):
                     parts  = txt.split()
                     symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
@@ -921,7 +921,7 @@ def poll_telegram_commands():
                         "📊 <code>/status</code> — حالة البوت\n"
                         "📋 <code>/help</code> — قائمة الأوامر",
                         chat_id,
-                    )
+                (
         except Exception:
             time.sleep(10)
 
