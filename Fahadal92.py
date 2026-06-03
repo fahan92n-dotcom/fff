@@ -714,7 +714,7 @@ def check5_watcher():
 
 #------------------------------------------
 
-المسح والمراقبة
+# Scanning and Monitoring
 
 #------------------------------------------
 
@@ -839,7 +839,7 @@ def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):
 
 #------------------------------------------
 
-Telegram Commands
+#Telegram Commands
 
 #------------------------------------------
 
