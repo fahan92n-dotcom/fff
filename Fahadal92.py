@@ -323,239 +323,257 @@ def get_ohlcv_full(symbol, tf, target):
             if all_dfs else pd.DataFrame())
 
 def cache_merge(symbol, tf, new_df):
-if new_df.empty:
-return
-key  = (symbol, tf)
-maxc = CACHE_MAX_CANDLES.get(tf, 5000)
-with ohlcv_cache_lock:
-old = ohlcv_cache.get(key)
-if old is not None and not old.empty:
-merged = pd.concat([old, new_df]).drop_duplicates(subset="ts").sort_values("ts")
-ohlcv_cache[key] = merged.tail(maxc).reset_index(drop=True)
-else:
-ohlcv_cache[key] = new_df.tail(maxc).reset_index(drop=True)
+    if new_df.empty:
+        return
+    key  = (symbol, tf)
+    maxc = CACHE_MAX_CANDLES.get(tf, 5000)
+    with ohlcv_cache_lock:
+        old = ohlcv_cache.get(key)
+        if old is not None and not old.empty:
+            merged = pd.concat([old, new_df]).drop_duplicates(subset="ts").sort_values("ts")
+            ohlcv_cache[key] = merged.tail(maxc).reset_index(drop=True)
+        else:
+            ohlcv_cache[key] = new_df.tail(maxc).reset_index(drop=True)
+
 
 def get_cached(symbol, tf):
-with ohlcv_cache_lock:
-df = ohlcv_cache.get((symbol, tf))
-return df.copy() if df is not None else pd.DataFrame()
+    with ohlcv_cache_lock:
+        df = ohlcv_cache.get((symbol, tf))
+        return df.copy() if df is not None else pd.DataFrame()
+
 
 def prefetch_all(symbols):
-def fetch_sym_fast(sym):
-for tf, n in FAST_FETCH_CANDLES.items():
-df = get_ohlcv_full(sym, tf, target=n)
-cache_merge(sym, tf, df)
+    def fetch_sym_fast(sym):
+        for tf, n in FAST_FETCH_CANDLES.items():
+            df = get_ohlcv_full(sym, tf, target=n)
+            cache_merge(sym, tf, df)
 
-def fetch_sym_full(sym):  
-    for tf, n in API_FETCH_CANDLES.items():  
-        df = get_ohlcv_full(sym, tf, target=n)  
-        cache_merge(sym, tf, df)  
+    def fetch_sym_full(sym):
+        for tf, n in API_FETCH_CANDLES.items():
+            df = get_ohlcv_full(sym, tf, target=n)
+            cache_merge(sym, tf, df)
 
-log.info("🚀 بدء التحميل السريع بالـ threads...")  
-with ThreadPoolExecutor(max_workers=15) as ex:  
-    ex.map(fetch_sym_fast, symbols)  
-fast_prefetch_done.set()  
-send_telegram("⚡ <b>التحميل السريع اكتمل — البوت يعمل الآن!</b>")  
+    log.info("🚀 بدء التحميل السريع بالـ threads...")
+    with ThreadPoolExecutor(max_workers=15) as ex:
+        ex.map(fetch_sym_fast, symbols)
+    fast_prefetch_done.set()
+    send_telegram("⚡ <b>التحميل السريع اكتمل — البوت يعمل الآن!</b>")
 
-log.info("📦 بدء التحميل الكامل...")  
-with ThreadPoolExecutor(max_workers=10) as ex:  
-    ex.map(fetch_sym_full, symbols)  
-prefetch_done.set()  
-send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعمل!</b>")
+    log.info("📦 بدء التحميل الكامل...")
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        ex.map(fetch_sym_full, symbols)
+    prefetch_done.set()
+    send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعمل!</b>")
+
 
 def _update_batch(symbols, tf, limit):
-def fetch_one(sym):
-df = get_ohlcv(sym, tf, limit=limit)
-if not df.empty:
-cache_merge(sym, tf, df)
-with ThreadPoolExecutor(max_workers=30) as ex:
-ex.map(fetch_one, symbols)
+    def fetch_one(sym):
+        df = get_ohlcv(sym, tf, limit=limit)
+        if not df.empty:
+            cache_merge(sym, tf, df)
+    with ThreadPoolExecutor(max_workers=30) as ex:
+        ex.map(fetch_one, symbols)
+
 
 def cache_updater_1m():
-while True:
-if not fast_prefetch_done.is_set():
-time.sleep(5)
-continue
-with symbols_cache_lock:
-syms = list(symbols_cache)
-if syms:
-_update_batch(syms, "1m", limit=5)
-time.sleep(55)
+    while True:
+        if not fast_prefetch_done.is_set():
+            time.sleep(5)
+            continue
+        with symbols_cache_lock:
+            syms = list(symbols_cache)
+        if syms:
+            _update_batch(syms, "1m", limit=5)
+        time.sleep(55)
+
 
 def cache_updater_60m():
-while True:
-time.sleep(3600)
-if fast_prefetch_done.is_set():
-with symbols_cache_lock:
-syms = list(symbols_cache)
-if syms:
-_update_batch(syms, "60m", limit=5)
-
+    while True:
+        time.sleep(3600)
+        if fast_prefetch_done.is_set():
+            with symbols_cache_lock:
+                syms = list(symbols_cache)
+            if syms:
+                _update_batch(syms, "60m", limit=5)
+                
 #------------------------------------------
 
-Technical Indicators
+#Technical Indicators
 
 #------------------------------------------
 
 def resample_ohlcv(df, minutes):
-if df.empty:
-return pd.DataFrame()
-return (df.copy().set_index("ts")
-.resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
-.agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
-.dropna().iloc[:-1].reset_index())
+    if df.empty:
+        return pd.DataFrame()
+    return (df.copy().set_index("ts")
+            .resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
+            .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
+            .dropna().iloc[:-1].reset_index())
+
 
 def resample_ohlcv_closed(df, minutes):
-if df.empty:
-return pd.DataFrame()
-return (df.copy().set_index("ts")
-.resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
-.agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
-.dropna().reset_index())
+    if df.empty:
+        return pd.DataFrame()
+    return (df.copy().set_index("ts")
+            .resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
+            .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
+            .dropna().reset_index())
+
 
 def wilder_rma(series, period):
-return series.ewm(alpha=1.0/period, min_periods=period, adjust=False).mean()
+    return series.ewm(alpha=1.0/period, min_periods=period, adjust=False).mean()
+
 
 def _calc_macd_hist(close):
-ml  = (close.ewm(span=12, min_periods=12, adjust=False).mean()
-- close.ewm(span=26, min_periods=26, adjust=False).mean())
-sig = ml.ewm(span=9, min_periods=9, adjust=False).mean()
-return ml - sig
+    ml  = (close.ewm(span=12, min_periods=12, adjust=False).mean()
+         - close.ewm(span=26, min_periods=26, adjust=False).mean())
+    sig = ml.ewm(span=9, min_periods=9, adjust=False).mean()
+    return ml - sig
+
 
 def _calc_macd_full(close):
-macd_line   = (close.ewm(span=12, min_periods=12, adjust=False).mean()
-- close.ewm(span=26, min_periods=26, adjust=False).mean())
-signal_line = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
-histogram   = macd_line - signal_line
-return macd_line, signal_line, histogram
+    macd_line   = (close.ewm(span=12, min_periods=12, adjust=False).mean()
+                 - close.ewm(span=26, min_periods=26, adjust=False).mean())
+    signal_line = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
+    histogram   = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
 
 def check_macd_red(df):
-if len(df) < WARMUP_MACD:
-return False
-return bool(_calc_macd_hist(df["close"]).iloc[-1] < 0)
+    if len(df) < WARMUP_MACD:
+        return False
+    return bool(_calc_macd_hist(df["close"]).iloc[-1] < 0)
+
 
 def check_macd_green(df):
-if len(df) < WARMUP_MACD:
-return False
-return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
+    if len(df) < WARMUP_MACD:
+        return False
+    return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
 #------------------------------------------
 
-Donchian Ribbon
+#Donchian Ribbon
 
 #------------------------------------------
 
 def calc_donchian_trend(df, length=20):
-if len(df) < length + 2:
-return []
-hh = df["high"].rolling(length).max().shift(1)
-ll = df["low"].rolling(length).min().shift(1)
-trend = [0] * len(df)
-for i in range(1, len(df)):
-if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
-trend[i] = trend[i - 1]
-continue
-if df["close"].iloc[i] > hh.iloc[i]:
-trend[i] = 1
-elif df["close"].iloc[i] < ll.iloc[i]:
-trend[i] = -1
-else:
-trend[i] = trend[i - 1]
-return trend
+    if len(df) < length + 2:
+        return []
+    hh = df["high"].rolling(length).max().shift(1)
+    ll = df["low"].rolling(length).min().shift(1)
+    trend = [0] * len(df)
+    for i in range(1, len(df)):
+        if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
+            trend[i] = trend[i - 1]
+            continue
+        if df["close"].iloc[i] > hh.iloc[i]:
+            trend[i] = 1
+        elif df["close"].iloc[i] < ll.iloc[i]:
+            trend[i] = -1
+        else:
+            trend[i] = trend[i - 1]
+    return trend
+
 
 def check_donchian_ribbon(df, direction="green"):
-if len(df) < 22:
-return False
-trend = calc_donchian_trend(df)
-if not trend:
-return False
-last_trend = trend[-1]
-if direction == "green":
-return last_trend == 1
-return last_trend == -1
+    if len(df) < 22:
+        return False
+    trend = calc_donchian_trend(df)
+    if not trend:
+        return False
+    last_trend = trend[-1]
+    if direction == "green":
+        return last_trend == 1
+    return last_trend == -1
+
 
 def check_ema50_below(df):
-ema = df["close"].ewm(span=50, adjust=False).mean()
-return bool(df["close"].iloc[-1] < ema.iloc[-1])
+    ema = df["close"].ewm(span=50, adjust=False).mean()
+    return bool(df["close"].iloc[-1] < ema.iloc[-1])
+
 
 def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1):
-hh      = high.rolling(k, min_periods=k).max()
-ll      = low.rolling(k,  min_periods=k).min()
-diff    = hh - ll
-rdiff   = close - (hh + ll) / 2
-avgrel  = rdiff.ewm(span=d, min_periods=d, adjust=False).mean()
-avgdiff = diff.ewm(span=d,  min_periods=d, adjust=False).mean()
-smi_arr = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
-smi     = pd.Series(smi_arr, index=close.index)
-if smooth > 1:
-smi = smi.rolling(smooth, min_periods=smooth).mean()
-sig = smi.ewm(span=ema_len, min_periods=ema_len, adjust=False).mean()
-return smi, sig
+    hh      = high.rolling(k, min_periods=k).max()
+    ll      = low.rolling(k,  min_periods=k).min()
+    diff    = hh - ll
+    rdiff   = close - (hh + ll) / 2
+    avgrel  = rdiff.ewm(span=d, min_periods=d, adjust=False).mean()
+    avgdiff = diff.ewm(span=d,  min_periods=d, adjust=False).mean()
+    smi_arr = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
+    smi     = pd.Series(smi_arr, index=close.index)
+    if smooth > 1:
+        smi = smi.rolling(smooth, min_periods=smooth).mean()
+    sig = smi.ewm(span=ema_len, min_periods=ema_len, adjust=False).mean()
+    return smi, sig
+
 
 def check_smi_oversold(df, threshold=-40):
-if len(df) < WARMUP_SMI:
-return False
-smi, _ = calc_smi(df["high"], df["low"], df["close"])
-return bool(smi.iloc[-1] <= threshold)
+    if len(df) < WARMUP_SMI:
+        return False
+    smi, _ = calc_smi(df["high"], df["low"], df["close"])
+    return bool(smi.iloc[-1] <= threshold)
+
 
 def get_smi_value(df):
-if len(df) < WARMUP_SMI:
-return None, None
-smi, sig = calc_smi(df["high"], df["low"], df["close"])
-return round(float(smi.iloc[-1]), 2), round(float(sig.iloc[-1]), 2)
+    if len(df) < WARMUP_SMI:
+        return None, None
+    smi, sig = calc_smi(df["high"], df["low"], df["close"])
+    return round(float(smi.iloc[-1]), 2), round(float(sig.iloc[-1]), 2)
+
 
 def calc_rsi_tv(close, period=14):
-delta = close.diff()
-gain  = delta.clip(lower=0)
-loss  = (-delta.clip(upper=0))
-up    = wilder_rma(gain, period)
-down  = wilder_rma(loss, period)
-return 100.0 - (100.0 / (1.0 + up / (down + 1e-10)))
+    delta = close.diff()
+    gain  = delta.clip(lower=0)
+    loss  = (-delta.clip(upper=0))
+    up    = wilder_rma(gain, period)
+    down  = wilder_rma(loss, period)
+    return 100.0 - (100.0 / (1.0 + up / (down + 1e-10)))
+
 
 def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):
-lo  = low.rolling(k_len,    min_periods=k_len).min()
-hi  = high.rolling(k_len,   min_periods=k_len).max()
-raw = 100.0 * (close - lo) / (hi - lo + 1e-10)
-k   = raw.rolling(k_smooth, min_periods=k_smooth).mean()
-d   = k.rolling(d_smooth,   min_periods=d_smooth).mean()
-return k, d
-
+    lo  = low.rolling(k_len,    min_periods=k_len).min()
+    hi  = high.rolling(k_len,   min_periods=k_len).max()
+    raw = 100.0 * (close - lo) / (hi - lo + 1e-10)
+    k   = raw.rolling(k_smooth, min_periods=k_smooth).mean()
+    d   = k.rolling(d_smooth,   min_periods=d_smooth).mean()
+    return k, d
+    
 #------------------------------------------
 #check_rsi_stoch
 #------------------------------------------
 
 def check_rsi_stoch(df, lookback=5):
-if len(df) < WARMUP_RSI + lookback:
-return False
-rsi     = calc_rsi_tv(df["close"], period=14)
-rsi_sig = rsi.rolling(14).mean()
-k, _    = calc_stoch_tv(df["close"], df["high"], df["low"])
-for i in range(-lookback, 0):
-stoch_cross = (float(k.iloc[i - 1]) < 20) and (float(k.iloc[i]) >= 20)
-rsi_cross = (
-float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1])
-and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i])
-)
-if stoch_cross or rsi_cross:
-return True
-return False
-
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+    rsi     = calc_rsi_tv(df["close"], period=14)
+    rsi_sig = rsi.rolling(14).mean()
+    k, _    = calc_stoch_tv(df["close"], df["high"], df["low"])
+    for i in range(-lookback, 0):
+        stoch_cross = (float(k.iloc[i - 1]) < 20) and (float(k.iloc[i]) >= 20)
+        rsi_cross = (
+            float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1])
+            and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i])
+        )
+        if stoch_cross or rsi_cross:
+            return True
+    return False
+    
 #------------------------------------------
 #handle_check5
 #------------------------------------------
 
 def handle_check5(chat_id, symbol="BTCUSDT"):
-send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
-try:
-df_fresh = get_ohlcv(symbol, "1m", limit=1000)
-if not df_fresh.empty:
-cache_merge(symbol, "1m", df_fresh)
+    send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
+    try:
+        df_fresh = get_ohlcv(symbol, "1m", limit=1000)
+        if not df_fresh.empty:
+            cache_merge(symbol, "1m", df_fresh)
 
-df_raw = get_cached(symbol, "1m")  
-    if df_raw.empty:  
-        send_telegram("❌ فشل جلب البيانات من Binance", chat_id)  
-        return  
-
+        df_raw = get_cached(symbol, "1m")
+        if df_raw.empty:
+            send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
+            return
+            
     df5 = resample_ohlcv_closed(df_raw, 5)  
 
     if df5.empty or len(df5) < MIN_CANDLES:  
@@ -658,20 +676,21 @@ except Exception as e:
 #------------------------------------------
 
 def get_next_close(tf_minutes):
-now   = datetime.now(timezone.utc)
-epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-elapsed_min = (now - epoch).total_seconds() / 60
-next_min    = (int(elapsed_min // tf_minutes) + 1) * tf_minutes
-return epoch + timedelta(minutes=next_min)
+    now   = datetime.now(timezone.utc)
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    elapsed_min = (now - epoch).total_seconds() / 60
+    next_min    = (int(elapsed_min // tf_minutes) + 1) * tf_minutes
+    return epoch + timedelta(minutes=next_min)
+
 
 def check5_watcher():
-while True:
-try:
-nxt  = get_next_close(5)
-now  = datetime.now(timezone.utc)
-wait = (nxt - now).total_seconds()
+    while True:
+        try:
+            nxt  = get_next_close(5)
+            now  = datetime.now(timezone.utc)
+            wait = (nxt - now).total_seconds()
 
-if wait < -60:  
+            if wait < -60:
             log.warning(f"⚠️ check5_watcher تأخر {abs(wait):.0f}ث — تخطي للشمعة التالية")  
             next_nxt  = get_next_close(5)  
             next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()  
@@ -700,28 +719,28 @@ if wait < -60:
 #------------------------------------------
 
 def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
-raw_ec = get_cached(symbol, ec_api)
-raw_t  = get_cached(symbol, t_api)
+    raw_ec = get_cached(symbol, ec_api)
+    raw_t  = get_cached(symbol, t_api)
 
-with diag_lock:  
-    diag_counts["total"] += 1  
+    with diag_lock:
+        diag_counts["total"] += 1
 
-def save_last(step):  
-    with last_diag_lock:  
-        last_diag["symbol"]    = symbol  
-        last_diag["step"]      = step  
-        last_diag["entry_min"] = entry_min  
-        last_diag["time"]      = datetime.now(timezone.utc)  
+    def save_last(step):
+        with last_diag_lock:
+            last_diag["symbol"]    = symbol
+            last_diag["step"]      = step
+            last_diag["entry_min"] = entry_min
+            last_diag["time"]      = datetime.now(timezone.utc)
 
-if raw_ec.empty or raw_t.empty:  
-    with diag_lock:  
-        diag_counts["no_data"] += 1  
-    save_last("no_data")  
-    return  
+    if raw_ec.empty or raw_t.empty:
+        with diag_lock:
+            diag_counts["no_data"] += 1
+        save_last("no_data")
+        return
 
-df_entry   = resample_ohlcv(raw_ec, entry_min)  
-df_confirm = resample_ohlcv(raw_ec, confirm_min)  
-df_third   = resample_ohlcv(raw_t,  third_min)  
+    df_entry   = resample_ohlcv(raw_ec, entry_min)
+    df_confirm = resample_ohlcv(raw_ec, confirm_min)
+    df_third   = resample_ohlcv(raw_t,  third_min)  
 
 if df_entry.empty or df_confirm.empty or df_third.empty:  
     with diag_lock:  
@@ -801,21 +820,22 @@ try:
         f"💰 سعر الدخول: <b>{price:.6g}</b>\n"  
         f"🕐 وقت الدخول: <b>{entry_time}</b>"  
     )  
-except Exception as e:  
-    log.error(f"❌ خطأ في إرسال الإشارة {symbol}: {e}")
+        except Exception as e:
+            log.error(f"❌ خطأ في إرسال الإشارة {symbol}: {e}")
+
 
 def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):
-while True:
-time.sleep(30)
-if not fast_prefetch_done.is_set():
-continue
-with symbols_cache_lock:
-syms = list(symbols_cache)
-fn = partial(scan_symbol,
-entry_min=entry_min, confirm_min=confirm_min,
-third_min=third_min, ec_api=ec_api, t_api=t_api)
-with ThreadPoolExecutor(max_workers=20) as ex:
-list(ex.map(fn, syms))
+    while True:
+        time.sleep(30)
+        if not fast_prefetch_done.is_set():
+            continue
+        with symbols_cache_lock:
+            syms = list(symbols_cache)
+        fn = partial(scan_symbol,
+                     entry_min=entry_min, confirm_min=confirm_min,
+                     third_min=third_min, ec_api=ec_api, t_api=t_api)
+        with ThreadPoolExecutor(max_workers=20) as ex:
+            list(ex.map(fn, syms))
 
 #------------------------------------------
 
@@ -824,19 +844,19 @@ Telegram Commands
 #------------------------------------------
 
 def poll_telegram_commands():
-last_id = 0
-while True:
-try:
-r = get_session().get(
-f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
-params={"offset": last_id + 1, "timeout": 30}, timeout=35,
-).json()
-for upd in r.get("result", []):
-last_id = upd["update_id"]
-txt     = upd.get("message", {}).get("text", "").strip()
-chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
-if not txt or not chat_id:
-continue
+    last_id = 0
+    while True:
+        try:
+            r = get_session().get(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
+                params={"offset": last_id + 1, "timeout": 30}, timeout=35,
+            ).json()
+            for upd in r.get("result", []):
+                last_id = upd["update_id"]
+                txt     = upd.get("message", {}).get("text", "").strip()
+                chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
+                if not txt or not chat_id:
+                    continue
 
 if txt == "/status":  
                 with trades_lock:  
@@ -907,15 +927,15 @@ if txt == "/status":
 #------------------------------------------
 
 def update_symbols_loop():
-while True:
-try:
-resp = get_session().get(f"{BINANCE_BASE}/api/v3/ticker/24hr").json()
-if isinstance(resp, list):
-tickers = resp
-elif isinstance(resp, dict):
-tickers = resp.get("data", [])
-else:
-tickers = []
+    while True:
+        try:
+            resp = get_session().get(f"{BINANCE_BASE}/api/v3/ticker/24hr").json()
+            if isinstance(resp, list):
+                tickers = resp
+            elif isinstance(resp, dict):
+                tickers = resp.get("data", [])
+            else:
+                tickers = []
 
 top = sorted(  
             [t for t in tickers if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")],  
@@ -937,65 +957,66 @@ top = sorted(
 #------------------------------------------
 
 class HealthHandler(BaseHTTPRequestHandler):
-def do_GET(self):
-self.send_response(200)
-self.end_headers()
-self.wfile.write(b"OK")
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
 
-def log_message(self, *_):  
-    pass
+    def log_message(self, *_):
+        pass
 
 #------------------------------------------
 #Main
 #------------------------------------------
 
 def main():
-import sys
-import traceback
+    import sys
+    import traceback
 
-def handle_exception(exc_type, exc_value, exc_tb):  
-    msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))  
-    log.error(f"💥 خطأ غير متوقع أوقف البوت:\n{msg}")  
-    try:  
-        send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")  
-    except Exception:  
-        pass  
-sys.excepthook = handle_exception  
+    def handle_exception(exc_type, exc_value, exc_tb):
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        log.error(f"💥 خطأ غير متوقع أوقف البوت:\n{msg}")
+        try:
+            send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")
+        except Exception:
+            pass
+    sys.excepthook = handle_exception
 
-server = HTTPServer(("0.0.0.0", PORT), HealthHandler)  
-threading.Thread(target=server.serve_forever, daemon=True).start()  
-log.info(f"✅ Health server شغّال على port {PORT}")  
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log.info(f"✅ Health server شغّال على port {PORT}")
 
-delete_webhook()  
+    delete_webhook()
 
-threading.Thread(target=update_symbols_loop,    daemon=True).start()  
-threading.Thread(target=poll_telegram_commands, daemon=True).start()  
-threading.Thread(target=cache_updater_1m,        daemon=True).start()  
-threading.Thread(target=cache_updater_60m,       daemon=True).start()  
-threading.Thread(target=check5_watcher,          daemon=True).start()  
-threading.Thread(target=send_diag_report,        daemon=True).start()  
+    threading.Thread(target=update_symbols_loop,    daemon=True).start()
+    threading.Thread(target=poll_telegram_commands, daemon=True).start()
+    threading.Thread(target=cache_updater_1m,        daemon=True).start()
+    threading.Thread(target=cache_updater_60m,       daemon=True).start()
+    threading.Thread(target=check5_watcher,          daemon=True).start()
+    threading.Thread(target=send_diag_report,        daemon=True).start()
 
-for params in TRIPLING_PAIRS:  
-    threading.Thread(target=candle_watcher, args=params, daemon=True).start()  
+    for params in TRIPLING_PAIRS:
+        threading.Thread(target=candle_watcher, args=params, daemon=True).start()
 
-while True:  
-    try:  
-        time.sleep(300)  
-        cleanup_alerted_keys()  
-        with ohlcv_cache_lock:  
-            cache_size = len(ohlcv_cache)  
-        with trades_lock:  
-            signals_count = len(trades_history)  
-        log.info(  
-            f"💓 البوت يعمل | "  
-            f"كاش: {cache_size} مفتاح | "  
-            f"إشارات: {signals_count} | "  
-            f"سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'} | "  
-            f"كامل: {'✅' if prefetch_done.is_set() else '⏳'}"  
-        )  
-    except Exception as e:  
-        log.error(f"❌ خطأ في main loop: {e}\n{traceback.format_exc()}")  
-        time.sleep(10)
+    while True:
+        try:
+            time.sleep(300)
+            cleanup_alerted_keys()
+            with ohlcv_cache_lock:
+                cache_size = len(ohlcv_cache)
+            with trades_lock:
+                signals_count = len(trades_history)
+            log.info(
+                f"💓 البوت يعمل | "
+                f"كاش: {cache_size} مفتاح | "
+                f"إشارات: {signals_count} | "
+                f"سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'} | "
+                f"كامل: {'✅' if prefetch_done.is_set() else '⏳'}"
+            )
+        except Exception as e:
+            log.error(f"❌ خطأ في main loop: {e}\n{traceback.format_exc()}")
+            time.sleep(10)
 
-if name == "main":
-main()
+
+if __name__ == "__main__":
+    main()
