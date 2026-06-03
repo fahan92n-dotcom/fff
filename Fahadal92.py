@@ -772,7 +772,7 @@ def check5_watcher():
        save_last("macd_red")
        return
 
-        if not check_donchian_ribbon(df_entry, "green"):
+    if not check_donchian_ribbon(df_entry, "green"):
             with diag_lock:
                 diag_counts["donchian_entry"] += 1
             save_last("donchian_entry")
