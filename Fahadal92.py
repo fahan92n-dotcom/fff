@@ -648,7 +648,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 
     send_telegram(
             f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
-            f"🕯️ الشمعة المغلقة: <b>{candle_ts}</b>\n"
+            f"🕯 الشمعة المغلقة: <b>{candle_ts}</b>\n"
             f"🕐 وقت الجلب: {fetch_ts}\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"💰 السعر الحالي: <b>{price:.2f}$</b>\n"
@@ -672,7 +672,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         )
     except Exception as e:
         log.error(f"check5 error: {e}")
-        send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
+        send_telegram(f"خطا في check5: {e}", chat_id)
 
 #------------------------------------------
 #check5_watcher
