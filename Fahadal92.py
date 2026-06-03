@@ -778,25 +778,25 @@ def check5_watcher():
             save_last("donchian_entry")
             return
 
-        if not check_donchian_ribbon(df_confirm, "green"):
+    if not check_donchian_ribbon(df_confirm, "green"):
             with diag_lock:
                 diag_counts["donchian_confirm"] += 1
             save_last("donchian_confirm")
             return
 
-        if not check_macd_green(df_confirm):
+    if not check_macd_green(df_confirm):
             with diag_lock:
                 diag_counts["macd_confirm"] += 1
             save_last("macd_confirm")
             return
 
-        if not check_ema50_below(df_entry):
+    if not check_ema50_below(df_entry):
             with diag_lock:
                 diag_counts["ema50"] += 1
             save_last("ema50")
             return
 
-        if not check_rsi_stoch(df_third):
+    if not check_rsi_stoch(df_third):
             with diag_lock:
                 diag_counts["rsi_stoch"] += 1
             save_last("rsi_stoch")
