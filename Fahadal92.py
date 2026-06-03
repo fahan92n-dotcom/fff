@@ -596,39 +596,40 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             df_raw = get_cached(symbol, "1m")  
             df5    = resample_ohlcv_closed(df_raw, 5)
             
-    except Exception as e:
-        log.error(f"Error: {e}")
+          except Exception as e:
+            log.error(f"Error: {e}")
 
-    if now < last_candle_end:  
-        df5 = df5.iloc[:-1]  
+        if now < last_candle_end:
+            df5 = df5.iloc[:-1]
 
-    if df5.empty or len(df5) < MIN_CANDLES:  
-        send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)  
-        return  
+        if df5.empty or len(df5) < MIN_CANDLES:
+            send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)
+            return
 
-    price     = float(df_raw["close"].iloc[-1])  
-    candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")  
-    fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")  
+        price     = float(df_raw["close"].iloc[-1])
+        candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
+        fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
-    rsi_series  = calc_rsi_tv(df5["close"], period=14)  
-    rsi_val     = round(float(rsi_series.iloc[-1]), 2)  
+        rsi_series  = calc_rsi_tv(df5["close"], period=14)
+        rsi_val     = round(float(rsi_series.iloc[-1]), 2)
 
-    k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])  
-    stoch_k = round(float(k_series.iloc[-1]), 2)  
-    stoch_d = round(float(d_series.iloc[-1]), 2)  
+        k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
+        stoch_k = round(float(k_series.iloc[-1]), 2)
+        stoch_d = round(float(d_series.iloc[-1]), 2)
 
-    macd_line, signal_line, histogram = _calc_macd_full(df5["close"])  
-    macd_hist_val   = round(float(histogram.iloc[-1]),   4)  
-    macd_line_val   = round(float(macd_line.iloc[-1]),   4)  
-    signal_line_val = round(float(signal_line.iloc[-1]), 4)  
-    macd_color      = "🟢" if macd_hist_val > 0 else "🔴"  
+        macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
+        macd_hist_val   = round(float(histogram.iloc[-1]),   4)
+        macd_line_val   = round(float(macd_line.iloc[-1]),   4)
+        signal_line_val = round(float(signal_line.iloc[-1]), 4)
+        macd_color      = "🟢" if macd_hist_val > 0 else "🔴"
 
-    smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])  
-    smi_val = round(float(smi_series.iloc[-1]),     2)  
-    smi_sig = round(float(smi_sig_series.iloc[-1]), 2)  
+        smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
+        smi_val = round(float(smi_series.iloc[-1]),     2)
+        smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
 
-    don_trend = calc_donchian_trend(df5)  
-    if don_trend:  
+        don_trend = calc_donchian_trend(df5)
+        if don_trend:
+            
         don_val = don_trend[-1]  
         if don_val == 1:  
             don_color = "🟢 أخضر (صاعد)"  
@@ -693,23 +694,23 @@ def check5_watcher():
             now  = datetime.now(timezone.utc)
             wait = (nxt - now).total_seconds()
 
-            if wait < -60:
-            log.warning(f"⚠️ check5_watcher تأخر {abs(wait):.0f}ث — تخطي للشمعة التالية")  
-            next_nxt  = get_next_close(5)  
-            next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()  
-            time.sleep(max(next_wait, 0) + 5)  
-            continue  
+                       if wait < -60:
+               log.warning(f"⚠️ check5_watcher تأخر {abs(wait):.0f}ث — تخطي للشمعة التالية")
+               next_nxt  = get_next_close(5)
+               next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
+               time.sleep(max(next_wait, 0) + 5)
+               continue
 
-        time.sleep(max(wait, 0) + 5)  
+           time.sleep(max(wait, 0) + 5)
 
-        if not fast_prefetch_done.is_set():  
-            continue  
+           if not fast_prefetch_done.is_set():
+               continue
 
-        threading.Thread(  
-            target=handle_check5,  
-            args=(TELEGRAM_CHAT_ID, "BTCUSDT"),  
-            daemon=True,  
-        ).start()  
+           threading.Thread(
+               target=handle_check5,
+               args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
+               daemon=True,
+           ).start()
 
     except Exception as e:  
         log.error(f"check5_watcher error: {e}")  
@@ -766,17 +767,17 @@ if next_tf:
         save_last("active_skip")  
         return  
 
-if not check_macd_red(df_entry):  
-    with diag_lock:  
-        diag_counts["macd_red"] += 1  
-    save_last("macd_red")  
-    return  
+    if not check_macd_red(df_entry):
+       with diag_lock:
+           diag_counts["macd_red"] += 1
+       save_last("macd_red")
+       return
 
-if not check_donchian_ribbon(df_entry, "green"):  
-    with diag_lock:  
-        diag_counts["donchian_entry"] += 1  
-    save_last("donchian_entry")  
-    return  
+   if not check_donchian_ribbon(df_entry, "green"):
+       with diag_lock:
+           diag_counts["donchian_entry"] += 1
+       save_last("donchian_entry")
+       return
 
 if not check_donchian_ribbon(df_confirm, "green"):  
     with diag_lock:  
