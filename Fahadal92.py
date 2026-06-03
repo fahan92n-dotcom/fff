@@ -587,17 +587,17 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         last_candle_end = df5["ts"].iloc[-1] + timedelta(minutes=5)  
         age_minutes     = (now - df5["ts"].iloc[-1]).total_seconds() / 60  
 
-        if age_minutes > 10:  
-            log.warning(f"⚠️ {symbol} بيانات قديمة ({age_minutes:.1f} دقيقة) — إعادة الجلب")  
-            send_telegram(f"⚠️ بيانات قديمة ({age_minutes:.0f} دقيقة) — جاري إعادة الجلب...", chat_id)  
-            df_fresh = get_ohlcv(symbol, "1m", limit=1000)  
-            if not df_fresh.empty:  
-                cache_merge(symbol, "1m", df_fresh)  
-            df_raw = get_cached(symbol, "1m")  
-            df5    = resample_ohlcv_closed(df_raw, 5)
-            
-          except Exception as e:
-            log.error(f"Error: {e}")
+        if age_minutes > 10:
+    try:
+        log.warning(f"⚠️ {symbol} بيانات قديمة ({age_minutes:.1f} دقيقة) — إعادة الجلب")
+        send_telegram(f"⚠️ بيانات قديمة ({age_minutes:.0f} دقيقة) — جاري إعادة الجلب...", chat_id)
+        df_fresh = get_ohlcv(symbol, "1m", limit=1000)
+        if not df_fresh.empty:
+            cache_merge(symbol, "1m", df_fresh)
+        df_raw = get_cached(symbol, "1m")
+        df5    = resample_ohlcv_closed(df_raw, 5)
+    except Exception as e:
+        log.error(f"Error: {e}")
 
         if now < last_candle_end:
             df5 = df5.iloc[:-1]
