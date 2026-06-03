@@ -711,7 +711,7 @@ def check5_watcher():
                daemon=True,
             ).start()
 
-            except Exception as e:  
+        except Exception as e:  
             log.error(f"check5_watcher error: {e}")  
             time.sleep(10)
 
