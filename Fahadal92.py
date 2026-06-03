@@ -906,7 +906,7 @@ def poll_telegram_commands():
                     symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
                     if not symbol.endswith("USDT"):
                         symbol += "USDT"
-                    threading.Thread(
+                    threading.Thread) 
                         target=handle_check5, args=(chat_id, symbol), daemon=True
                     ).start()
                 elif txt == "/help":
@@ -921,7 +921,7 @@ def poll_telegram_commands():
                         "📊 <code>/status</code> — حالة البوت\n"
                         "📋 <code>/help</code> — قائمة الأوامر",
                         chat_id,
-                (
+               ) 
         except Exception:
             time.sleep(10)
 
