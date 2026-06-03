@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 # ------------------------------------------
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8907286779:AAFTn1sfkpOnUgwlChN3RIV9xLqQ9EqAnzk")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7801703329")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003972769219")
 
 BINANCE_BASE = "https://data-api.binance.vision"
 TOP_SYMBOLS_LIMIT = 200
