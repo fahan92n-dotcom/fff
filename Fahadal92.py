@@ -823,7 +823,7 @@ def check5_watcher():
                 f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
                 f"🕐 وقت الدخول: <b>{entry_time}</b>"
             )
-        except Exception as e:
+    except Exception as e:
             log.error(f"❌ خطأ في إرسال الإشارة {symbol}: {e}")
 
 
