@@ -877,14 +877,14 @@ def poll_telegram_commands():
                         f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
                         f"📦 تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}",
                         chat_id,
-              ) 
-                    elif txt in ("1", "/today"):
+                    )
+                elif txt in ("1", "/today"):
                     send_telegram(get_report("today"), chat_id)
-                    elif txt in ("2", "/yesterday"):
+                elif txt in ("2", "/yesterday"):
                     send_telegram(get_report("yesterday"), chat_id)
-                    elif txt in ("3", "/week"):
+                elif txt in ("3", "/week"):
                     send_telegram(get_report("week"), chat_id)
-                    elif txt in ("/سبب", "/diag"):
+                elif txt in ("/سبب", "/diag"):
                     with last_diag_lock:
                         ld = dict(last_diag)
                     if not ld["symbol"]:
@@ -900,7 +900,7 @@ def poll_telegram_commands():
                             f"❌ سبب الفشل: <b>{step_ar}</b>\n"
                             f"🕐 الوقت: {t_str}",
                             chat_id,
-       (
+                        )
            elif txt.startswith("/check5"):
                     parts  = txt.split()
                     symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
