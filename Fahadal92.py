@@ -639,14 +639,14 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         else:
             don_color = "⚪ محايد"  
 
-rsi_zone   = ("🔴 تشبع بيعي"  if rsi_val  < 30  
+        rsi_zone   = ("🔴 تشبع بيعي"  if rsi_val  < 30  
                   else ("🟠 تشبع شرائي" if rsi_val  > 70 else "🟡 محايد"))  
-    stoch_zone = ("🔴 تشبع بيعي"  if stoch_k  < 20  
+        stoch_zone = ("🔴 تشبع بيعي"  if stoch_k  < 20  
                   else ("🟠 تشبع شرائي" if stoch_k  > 80 else "🟡 محايد"))  
-    smi_zone   = ("🔴 تشبع بيعي"  if smi_val  <= -40  
+        smi_zone   = ("🔴 تشبع بيعي"  if smi_val  <= -40  
                   else ("🟠 تشبع شرائي" if smi_val  >= 40 else "🟡 محايد"))  
 
-    send_telegram(
+        send_telegram(
             f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
             f"🕯 الشمعة المغلقة: <b>{candle_ts}</b>\n"
             f"🕐 وقت الجلب: {fetch_ts}\n"
