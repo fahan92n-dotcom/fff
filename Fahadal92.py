@@ -722,40 +722,40 @@ def check5_watcher():
 #------------------------------------------
 
     def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
-    raw_ec = get_cached(symbol, ec_api)
-    raw_t  = get_cached(symbol, t_api)
+        raw_ec = get_cached(symbol, ec_api)
+        raw_t  = get_cached(symbol, t_api)
 
-    with diag_lock:
-        diag_counts["total"] += 1
-
-    def save_last(step):
-        with last_diag_lock:
-            last_diag["symbol"]    = symbol
-            last_diag["step"]      = step
-            last_diag["entry_min"] = entry_min
-            last_diag["time"]      = datetime.now(timezone.utc)
-
-    if raw_ec.empty or raw_t.empty:
         with diag_lock:
-            diag_counts["no_data"] += 1
+            diag_counts["total"] += 1
+
+        def save_last(step):
+            with last_diag_lock:
+                last_diag["symbol"]    = symbol
+                last_diag["step"]      = step
+                last_diag["entry_min"] = entry_min
+                last_diag["time"]      = datetime.now(timezone.utc)
+
+        if raw_ec.empty or raw_t.empty:
+            with diag_lock:
+                diag_counts["no_data"] += 1
             save_last("no_data")
             return
 
-    df_entry   = resample_ohlcv(raw_ec, entry_min)
-    df_confirm = resample_ohlcv(raw_ec, confirm_min)
-    df_third   = resample_ohlcv(raw_t,  third_min)  
+        df_entry   = resample_ohlcv(raw_ec, entry_min)
+        df_confirm = resample_ohlcv(raw_ec, confirm_min)
+        df_third   = resample_ohlcv(raw_t,  third_min)
 
-    if df_entry.empty or df_confirm.empty or df_third.empty:  
-        with diag_lock:  
-            diag_counts["no_data"] += 1  
-        save_last("no_data")  
-        return  
+        if df_entry.empty or df_confirm.empty or df_third.empty:
+            with diag_lock:
+                diag_counts["no_data"] += 1
+            save_last("no_data")
+            return
 
-    if not check_smi_oversold(df_entry):  
-        with diag_lock:  
-            diag_counts["smi_oversold"] += 1  
-        save_last("smi_oversold")  
-        return  
+        if not check_smi_oversold(df_entry):
+            with diag_lock:
+                diag_counts["smi_oversold"] += 1
+            save_last("smi_oversold")
+            return
 
     next_tf = NEXT_TF.get(entry_min)  
     if next_tf:  
