@@ -146,10 +146,10 @@ def build_diag_msg(reset=False):
             passed   = remaining - failed
             pass_pct = int(passed / total * 100)
             fail_pct = int(failed / total * 100)
-            bar      = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
+            progress_bar = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
             lines.append(
                 f"{pass_label}\n"
-                f"  {bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
+                f"  {progress_bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
             )
             remaining = passed
         lines += [
@@ -553,7 +553,7 @@ def check_ema50_below(df):
     return bool(df["close"].iloc[-1] < ema.iloc[-1])
 
 
-def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1):
+def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1):  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     """Calculate the Stochastic Momentum Index (SMI)."""
     hh      = high.rolling(k, min_periods=k).max()
     ll      = low.rolling(k,  min_periods=k).min()
@@ -589,13 +589,13 @@ def calc_rsi_tv(close, period=14):
     """Calculate RSI using Wilder's smoothing method."""
     delta = close.diff()
     gain  = delta.clip(lower=0)
-    loss  = (-delta.clip(upper=0))
+    loss  = -delta.clip(upper=0)
     up    = wilder_rma(gain, period)
     down  = wilder_rma(loss, period)
     return 100.0 - (100.0 / (1.0 + up / (down + 1e-10)))
 
 
-def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):
+def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):  # pylint: disable=too-many-arguments,too-many-positional-arguments
     """Calculate Stochastic oscillator K and D lines."""
     lo  = low.rolling(k_len,    min_periods=k_len).min()
     hi  = high.rolling(k_len,   min_periods=k_len).max()
@@ -631,20 +631,72 @@ def check_rsi_stoch(df, lookback=5):
 # ------------------------------------------
 
 
+def _get_fresh_df5(symbol):
+    """Fetch latest 1m data, update cache, and return resampled 5m DataFrame + raw 1m."""
+    df_fresh = get_ohlcv(symbol, "1m", limit=1000)
+    if not df_fresh.empty:
+        cache_merge(symbol, "1m", df_fresh)
+    df_raw = get_cached(symbol, "1m")
+    df5    = resample_ohlcv_closed(df_raw, 5) if not df_raw.empty else pd.DataFrame()
+    return df_raw, df5
+
+
+def _zone_label(value, low, high, low_label="🔴 تشبع بيعي",  # pylint: disable=too-many-arguments,too-many-positional-arguments
+                high_label="🟠 تشبع شرائي", neutral="🟡 محايد"):
+    """Return a zone label based on thresholds."""
+    if value <= low:
+        return low_label
+    if value >= high:
+        return high_label
+    return neutral
+
+
+def _calc_check5_indicators(df5):  # pylint: disable=too-many-locals
+    """Calculate all indicators for the 5m report and return a dict."""
+    rsi_series = calc_rsi_tv(df5["close"], period=14)
+    rsi_val    = round(float(rsi_series.iloc[-1]), 2)
+
+    k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
+    stoch_k = round(float(k_series.iloc[-1]), 2)
+    stoch_d = round(float(d_series.iloc[-1]), 2)
+
+    macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
+    macd_hist_val   = round(float(histogram.iloc[-1]),   4)
+    macd_line_val   = round(float(macd_line.iloc[-1]),   4)
+    signal_line_val = round(float(signal_line.iloc[-1]), 4)
+
+    smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
+    smi_val = round(float(smi_series.iloc[-1]),     2)
+    smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
+
+    don_trend = calc_donchian_trend(df5)
+    if don_trend:
+        don_map  = {1: "🟢 أخضر (صاعد)", -1: "🔴 أحمر (هابط)"}
+        don_color = don_map.get(don_trend[-1], "⚪ محايد")
+    else:
+        don_color = "⚪ محايد"
+
+    return {
+        "rsi_val": rsi_val, "rsi_zone": _zone_label(rsi_val, 30, 70),
+        "stoch_k": stoch_k, "stoch_d": stoch_d,
+        "stoch_zone": _zone_label(stoch_k, 20, 80),
+        "macd_hist_val": macd_hist_val, "macd_line_val": macd_line_val,
+        "signal_line_val": signal_line_val,
+        "macd_color": "🟢" if macd_hist_val > 0 else "🔴",
+        "smi_val": smi_val, "smi_sig": smi_sig,
+        "smi_zone": _zone_label(smi_val, -40, 40),
+        "don_color": don_color,
+    }
+
+
 def handle_check5(chat_id, symbol="BTCUSDT"):
     """Fetch and send a 5-minute indicator report for the given symbol."""
     send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
     try:
-        df_fresh = get_ohlcv(symbol, "1m", limit=1000)
-        if not df_fresh.empty:
-            cache_merge(symbol, "1m", df_fresh)
-
-        df_raw = get_cached(symbol, "1m")
+        df_raw, df5 = _get_fresh_df5(symbol)
         if df_raw.empty:
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
             return
-
-        df5 = resample_ohlcv_closed(df_raw, 5)
 
         if df5.empty or len(df5) < MIN_CANDLES:
             send_telegram(
@@ -660,11 +712,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         if age_minutes > 10:
             try:
                 log.warning("⚠️ بيانات قديمة %s دقيقة — إعادة جلب %s", round(age_minutes), symbol)
-                df_fresh = get_ohlcv(symbol, "1m", limit=1000)
-                if not df_fresh.empty:
-                    cache_merge(symbol, "1m", df_fresh)
-                df_raw = get_cached(symbol, "1m")
-                df5    = resample_ohlcv_closed(df_raw, 5)
+                df_raw, df5 = _get_fresh_df5(symbol)
             except requests.RequestException as exc:
                 log.error("Error refreshing data: %s", exc)
 
@@ -675,51 +723,10 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)
             return
 
+        ind       = _calc_check5_indicators(df5)
         price     = float(df_raw["close"].iloc[-1])
         candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
         fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-
-        rsi_series  = calc_rsi_tv(df5["close"], period=14)
-        rsi_val     = round(float(rsi_series.iloc[-1]), 2)
-
-        k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
-        stoch_k = round(float(k_series.iloc[-1]), 2)
-        stoch_d = round(float(d_series.iloc[-1]), 2)
-
-        macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
-        macd_hist_val   = round(float(histogram.iloc[-1]),   4)
-        macd_line_val   = round(float(macd_line.iloc[-1]),   4)
-        signal_line_val = round(float(signal_line.iloc[-1]), 4)
-        macd_color      = "🟢" if macd_hist_val > 0 else "🔴"
-
-        smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
-        smi_val = round(float(smi_series.iloc[-1]),     2)
-        smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
-
-        don_trend = calc_donchian_trend(df5)
-        if don_trend:
-            don_val = don_trend[-1]
-            if don_val == 1:
-                don_color = "🟢 أخضر (صاعد)"
-            elif don_val == -1:
-                don_color = "🔴 أحمر (هابط)"
-            else:
-                don_color = "⚪ محايد"
-        else:
-            don_color = "⚪ محايد"
-
-        rsi_zone   = (
-            "🔴 تشبع بيعي" if rsi_val < 30
-            else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
-        )
-        stoch_zone = (
-            "🔴 تشبع بيعي" if stoch_k < 20
-            else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
-        )
-        smi_zone   = (
-            "🔴 تشبع بيعي" if smi_val <= -40
-            else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
-        )
 
         send_telegram(
             f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
@@ -728,19 +735,19 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             f"━━━━━━━━━━━━━━━━\n"
             f"💰 السعر الحالي: <b>{price:.2f}$</b>\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"🎀 Donchian Ribbon (20): {don_color}\n"
+            f"🎀 Donchian Ribbon (20): {ind['don_color']}\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"
+            f"📈 RSI (14): <b>{ind['rsi_val']}</b> {ind['rsi_zone']}\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\n"
-            f"  Stoch D(3): <b>{stoch_d}</b>\n"
+            f"📉 Stoch K(15,3): <b>{ind['stoch_k']}</b> {ind['stoch_zone']}\n"
+            f"  Stoch D(3): <b>{ind['stoch_d']}</b>\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\n"
-            f"  MACD Line: <b>{macd_line_val}</b>\n"
-            f"  Signal Line: <b>{signal_line_val}</b>\n"
+            f"⚡ MACD Histogram: {ind['macd_color']} <b>{ind['macd_hist_val']}</b>\n"
+            f"  MACD Line: <b>{ind['macd_line_val']}</b>\n"
+            f"  Signal Line: <b>{ind['signal_line_val']}</b>\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\n"
-            f"  Signal: <b>{smi_sig}</b>\n"
+            f"🔵 SMI: <b>{ind['smi_val']}</b> {ind['smi_zone']}\n"
+            f"  Signal: <b>{ind['smi_sig']}</b>\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
             chat_id,
@@ -798,102 +805,65 @@ def check5_watcher():
 # ------------------------------------------
 
 
-def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
-    """Scan a single symbol against all entry criteria and fire a signal if matched."""
-    raw_ec = get_cached(symbol, ec_api)
-    raw_t  = get_cached(symbol, t_api)
-
+def _record_diag(step, symbol, entry_min):
+    """Increment the diag counter for step and update last_diag."""
     with diag_lock:
-        diag_counts["total"] += 1
+        diag_counts[step] += 1
+    with last_diag_lock:
+        last_diag["symbol"]    = symbol
+        last_diag["step"]      = step
+        last_diag["entry_min"] = entry_min
+        last_diag["time"]      = datetime.now(timezone.utc)
 
-    def save_last(step):
-        with last_diag_lock:
-            last_diag["symbol"]    = symbol
-            last_diag["step"]      = step
-            last_diag["entry_min"] = entry_min
-            last_diag["time"]      = datetime.now(timezone.utc)
 
-    if raw_ec.empty or raw_t.empty:
-        with diag_lock:
-            diag_counts["no_data"] += 1
-        save_last("no_data")
-        return
+def _build_scan_frames(raw_ec, raw_t, entry_min, confirm_min, third_min):
+    """Resample raw data into entry, confirm, and third DataFrames."""
+    return (
+        resample_ohlcv(raw_ec, entry_min),
+        resample_ohlcv(raw_ec, confirm_min),
+        resample_ohlcv(raw_t,  third_min),
+    )
 
-    df_entry   = resample_ohlcv(raw_ec, entry_min)
-    df_confirm = resample_ohlcv(raw_ec, confirm_min)
-    df_third   = resample_ohlcv(raw_t,  third_min)
 
-    if df_entry.empty or df_confirm.empty or df_third.empty:
-        with diag_lock:
-            diag_counts["no_data"] += 1
-        save_last("no_data")
-        return
-
+def _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min):
+    """Run all indicator filters; return the failing step name or None if all pass."""
     if not check_smi_oversold(df_entry):
-        with diag_lock:
-            diag_counts["smi_oversold"] += 1
-        save_last("smi_oversold")
-        return
+        return "smi_oversold"
 
     next_tf = NEXT_TF.get(entry_min)
     if next_tf:
         df_next = resample_ohlcv(raw_ec, next_tf)
         if not df_next.empty and check_smi_oversold(df_next):
-            with diag_lock:
-                diag_counts["active_skip"] += 1
-            save_last("active_skip")
-            return
+            return "active_skip"
 
-    if not check_macd_red(df_entry):
-        with diag_lock:
-            diag_counts["macd_red"] += 1
-        save_last("macd_red")
-        return
+    checks = [
+        (check_macd_red(df_entry),              "macd_red"),
+        (check_donchian_ribbon(df_entry, "green"), "donchian_entry"),
+        (check_donchian_ribbon(df_confirm, "green"), "donchian_confirm"),
+        (check_macd_green(df_confirm),           "macd_confirm"),
+        (check_ema50_below(df_entry),            "ema50"),
+        (check_rsi_stoch(df_third),              "rsi_stoch"),
+    ]
+    for passed, label in checks:
+        if not passed:
+            return label
+    return None
 
-    if not check_donchian_ribbon(df_entry, "green"):
-        with diag_lock:
-            diag_counts["donchian_entry"] += 1
-        save_last("donchian_entry")
-        return
 
-    if not check_donchian_ribbon(df_confirm, "green"):
-        with diag_lock:
-            diag_counts["donchian_confirm"] += 1
-        save_last("donchian_confirm")
-        return
-
-    if not check_macd_green(df_confirm):
-        with diag_lock:
-            diag_counts["macd_confirm"] += 1
-        save_last("macd_confirm")
-        return
-
-    if not check_ema50_below(df_entry):
-        with diag_lock:
-            diag_counts["ema50"] += 1
-        save_last("ema50")
-        return
-
-    if not check_rsi_stoch(df_third):
-        with diag_lock:
-            diag_counts["rsi_stoch"] += 1
-        save_last("rsi_stoch")
-        return
-
+def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    """Send the Telegram alert and record the signal."""
     key = (symbol, entry_min, confirm_min, third_min)
     now = datetime.now(timezone.utc)
-
     with alerted_keys_lock:
         last_alert = alerted_keys.get(key)
         if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
             return
         alerted_keys[key] = now
-
     try:
         with diag_lock:
             diag_counts["passed"] += 1
         price      = df_entry["close"].iloc[-1]
-        entry_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
         save_signal(symbol, price, entry_min, confirm_min, third_min)
         send_telegram(
             f"🚨 <b>إشارة دخول:</b> {symbol}\n"
@@ -905,7 +875,35 @@ def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
         log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
 
 
-def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):
+def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    """Scan a single symbol against all entry criteria and fire a signal if matched."""
+    raw_ec = get_cached(symbol, ec_api)
+    raw_t  = get_cached(symbol, t_api)
+
+    with diag_lock:
+        diag_counts["total"] += 1
+
+    if raw_ec.empty or raw_t.empty:
+        _record_diag("no_data", symbol, entry_min)
+        return
+
+    df_entry, df_confirm, df_third = _build_scan_frames(
+        raw_ec, raw_t, entry_min, confirm_min, third_min
+    )
+
+    if df_entry.empty or df_confirm.empty or df_third.empty:
+        _record_diag("no_data", symbol, entry_min)
+        return
+
+    failed_step = _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min)
+    if failed_step:
+        _record_diag(failed_step, symbol, entry_min)
+        return
+
+    _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry)
+
+
+def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):  # pylint: disable=too-many-arguments,too-many-positional-arguments
     """Background thread: scan all symbols every 30 seconds."""
     while True:
         time.sleep(30)
@@ -926,6 +924,84 @@ def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):
 # ------------------------------------------
 
 
+def _cmd_status(chat_id):
+    """Send bot status message."""
+    with trades_lock:
+        cnt = len(trades_history)
+    with alerted_keys_lock:
+        active = len(alerted_keys)
+    with ohlcv_cache_lock:
+        keys = len(ohlcv_cache)
+    send_telegram(
+        f"🤖 البوت يعمل — Binance API\n"
+        f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+        f"📊 إجمالي الإشارات: {cnt}\n"
+        f"🔑 تنبيهات نشطة: {active}\n"
+        f"💾 الكاش: {keys} مفتاح\n"
+        f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
+        f"📦 تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}",
+        chat_id,
+    )
+
+
+def _cmd_diag(chat_id):
+    """Send last scanned symbol diagnostics."""
+    with last_diag_lock:
+        ld = dict(last_diag)
+    if not ld["symbol"]:
+        send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
+        return
+    step_ar = DIAG_LABELS.get(ld["step"], ld["step"])
+    t_str   = ld["time"].strftime("%H:%M:%S UTC") if ld["time"] else ""
+    send_telegram(
+        f"🔍 <b>آخر فحص:</b>\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🪙 الرمز: <b>{ld['symbol']}</b>\n"
+        f"⏱ الفريم: <b>{ld['entry_min']}m</b>\n"
+        f"❌ سبب الفشل: <b>{step_ar}</b>\n"
+        f"🕐 الوقت: {t_str}",
+        chat_id,
+    )
+
+
+def _cmd_check5(chat_id, txt):
+    """Launch a check5 thread for the requested symbol."""
+    parts  = txt.split()
+    symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+    if not symbol.endswith("USDT"):
+        symbol += "USDT"
+    threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
+
+
+def _dispatch_command(txt, chat_id):
+    """Route a Telegram command to its handler."""
+    if txt == "/status":
+        _cmd_status(chat_id)
+    elif txt in ("1", "/today"):
+        send_telegram(get_report("today"), chat_id)
+    elif txt in ("2", "/yesterday"):
+        send_telegram(get_report("yesterday"), chat_id)
+    elif txt in ("3", "/week"):
+        send_telegram(get_report("week"), chat_id)
+    elif txt in ("/سبب", "/diag"):
+        _cmd_diag(chat_id)
+    elif txt.startswith("/check5"):
+        _cmd_check5(chat_id, txt)
+    elif txt == "/help":
+        send_telegram(
+            "📋 <b>الأوامر المتاحة:</b>\n"
+            "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
+            "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
+            "1️⃣ <code>1</code> — إشارات اليوم\n"
+            "2️⃣ <code>2</code> — إشارات أمس\n"
+            "3️⃣ <code>3</code> — آخر 7 أيام\n"
+            "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
+            "📊 <code>/status</code> — حالة البوت\n"
+            "📋 <code>/help</code> — قائمة الأوامر",
+            chat_id,
+        )
+
+
 def poll_telegram_commands():
     """Long-poll Telegram for commands and dispatch them."""
     last_id = 0
@@ -939,70 +1015,8 @@ def poll_telegram_commands():
                 last_id = upd["update_id"]
                 txt     = upd.get("message", {}).get("text", "").strip()
                 chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
-                if not txt or not chat_id:
-                    continue
-
-                if txt == "/status":
-                    with trades_lock:
-                        cnt = len(trades_history)
-                    with alerted_keys_lock:
-                        active = len(alerted_keys)
-                    with ohlcv_cache_lock:
-                        keys = len(ohlcv_cache)
-                    send_telegram(
-                        f"🤖 البوت يعمل — Binance API\n"
-                        f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
-                        f"📊 إجمالي الإشارات: {cnt}\n"
-                        f"🔑 تنبيهات نشطة: {active}\n"
-                        f"💾 الكاش: {keys} مفتاح\n"
-                        f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
-                        f"📦 تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}",
-                        chat_id,
-                    )
-                elif txt in ("1", "/today"):
-                    send_telegram(get_report("today"), chat_id)
-                elif txt in ("2", "/yesterday"):
-                    send_telegram(get_report("yesterday"), chat_id)
-                elif txt in ("3", "/week"):
-                    send_telegram(get_report("week"), chat_id)
-                elif txt in ("/سبب", "/diag"):
-                    with last_diag_lock:
-                        ld = dict(last_diag)
-                    if not ld["symbol"]:
-                        send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
-                    else:
-                        step_ar = DIAG_LABELS.get(ld["step"], ld["step"])
-                        t_str   = ld["time"].strftime("%H:%M:%S UTC") if ld["time"] else ""
-                        send_telegram(
-                            f"🔍 <b>آخر فحص:</b>\n"
-                            f"━━━━━━━━━━━━━━━\n"
-                            f"🪙 الرمز: <b>{ld['symbol']}</b>\n"
-                            f"⏱ الفريم: <b>{ld['entry_min']}m</b>\n"
-                            f"❌ سبب الفشل: <b>{step_ar}</b>\n"
-                            f"🕐 الوقت: {t_str}",
-                            chat_id,
-                        )
-                elif txt.startswith("/check5"):
-                    parts  = txt.split()
-                    symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
-                    if not symbol.endswith("USDT"):
-                        symbol += "USDT"
-                    threading.Thread(
-                        target=handle_check5, args=(chat_id, symbol), daemon=True
-                    ).start()
-                elif txt == "/help":
-                    send_telegram(
-                        "📋 <b>الأوامر المتاحة:</b>\n"
-                        "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
-                        "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
-                        "1️⃣ <code>1</code> — إشارات اليوم\n"
-                        "2️⃣ <code>2</code> — إشارات أمس\n"
-                        "3️⃣ <code>3</code> — آخر 7 أيام\n"
-                        "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
-                        "📊 <code>/status</code> — حالة البوت\n"
-                        "📋 <code>/help</code> — قائمة الأوامر",
-                        chat_id,
-                    )
+                if txt and chat_id:
+                    _dispatch_command(txt, chat_id)
         except Exception:  # pylint: disable=broad-except
             time.sleep(10)
 
