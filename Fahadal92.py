@@ -811,7 +811,7 @@ def check5_watcher():
                 return
             alerted_keys[key] = now
 
-                try:
+    try:
             with diag_lock:
                 diag_counts["passed"] += 1
             price      = df_entry["close"].iloc[-1]
