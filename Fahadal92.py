@@ -693,7 +693,7 @@ def check5_watcher():
             now  = datetime.now(timezone.utc)
             wait = (nxt - now).total_seconds()
 
-                       if wait < -60:
+            if wait < -60:
                log.warning(f"⚠️ check5_watcher تأخر {abs(wait):.0f}ث — تخطي للشمعة التالية")
                next_nxt  = get_next_close(5)
                next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
