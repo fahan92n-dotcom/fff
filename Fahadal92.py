@@ -745,20 +745,20 @@ def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
     df_confirm = resample_ohlcv(raw_ec, confirm_min)
     df_third   = resample_ohlcv(raw_t,  third_min)  
 
-if df_entry.empty or df_confirm.empty or df_third.empty:  
+    if df_entry.empty or df_confirm.empty or df_third.empty:  
     with diag_lock:  
         diag_counts["no_data"] += 1  
     save_last("no_data")  
     return  
 
-if not check_smi_oversold(df_entry):  
+    if not check_smi_oversold(df_entry):  
     with diag_lock:  
         diag_counts["smi_oversold"] += 1  
     save_last("smi_oversold")  
     return  
 
-next_tf = NEXT_TF.get(entry_min)  
-if next_tf:  
+    next_tf = NEXT_TF.get(entry_min)  
+    if next_tf:  
     df_next = resample_ohlcv(raw_ec, next_tf)  
     if not df_next.empty and check_smi_oversold(df_next):  
         with diag_lock:  
@@ -778,40 +778,40 @@ if next_tf:
        save_last("donchian_entry")
        return
 
-if not check_donchian_ribbon(df_confirm, "green"):  
+    if not check_donchian_ribbon(df_confirm, "green"):  
     with diag_lock:  
         diag_counts["donchian_confirm"] += 1  
     save_last("donchian_confirm")  
     return  
 
-if not check_macd_green(df_confirm):  
+    if not check_macd_green(df_confirm):  
     with diag_lock:  
         diag_counts["macd_confirm"] += 1  
     save_last("macd_confirm")  
     return  
 
-if not check_ema50_below(df_entry):  
+    if not check_ema50_below(df_entry):  
     with diag_lock:  
         diag_counts["ema50"] += 1  
     save_last("ema50")  
     return  
 
-if not check_rsi_stoch(df_third):  
+    if not check_rsi_stoch(df_third):  
     with diag_lock:  
         diag_counts["rsi_stoch"] += 1  
     save_last("rsi_stoch")  
     return  
 
-key = (symbol, entry_min, confirm_min, third_min)  
-now = datetime.now(timezone.utc)  
+    key = (symbol, entry_min, confirm_min, third_min)  
+    now = datetime.now(timezone.utc)  
 
-with alerted_keys_lock:  
+    with alerted_keys_lock:  
     last_alert = alerted_keys.get(key)  
     if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):  
         return  
     alerted_keys[key] = now  
 
-try:  
+    try:  
     with diag_lock:  
         diag_counts["passed"] += 1  
     price      = df_entry["close"].iloc[-1]  
