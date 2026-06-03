@@ -646,33 +646,33 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
     smi_zone   = ("🔴 تشبع بيعي"  if smi_val  <= -40  
                   else ("🟠 تشبع شرائي" if smi_val  >= 40 else "🟡 محايد"))  
 
-    send_telegram(  
-        f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"  
-        f"🕯️ الشمعة المغلقة: <b>{candle_ts}</b>\n"  
-        f"🕐 وقت الجلب: {fetch_ts}\n"  
-        f"━━━━━━━━━━━━━━━━\n"  
-        f"💰 السعر الحالي: <b>{price:.2f}$</b>\n"  
-        f"━━━━━━━━━━━━━━━━\n"  
-        f"🎀 Donchian Ribbon (20): {don_color}\n"  
-        f"━━━━━━━━━━━━━━━━\n"  
-        f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"  
-        f"━━━━━━━━━━━━━━━━\n"  
-        f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\n"  
-        f"  Stoch D(3): <b>{stoch_d}</b>\n"  
-        f"━━━━━━━━━━━━━━━━\n"  
-        f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\n"
-        f"  MACD Line: <b>{macd_line_val}</b>\n"
-        f"  Signal Line: <b>{signal_line_val}</b>\n" 
-        f"━━━━━━━━━━━━━━━━\n"  
-        f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\n"  
-        f"  Signal: <b>{smi_sig}</b>\n"  
-        f"━━━━━━━━━━━━━━━━\n"  
-        f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",  
-        chat_id,  
-    )  
-except Exception as e:  
-    log.error(f"check5 error: {e}")  
-    send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
+    send_telegram(
+            f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+            f"🕯️ الشمعة المغلقة: <b>{candle_ts}</b>\n"
+            f"🕐 وقت الجلب: {fetch_ts}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"💰 السعر الحالي: <b>{price:.2f}$</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"🎀 Donchian Ribbon (20): {don_color}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\n"
+            f"  Stoch D(3): <b>{stoch_d}</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\n"
+            f"  MACD Line: <b>{macd_line_val}</b>\n"
+            f"  Signal Line: <b>{signal_line_val}</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\n"
+            f"  Signal: <b>{smi_sig}</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
+            chat_id,
+        )
+    except Exception as e:
+        log.error(f"check5 error: {e}")
+        send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
 
 #------------------------------------------
 #check5_watcher
