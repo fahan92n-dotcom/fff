@@ -861,69 +861,70 @@ def poll_telegram_commands():
                 if not txt or not chat_id:
                     continue
 
-                if txt == "/status":  
-                with trades_lock:  
-                    cnt = len(trades_history)  
-                with alerted_keys_lock:  
-                    active = len(alerted_keys)  
-                with ohlcv_cache_lock:  
-                    keys = len(ohlcv_cache)  
-                send_telegram(  
-                    f"🤖 البوت يعمل — Binance API\n"  
-                    f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"  
-                    f"📊 إجمالي الإشارات: {cnt}\n"  
-                    f"🔑 تنبيهات نشطة: {active}\n"  
-                    f"💾 الكاش: {keys} مفتاح\n"  
-                    f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"  
-                    f"📦 تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}",  
-                    chat_id,  
-                )  
-            elif txt in ("1", "/today"):  
-                send_telegram(get_report("today"), chat_id)  
-            elif txt in ("2", "/yesterday"):  
-                send_telegram(get_report("yesterday"), chat_id)  
-            elif txt in ("3", "/week"):  
-                send_telegram(get_report("week"), chat_id)  
-            elif txt in ("/سبب", "/diag"):  
-                with last_diag_lock:  
-                    ld = dict(last_diag)  
-                if not ld["symbol"]:  
-                    send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)  
-                else:  
-                    step_ar = DIAG_LABELS.get(ld["step"], ld["step"])  
-                    t_str   = ld["time"].strftime("%H:%M:%S UTC") if ld["time"] else ""  
-                    send_telegram(  
-                        f"🔍 <b>آخر فحص:</b>\n"  
-                        f"━━━━━━━━━━━━━━━\n"  
-                        f"🪙 الرمز: <b>{ld['symbol']}</b>\n"  
-                        f"⏱ الفريم: <b>{ld['entry_min']}m</b>\n"  
-                        f"❌ سبب الفشل: <b>{step_ar}</b>\n"  
-                        f"🕐 الوقت: {t_str}",  
-                        chat_id,  
-                    )  
-            elif txt.startswith("/check5"):  
-                parts  = txt.split()  
-                symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"  
-                if not symbol.endswith("USDT"):  
-                    symbol += "USDT"  
-                threading.Thread(  
-                    target=handle_check5, args=(chat_id, symbol), daemon=True  
-                ).start()  
-            elif txt == "/help":  
-                send_telegram(  
-                    "📋 <b>الأوامر المتاحة:</b>\n"  
-                    "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"  
-                    "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"  
-                    "1️⃣ <code>1</code> — إشارات اليوم\n"  
-                    "2️⃣ <code>2</code> — إشارات أمس\n"  
-                    "3️⃣ <code>3</code> — آخر 7 أيام\n"  
-                    "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"  
-                    "📊 <code>/status</code> — حالة البوت\n"  
-                    "📋 <code>/help</code> — قائمة الأوامر",  
-                    chat_id,  
-                )  
-    except Exception:  
-        time.sleep(10)
+                if txt == "/status":
+                    with trades_lock:
+                        cnt = len(trades_history)
+                    with alerted_keys_lock:
+                        active = len(alerted_keys)
+                    with ohlcv_cache_lock:
+                        keys = len(ohlcv_cache)
+                    send_telegram(
+                        f"🤖 البوت يعمل — Binance API\n"
+                        f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+                        f"📊 إجمالي الإشارات: {cnt}\n"
+                        f"🔑 تنبيهات نشطة: {active}\n"
+                        f"💾 الكاش: {keys} مفتاح\n"
+                        f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
+                        f"📦 تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}",
+                        chat_id,
+              )
+                )
+                elif txt in ("1", "/today"):
+                    send_telegram(get_report("today"), chat_id)
+                elif txt in ("2", "/yesterday"):
+                    send_telegram(get_report("yesterday"), chat_id)
+                elif txt in ("3", "/week"):
+                    send_telegram(get_report("week"), chat_id)
+                elif txt in ("/سبب", "/diag"):
+                    with last_diag_lock:
+                        ld = dict(last_diag)
+                    if not ld["symbol"]:
+                        send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
+                    else:
+                        step_ar = DIAG_LABELS.get(ld["step"], ld["step"])
+                        t_str   = ld["time"].strftime("%H:%M:%S UTC") if ld["time"] else ""
+                        send_telegram(
+                            f"🔍 <b>آخر فحص:</b>\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"🪙 الرمز: <b>{ld['symbol']}</b>\n"
+                            f"⏱ الفريم: <b>{ld['entry_min']}m</b>\n"
+                            f"❌ سبب الفشل: <b>{step_ar}</b>\n"
+                            f"🕐 الوقت: {t_str}",
+                            chat_id,
+                        )
+           elif txt.startswith("/check5"):
+                    parts  = txt.split()
+                    symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+                    if not symbol.endswith("USDT"):
+                        symbol += "USDT"
+                    threading.Thread(
+                        target=handle_check5, args=(chat_id, symbol), daemon=True
+                    ).start()
+                elif txt == "/help":
+                    send_telegram(
+                        "📋 <b>الأوامر المتاحة:</b>\n"
+                        "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
+                        "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
+                        "1️⃣ <code>1</code> — إشارات اليوم\n"
+                        "2️⃣ <code>2</code> — إشارات أمس\n"
+                        "3️⃣ <code>3</code> — آخر 7 أيام\n"
+                        "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
+                        "📊 <code>/status</code> — حالة البوت\n"
+                        "📋 <code>/help</code> — قائمة الأوامر",
+                        chat_id,
+                    )
+        except Exception:
+            time.sleep(10)
 
 #------------------------------------------
 #Symbols Loop
