@@ -700,20 +700,20 @@ def check5_watcher():
                time.sleep(max(next_wait, 0) + 5)
                continue
 
-           time.sleep(max(wait, 0) + 5)
+            time.sleep(max(wait, 0) + 5)
 
-           if not fast_prefetch_done.is_set():
+            if not fast_prefetch_done.is_set():
                continue
 
-           threading.Thread(
+            threading.Thread(
                target=handle_check5,
                args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
                daemon=True,
-           ).start()
+            ).start()
 
     except Exception as e:  
-        log.error(f"check5_watcher error: {e}")  
-        time.sleep(10)
+            log.error(f"check5_watcher error: {e}")  
+            time.sleep(10)
 
 #------------------------------------------
 
