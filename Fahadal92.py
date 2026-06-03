@@ -721,7 +721,7 @@ def check5_watcher():
 
 #------------------------------------------
 
-def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
+    def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
     raw_ec = get_cached(symbol, ec_api)
     raw_t  = get_cached(symbol, t_api)
 
@@ -735,15 +735,15 @@ def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
             last_diag["entry_min"] = entry_min
             last_diag["time"]      = datetime.now(timezone.utc)
 
-if raw_ec.empty or raw_t.empty:
+    if raw_ec.empty or raw_t.empty:
         with diag_lock:
             diag_counts["no_data"] += 1
             save_last("no_data")
             return
 
-df_entry   = resample_ohlcv(raw_ec, entry_min)
-df_confirm = resample_ohlcv(raw_ec, confirm_min)
-df_third   = resample_ohlcv(raw_t,  third_min)  
+    df_entry   = resample_ohlcv(raw_ec, entry_min)
+    df_confirm = resample_ohlcv(raw_ec, confirm_min)
+    df_third   = resample_ohlcv(raw_t,  third_min)  
 
     if df_entry.empty or df_confirm.empty or df_third.empty:  
         with diag_lock:  
