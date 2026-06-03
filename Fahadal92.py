@@ -901,7 +901,7 @@ def poll_telegram_commands():
                             f"🕐 الوقت: {t_str}",
                             chat_id,
                         )
-                    elif txt.startswith("/check5"):
+                elif txt.startswith("/check5"):
                     parts  = txt.split()
                     symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
                     if not symbol.endswith("USDT"):
