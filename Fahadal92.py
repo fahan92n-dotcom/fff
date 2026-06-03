@@ -4,7 +4,6 @@ import time
 import logging
 import threading
 import traceback
-import json
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -117,7 +116,7 @@ last_diag_lock = threading.Lock()
 
 DIAG_LABELS = {
     "no_data": "بيانات ناقصة",
-    "smi_oversold": "SMI مش في التشبع البيعي",
+    "smi_oversold": "SMI مش في التشب�� البيعي",
     "active_skip": "SMI الفريم الأكبر لم يتأكد",
     "macd_red": "MACD الرئيسي مش أحمر",
     "donchian_entry": "Donchian Ribbon الرئيسي مش أخضر",
@@ -144,7 +143,8 @@ def build_diag_msg(reset=False):
     """Build diagnostics message with pass/fail statistics."""
     with diag_lock:
         t = diag_counts["total"] or 1
-        non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
+        non_total = {k: v for k, v in diag_counts.items()
+                     if k not in ["total", "passed"]}
         worst_k = max(non_total, key=lambda k: non_total[k])
         worst_v = non_total[worst_k]
         lines = [
@@ -159,7 +159,9 @@ def build_diag_msg(reset=False):
             passed = remaining - failed
             pass_pct = int(passed / t * 100)
             fail_pct = int(failed / t * 100)
-            bar = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
+            passed_bar = "█" * (pass_pct // 10)
+            empty_bar = "░" * (10 - pass_pct // 10)
+            bar = passed_bar + empty_bar
             lines.append(
                 f"{pass_label}\n"
                 f"  {bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
@@ -384,6 +386,7 @@ def get_ohlcv_full(symbol, tf, target):
             retries += 1
             if retries >= 3:
                 break
+            log.debug("Error fetching OHLCV: %s", e)
             time.sleep(2)
 
     return (
@@ -405,7 +408,9 @@ def cache_merge(symbol, tf, new_df):
     with ohlcv_cache_lock:
         old = ohlcv_cache.get(key)
         if old is not None and not old.empty:
-            merged = pd.concat([old, new_df]).drop_duplicates(subset="ts").sort_values("ts")
+            merged = (pd.concat([old, new_df])
+                      .drop_duplicates(subset="ts")
+                      .sort_values("ts"))
             ohlcv_cache[key] = merged.tail(maxc).reset_index(drop=True)
         else:
             ohlcv_cache[key] = new_df.tail(maxc).reset_index(drop=True)
@@ -712,7 +717,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
                 df_raw = get_cached(symbol, "1m")
                 df5 = resample_ohlcv_closed(df_raw, 5)
             except Exception as e:
-                log.error("Error: %s", e)
+                log.error("Error refreshing data: %s", e)
 
         if now < last_candle_end:
             df5 = df5.iloc[:-1]
@@ -822,7 +827,7 @@ def check5_watcher():
             wait = (nxt - now).total_seconds()
 
             if wait < -60:
-                log.warning("⚠️ check5_watcher تأخر %.0fث — تخطي للشمعة التالية", abs(wait))
+                log.warning("⚠️ check5_watcher تأخر %.0fث", abs(wait))
                 next_nxt = get_next_close(5)
                 next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
                 time.sleep(max(next_wait, 0) + 5)
@@ -951,7 +956,7 @@ def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
             f"🕐 وقت الدخول: <b>{entry_time}</b>"
         )
     except Exception as e:
-        log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, e)
+        log.error("خطأ في إرسال الإشارة %s: %s", symbol, e)
 
 
 def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):
@@ -1090,7 +1095,7 @@ def update_symbols_loop():
 
             with symbols_cache_lock:
                 symbols_cache[:] = [t["symbol"] for t in top]
-            log.info(f"✅ عملات: {len(symbols_cache)} — أول 5: {symbols_cache[:5]}")
+            log.info("✅ عملات: %d — أول 5: %s", len(symbols_cache), symbols_cache[:5])
             if not fast_prefetch_done.is_set():
                 threading.Thread(
                     target=prefetch_all, args=(list(symbols_cache),), daemon=True
@@ -1116,7 +1121,6 @@ class HealthHandler(BaseHTTPRequestHandler):
 
     def log_message(self, *_):
         """Suppress logging."""
-        pass
 
 
 # ------------------------------------------
@@ -1139,7 +1143,7 @@ def main():
 
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    log.info(f"✅ Health server شغّال على port {PORT}")
+    log.info("✅ Health server شغّال على port %d", PORT)
 
     delete_webhook()
 
@@ -1162,11 +1166,11 @@ def main():
             with trades_lock:
                 signals_count = len(trades_history)
             log.info(
-                f"💓 البوت يعمل | "
-                f"كاش: {cache_size} مفتاح | "
-                f"إشارات: {signals_count} | "
-                f"سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'} | "
-                f"كامل: {'✅' if prefetch_done.is_set() else '⏳'}"
+                "💓 البوت يعمل | كاش: %d مفتاح | إشارات: %d | سريع: %s | كامل: %s",
+                cache_size,
+                signals_count,
+                "✅" if fast_prefetch_done.is_set() else "⏳",
+                "✅" if prefetch_done.is_set() else "⏳",
             )
         except Exception as e:
             log.error("❌ خطأ في main loop: %s\n%s", e, traceback.format_exc())
