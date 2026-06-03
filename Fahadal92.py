@@ -861,7 +861,7 @@ def poll_telegram_commands():
                 if not txt or not chat_id:
                     continue
 
-if txt == "/status":  
+        if txt == "/status":  
                 with trades_lock:  
                     cnt = len(trades_history)  
                 with alerted_keys_lock:  
