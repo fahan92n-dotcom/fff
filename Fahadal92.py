@@ -735,35 +735,35 @@ def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):
             last_diag["entry_min"] = entry_min
             last_diag["time"]      = datetime.now(timezone.utc)
 
-    if raw_ec.empty or raw_t.empty:
+if raw_ec.empty or raw_t.empty:
         with diag_lock:
             diag_counts["no_data"] += 1
-        save_last("no_data")
-        return
+            save_last("no_data")
+            return
 
     df_entry   = resample_ohlcv(raw_ec, entry_min)
     df_confirm = resample_ohlcv(raw_ec, confirm_min)
     df_third   = resample_ohlcv(raw_t,  third_min)  
 
     if df_entry.empty or df_confirm.empty or df_third.empty:  
-    with diag_lock:  
-        diag_counts["no_data"] += 1  
-    save_last("no_data")  
-    return  
+        with diag_lock:  
+            diag_counts["no_data"] += 1  
+        save_last("no_data")  
+        return  
 
     if not check_smi_oversold(df_entry):  
-    with diag_lock:  
-        diag_counts["smi_oversold"] += 1  
-    save_last("smi_oversold")  
-    return  
+        with diag_lock:  
+            diag_counts["smi_oversold"] += 1  
+        save_last("smi_oversold")  
+        return  
 
     next_tf = NEXT_TF.get(entry_min)  
     if next_tf:  
-    df_next = resample_ohlcv(raw_ec, next_tf)  
-    if not df_next.empty and check_smi_oversold(df_next):  
-        with diag_lock:  
-            diag_counts["active_skip"] += 1  
-        save_last("active_skip")  
+        df_next = resample_ohlcv(raw_ec, next_tf)  
+        if not df_next.empty and check_smi_oversold(df_next):  
+            with diag_lock:  
+                diag_counts["active_skip"] += 1  
+            save_last("active_skip")  
         return  
 
     if not check_macd_red(df_entry):
