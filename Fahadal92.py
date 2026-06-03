@@ -805,24 +805,24 @@ def check5_watcher():
     key = (symbol, entry_min, confirm_min, third_min)  
     now = datetime.now(timezone.utc)  
 
-    with alerted_keys_lock:  
-    last_alert = alerted_keys.get(key)  
-    if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):  
-        return  
-    alerted_keys[key] = now  
+    with alerted_keys_lock:
+            last_alert = alerted_keys.get(key)
+            if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
+                return
+            alerted_keys[key] = now
 
-    try:  
-    with diag_lock:  
-        diag_counts["passed"] += 1  
-    price      = df_entry["close"].iloc[-1]  
-    entry_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")  
-    save_signal(symbol, price, entry_min, confirm_min, third_min)  
-    send_telegram(  
-        f"🚨 <b>إشارة دخول:</b> {symbol}\n"  
-        f"⏱ الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"  
-        f"💰 سعر الدخول: <b>{price:.6g}</b>\n"  
-        f"🕐 وقت الدخول: <b>{entry_time}</b>"  
-    )  
+        try:
+            with diag_lock:
+                diag_counts["passed"] += 1
+            price      = df_entry["close"].iloc[-1]
+            entry_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            save_signal(symbol, price, entry_min, confirm_min, third_min)
+            send_telegram(
+                f"🚨 <b>إشارة دخول:</b> {symbol}\n"
+                f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
+                f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
+                f"🕐 وقت الدخول: <b>{entry_time}</b>"
+            )
         except Exception as e:
             log.error(f"❌ خطأ في إرسال الإشارة {symbol}: {e}")
 
