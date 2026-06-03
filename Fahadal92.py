@@ -187,131 +187,140 @@ def delete_webhook():
         log.error(f"deleteWebhook error: {e}")
 
 def cleanup_alerted_keys():
-now = datetime.now(timezone.utc)
-with alerted_keys_lock:
-expired = [k for k, t in list(alerted_keys.items())
-if now - t > timedelta(hours=ALERT_EXPIRY_HOURS)]
-for k in expired:
-del alerted_keys[k]
+    now = datetime.now(timezone.utc)
+    with alerted_keys_lock:
+        expired = [k for k, t in list(alerted_keys.items()) if now - t > timedelta(hours=ALERT_EXPIRY_HOURS)]
+        for k in expired:
+            del alerted_keys[k]
 
 def cleanup_near6():
-now = datetime.now(timezone.utc)
-with near_signals_6_lock:
-expired = [k for k, v in list(near_signals_6.items())
-if now - v["time"] > timedelta(hours=NEAR6_EXPIRY_HOURS)]
-for k in expired:
-del near_signals_6[k]
+    now = datetime.now(timezone.utc)
+    with near_signals_6_lock:
+        expired = [k for k, v in list(near_signals_6.items()) if now - v["time"] > timedelta(hours=NEAR6_EXPIRY_HOURS)]
+        for k in expired:
+            del near_signals_6[k]
 
 def save_signal(symbol, price, entry_min, confirm_min, third_min):
-with trades_lock:
-trades_history.append({
-"time"     : datetime.now(timezone.utc),
-"symbol"   : symbol,
-"price"    : price,
-"timeframe": f"{entry_min}m/{confirm_min}m/{third_min}m",
-})
+    with trades_lock:
+        trades_history.append({
+            "time"     : datetime.now(timezone.utc),
+            "symbol"   : symbol,
+            "price"    : price,
+            "timeframe": f"{entry_min}m/{confirm_min}m/{third_min}m",
+        })
 
 def send_telegram(msg, chat_id=None):
-target = chat_id or TELEGRAM_CHAT_ID
-try:
-r = get_session().post(
-f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-json={"chat_id": target, "text": msg, "parse_mode": "HTML"},
-timeout=10,
-).json()
-return r.get("ok", False)
-except Exception as e:
-log.error(f"Telegram send error: {e}")
-return False
+    target = chat_id or TELEGRAM_CHAT_ID
+    try:
+        r = get_session().post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": target, "text": msg, "parse_mode": "HTML"},
+            timeout=10,
+        ).json()
+        return r.get("ok", False)
+    except Exception as e:
+        log.error(f"Telegram send error: {e}")
+        return False
 
 def get_report(period="today"):
-now = datetime.now(timezone.utc)
-if period == "today":
-start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-end, title = now, "📅 إشارات اليوم"
-elif period == "yesterday":
-end   = now.replace(hour=0, minute=0, second=0, microsecond=0)
-start = end - timedelta(days=1)
-title = "📅 إشارات أمس"
-else:
-start = now - timedelta(days=7)
-end, title = now, "🗓️ آخر 7 أيام"
-with trades_lock:
-rows = [t for t in trades_history if start <= t["time"] < end]
-if not rows:
-return f"<b>{title}:</b>\nلا توجد إشارات."
-lines = [f"<b>{title} ({len(rows)})</b>\n" + "━" * 15]
-for t in rows:
-lines.append(
-f"✅ {t['symbol']} | {t['timeframe']} | "
-f"{t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}"
-)
-return "\n".join(lines)
+    now = datetime.now(timezone.utc)
+    
+    if period == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end, title = now, "📅 إشارات اليوم"
+    elif period == "yesterday":
+        end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=1)
+        title = "📅 إشارات أمس"
+    else:
+        start = now - timedelta(days=7)
+        end, title = now, "🗓️ آخر 7 أيام"
+        
+    with trades_lock:
+        rows = [t for t in trades_history if start <= t["time"] < end]
+        
+        if not rows:
+            return f"<b>{title}:</b>\nلا توجد إشارات."
+            
+        lines = [f"<b>{title} ({len(rows)})</b>\n" + "━" * 15]
+        for t in rows:
+            lines.append(
+                f"✅ {t['symbol']} | {t['timeframe']} | "
+                f"{t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}"
+            )
+        return "\n".join(lines)
 
 #------------------------------------------
 #Binance OHLCV
 #------------------------------------------
 
 def _parse_binance_klines(resp):
-df = pd.DataFrame(resp, columns=[
-"ts", "open", "high", "low", "close", "vol",
-"close_time", "quote_vol", "trades",
-"taker_buy_base", "taker_buy_quote", "ignore"
-])
-for c in ["open", "high", "low", "close", "vol"]:
-df[c] = df[c].astype(float)
-df["ts"] = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True)
-return df.sort_values("ts").reset_index(drop=True)[["ts", "open", "high", "low", "close", "vol"]]
+    df = pd.DataFrame(resp, columns=[
+        "ts", "open", "high", "low", "close", "vol",
+        "close_time", "quote_vol", "trades",
+        "taker_buy_base", "taker_buy_quote", "ignore"
+    ])
+    for c in ["open", "high", "low", "close", "vol"]:
+        df[c] = df[c].astype(float)
+    df["ts"] = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True)
+    return df.sort_values("ts").reset_index(drop=True)[["ts", "open", "high", "low", "close", "vol"]]
 
 def get_ohlcv(symbol, tf, limit=500):
-binance_tf = TF_MAP.get(tf, "1m")
-try:
-resp = get_session().get(
-f"{BINANCE_BASE}/api/v3/klines",
-params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)},
-timeout=10,
-).json()
-if isinstance(resp, list) and resp:
-return _parse_binance_klines(resp)
-except Exception as e:
-log.error(f"get_ohlcv {symbol} {tf}: {e}")
-return pd.DataFrame()
+    binance_tf = TF_MAP.get(tf, "1m")
+    try:
+        resp = get_session().get(
+            f"{BINANCE_BASE}/api/v3/klines",
+            params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)},
+            timeout=10,
+        ).json()
+        if isinstance(resp, list) and resp:
+            return _parse_binance_klines(resp)
+    except Exception as e:
+        log.error(f"get_ohlcv {symbol} {tf}: {e}")
+    return pd.DataFrame()
 
 def get_ohlcv_full(symbol, tf, target):
-binance_tf = TF_MAP.get(tf, "1m")
-tf_ms      = 60_000 if tf == "1m" else 3_600_000
-BIN_MAX    = 1000
-all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
-while fetched < target:
-batch    = min(BIN_MAX, target - fetched)
-start_ms = end_ms - batch * tf_ms
-try:
-resp = get_session().get(
-f"{BINANCE_BASE}/api/v3/klines",
-params={"symbol": symbol, "interval": binance_tf,
-"startTime": start_ms, "endTime": end_ms, "limit": batch},
-timeout=15,
-).json()
-if not isinstance(resp, list) or not resp:
-retries += 1
-if retries >= 3:
-break
-time.sleep(2 ** retries)
-continue
-df = _parse_binance_klines(resp)
-all_dfs.insert(0, df)
-fetched += len(df)
-retries  = 0
-end_ms   = start_ms - 1
-if len(df) < batch:
-break
-except Exception as e:
-retries += 1
-if retries >= 3:
-break
-time.sleep(2)
-return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
-if all_dfs else pd.DataFrame())
+    binance_tf = TF_MAP.get(tf, "1m")
+    tf_ms      = 60_000 if tf == "1m" else 3_600_000
+    BIN_MAX    = 1000
+    all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
+    
+    while fetched < target:
+        batch    = min(BIN_MAX, target - fetched)
+        start_ms = end_ms - batch * tf_ms
+        
+        try:
+            resp = get_session().get(
+                f"{BINANCE_BASE}/api/v3/klines",
+                params={"symbol": symbol, "interval": binance_tf,
+                        "startTime": start_ms, "endTime": end_ms, "limit": batch},
+                timeout=15,
+            ).json()
+            
+            if not isinstance(resp, list) or not resp:
+                retries += 1
+                if retries >= 3:
+                    break
+                time.sleep(2 ** retries)
+                continue
+                
+            df = _parse_binance_klines(resp)
+            all_dfs.insert(0, df)
+            fetched += len(df)
+            retries  = 0
+            end_ms   = start_ms - 1
+            
+            if len(df) < batch:
+                break
+                
+        except Exception as e:
+            retries += 1
+            if retries >= 3:
+                break
+            time.sleep(2)
+            
+    return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
+            if all_dfs else pd.DataFrame())
 
 def cache_merge(symbol, tf, new_df):
 if new_df.empty:
