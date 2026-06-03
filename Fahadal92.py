@@ -940,20 +940,20 @@ def update_symbols_loop():
             else:
                 tickers = []
 
-top = sorted(  
-            [t for t in tickers if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")],  
-            key=lambda x: float(x.get("quoteVolume", 0)),  
-            reverse=True  
-        )[:TOP_SYMBOLS_LIMIT]  
+            top = sorted(
+                [t for t in tickers if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")],
+                key=lambda x: float(x.get("quoteVolume", 0)),
+                reverse=True
+            )[:TOP_SYMBOLS_LIMIT]
 
-        with symbols_cache_lock:  
-            symbols_cache[:] = [t["symbol"] for t in top]  
-        log.info(f"✅ عملات: {len(symbols_cache)} — أول 5: {symbols_cache[:5]}")  
-        if not fast_prefetch_done.is_set():  
-            threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()  
-    except Exception as e:  
-        log.error(f"update_symbols_loop: {e}")  
-    time.sleep(3600)
+            with symbols_cache_lock:
+                symbols_cache[:] = [t["symbol"] for t in top]
+            log.info(f"✅ عملات: {len(symbols_cache)} — أول 5: {symbols_cache[:5]}")
+            if not fast_prefetch_done.is_set():
+                threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()
+        except Exception as e:
+            log.error(f"update_symbols_loop: {e}")
+        time.sleep(3600)
 
 #------------------------------------------
 #Health Server
