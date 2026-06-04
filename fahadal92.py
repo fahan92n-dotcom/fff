@@ -888,9 +888,9 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
     now = datetime.now(timezone.utc)
     with alerted_keys_lock:
         last_alert = alerted_keys.get(key)
-        if last_alert and now - last_alert...
+        if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
             return
-    alerted_keys[key] = now
+        alerted_keys[key] = now
     try:
         with diag_lock:
             diag_counts["passed"] += 1
