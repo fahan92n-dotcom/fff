@@ -1,5 +1,5 @@
 """بوت مسح العملات من Binance مع تنبيهات Telegram."""
-"""بوت مسح العملات من Binance مع تنبيهات Telegram."""
+ """بوت مسح العملات من Binance مع تنبيهات Telegram."""
 import os
 import time
 import logging
@@ -631,7 +631,7 @@ def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):  # pylint
     return k, d
 
 
-def check_rsi_stoch(df, lookback=5):
+def check_rsi_stoch(df, lookback=10):
     if len(df) < WARMUP_RSI + lookback:
         return False
     rsi     = calc_rsi_tv(df["close"], period=14)
@@ -1062,6 +1062,29 @@ def _cmd_check(chat_id, txt):
     ).start()
 
 
+
+
+def _cmd_alerts(chat_id):
+    """يعرض العملات المحجوبة حالياً في الـ cooldown."""
+    now = datetime.now(timezone.utc)
+    with alerted_keys_lock:
+        active = [
+            (k, t) for k, t in alerted_keys.items()
+            if now - t < timedelta(hours=ALERT_EXPIRY_HOURS)
+        ]
+    if not active:
+        send_telegram("✅ لا توجد تنبيهات نشطة حالياً.", chat_id)
+        return
+    active.sort(key=lambda x: x[1], reverse=True)
+    lines = [f"🔔 <b>التنبيهات النشطة ({len(active)})</b>", "━━━━━━━━━━━━━━━"]
+    for (symbol, entry_min, confirm_min, third_min), t in active[:50]:
+        remaining = ALERT_EXPIRY_HOURS * 60 - int((now - t).total_seconds() / 60)
+        lines.append(
+            f"• {symbol} | {entry_min}m/{confirm_min}m/{third_min}m"
+            f" | ⏳ {remaining} دقيقة متبقية"
+        )
+    send_telegram("\n".join(lines), chat_id)
+
 def _dispatch_command(txt, chat_id):
     cmd = txt.split()[0].lower()
 
@@ -1075,6 +1098,8 @@ def _dispatch_command(txt, chat_id):
         send_telegram(get_report("week"), chat_id)
     elif cmd in ("/سبب", "/diag"):
         _cmd_diag(chat_id)
+    elif cmd == "/alerts":
+        _cmd_alerts(chat_id)
     elif cmd.startswith("/check") and len(cmd) > 6:
         # /checkN أو /checkN SYMBOL
         _cmd_check(chat_id, txt)
@@ -1092,6 +1117,7 @@ def _dispatch_command(txt, chat_id):
             "2️⃣ <code>2</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> — آخر 7 أيام\n"
             "🔍 <code>/سبب</code> — تقرير الشروط\n"
+            "🔔 <code>/alerts</code> — التنبيهات النشطة (cooldown)\n"
             "📊 <code>/status</code> — حالة البوت\n"
             "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
