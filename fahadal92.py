@@ -1,5 +1,4 @@
 """بوت مسح العملات من Binance مع تنبيهات Telegram."""
-"""بوت مسح العملات من Binance مع تنبيهات Telegram."""
 import os
 import time
 import logging
