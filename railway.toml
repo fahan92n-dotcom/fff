@@ -1,3 +1,5 @@
+[build]
+startCommand = "python fahadal92.py"
 [deploy]
 healthcheckPath = "/"
 healthcheckTimeout = 300
