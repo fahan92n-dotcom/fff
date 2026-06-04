@@ -725,7 +725,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             return
 
         ind       = _calc_check5_indicators(df5)
-        price     = float(df_raw["close"].iloc[-1])
+        price     = float(df5["close"].iloc[-1])
         candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
         fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
@@ -734,7 +734,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             f"🕯 الشمعة المغلقة: <b>{candle_ts}</b>\n"
             f"🕐 وقت الجلب: {fetch_ts}\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"💰 السعر الحالي: <b>{price:.2f}$</b>\n"
+            f"💰  سعر إغلاق الشمعة : <b>{price:.2f}$</b>\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"🎀 Donchian Ribbon (20): {ind['don_color']}\n"
             f"━━━━━━━━━━━━━━━━\n"
