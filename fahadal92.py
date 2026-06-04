@@ -890,7 +890,7 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
         last_alert = alerted_keys.get(key)
         if last_alert and now - last_alert...
             return
-        alerted_keys[key] = now
+    alerted_keys[key] = now
     try:              ← بره الـ with (صح!)
         with diag_lock:
             diag_counts["passed"] += 1
