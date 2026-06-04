@@ -31,25 +31,37 @@ PORT = int(os.environ.get("PORT", "8080"))
 ALERT_EXPIRY_HOURS = 4
 NEAR6_EXPIRY_HOURS = 2
 
-TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}  # ✅ أضفنا 5m
+TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}
+
+# ------------------------------------------
+# TRIPLING_PAIRS — كل الفريمات مبنية من resample
+# (entry_min, confirm_min, third_min, ec_api, t_api)
+#
+# الثلث (third_min) = entry_min ÷ 3
+# كل شيء يُبنى من 1m بالـ resample ✅
+# ------------------------------------------
 
 TRIPLING_PAIRS = [
-    (9,   27,  3,  "1m",  "1m"),
-    (12,  36,  4,  "1m",  "1m"),
-    (15,  45,  5,  "1m",  "1m"),
-    (18,  54,  6,  "1m",  "1m"),
-    (21,  63,  7,  "1m",  "1m"),
-    (24,  72,  8,  "1m",  "1m"),
-    (27,  81,  9,  "1m",  "1m"),
-    (30,  90,  10, "1m",  "1m"),
-    (45,  135, 15, "1m",  "1m"),
-    (60,  180, 20, "60m", "1m"),
-    (90,  270, 30, "60m", "1m"),
-    (120, 360, 40, "60m", "1m"),
-    (180, 540, 60, "60m", "60m"),
+    (9,   27,  3,   "1m",  "1m"),   # 9 ÷ 3 = 3
+    (12,  36,  4,   "1m",  "1m"),   # 12 ÷ 3 = 4
+    (15,  45,  5,   "1m",  "1m"),   # 15 ÷ 3 = 5
+    (18,  54,  6,   "1m",  "1m"),   # 18 ÷ 3 = 6
+    (21,  63,  7,   "1m",  "1m"),   # 21 ÷ 3 = 7
+    (24,  72,  8,   "1m",  "1m"),   # 24 ÷ 3 = 8
+    (27,  81,  9,   "1m",  "1m"),   # 27 ÷ 3 = 9
+    (30,  90,  10,  "1m",  "1m"),   # 30 ÷ 3 = 10
+    (45,  135, 15,  "1m",  "1m"),   # 45 ÷ 3 = 15
+    (60,  180, 20,  "1m",  "1m"),   # 60 ÷ 3 = 20  ← من 1m كامل
+    (90,  270, 30,  "1m",  "1m"),   # 90 ÷ 3 = 30
+    (120, 360, 40,  "1m",  "1m"),   # 120 ÷ 3 = 40
+    (180, 540, 60,  "1m",  "1m"),   # 180 ÷ 3 = 60
+    (240, 720, 80,  "60m", "1m"),   # 240 ÷ 3 = 80
+    (360, 1080,120, "60m", "60m"),  # 360 ÷ 3 = 120
+    (480, 1440,160, "60m", "1m"),   # 480 ÷ 3 = 160
+    (720, 2160,240, "60m", "60m"),  # 720 ÷ 3 = 240
 ]
 
-TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 180]
+TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i + 1] for i in range(len(TIMEFRAME_CHAIN) - 1)}
 
 FAST_FETCH_CANDLES = {"1m": 3500,  "60m": 250}
@@ -644,19 +656,11 @@ def check_rsi_stoch(df, lookback=5):
     return False
 
 # ------------------------------------------
-# handle_check5
+# handle_check5 — يبني الـ5m من الـ1m بالـ resample ✅
 # ------------------------------------------
 
 
-def _get_fresh_df5(symbol):
-    """Fetch latest 5m data directly from Binance + raw 1m from cache."""
-    # ✅ جلب الـ5m مباشرة من Binance بدل بناءها من الـ1m
-    df5 = get_ohlcv(symbol, "5m", limit=1000)
-    df_raw = get_cached(symbol, "1m")
-    return df_raw, df5
-
-
-def _zone_label(value, low, high, low_label="🔴 تشبع بيعي",  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def _zone_label(value, low, high, low_label="🔴 تشبع بيعي",
                 high_label="🟠 تشبع شرائي", neutral="🟡 محايد"):
     """Return a zone label based on thresholds."""
     if value <= low:
@@ -705,30 +709,24 @@ def _calc_check5_indicators(df5):  # pylint: disable=too-many-locals
 
 
 def handle_check5(chat_id, symbol="BTCUSDT"):
-    """Fetch and send a 5-minute indicator report for the given symbol."""
-    send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
+    """Fetch and send a 5-minute indicator report built from 1m resample."""
+    send_telegram(f"🔄 جاري بناء فريم 5 دقايق لـ {symbol} من الـ1m...", chat_id)
     try:
-        df_raw, df5 = _get_fresh_df5(symbol)
-        if df5.empty:
-            send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
+        # ✅ بناء الـ5m من الـ1m بالـ resample (نفس TradingView)
+        df_raw = get_cached(symbol, "1m")
+
+        if df_raw.empty:
+            send_telegram("❌ لا يوجد بيانات 1m في الكاش", chat_id)
             return
 
-        if len(df5) < MIN_CANDLES:
+        # resample_ohlcv يحذف الشمعة الأخيرة تلقائياً ✅
+        df5 = resample_ohlcv(df_raw, 5)
+
+        if df5.empty or len(df5) < MIN_CANDLES:
             send_telegram(
                 f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})\n"
                 f"💡 جرب بعد اكتمال التحميل الكامل", chat_id
             )
-            return
-
-        now             = datetime.now(timezone.utc)
-        last_candle_end = df5["ts"].iloc[-1] + timedelta(minutes=5)
-
-        # ✅ استبعاد الشمعة الحالية غير المكتملة
-        if now < last_candle_end:
-            df5 = df5.iloc[:-1]
-
-        if len(df5) < MIN_CANDLES:
-            send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)
             return
 
         ind       = _calc_check5_indicators(df5)
@@ -737,11 +735,11 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
         send_telegram(
-            f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+            f"📊 <b>{symbol} — فريم 5 دقايق (من resample 1m)</b>\n"
             f"🕯 الشمعة المغلقة: <b>{candle_ts}</b>\n"
             f"🕐 وقت الجلب: {fetch_ts}\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"💰  سعر إغلاق الشمعة : <b>{price:.2f}$</b>\n"
+            f"💰 سعر إغلاق الشمعة: <b>{price:.2f}$</b>\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"🎀 Donchian Ribbon (20): {ind['don_color']}\n"
             f"━━━━━━━━━━━━━━━━\n"
@@ -765,7 +763,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         send_telegram(f"خطا في check5: {exc}", chat_id)
 
 # ------------------------------------------
-# check5_watcher
+# check5_watcher — يشتغل كل 5 دقائق من resample
 # ------------------------------------------
 
 
@@ -779,7 +777,7 @@ def get_next_close(tf_minutes):
 
 
 def check5_watcher():
-    """Background thread: send 5m BTC report at every candle close."""
+    """Background thread: send 5m BTC report at every candle close (from resample)."""
     while True:
         try:
             nxt  = get_next_close(5)
@@ -793,6 +791,7 @@ def check5_watcher():
                 time.sleep(max(next_wait, 0) + 10)
                 continue
 
+            # ✅ انتظر حتى إغلاق الشمعة + 10 ثواني للتأكد
             time.sleep(max(wait, 0) + 10)
 
             if not fast_prefetch_done.is_set():
@@ -824,23 +823,45 @@ def _record_diag(step, symbol, entry_min):
         last_diag["time"]      = datetime.now(timezone.utc)
 
 
-def _build_scan_frames(raw_ec, raw_t, entry_min, confirm_min, third_min):
-    """Resample raw data into entry, confirm, and third DataFrames."""
-    return (
-        resample_ohlcv(raw_ec, entry_min),
-        resample_ohlcv(raw_ec, confirm_min),
-        resample_ohlcv(raw_t,  third_min),
-    )
+def _build_scan_frames(raw_1m, raw_60m, entry_min, confirm_min, third_min):
+    """
+    بناء الفريمات من الـ resample.
+    كل الفريمات تُبنى من 1m أو 60m بالـ resample ✅
+    - entry_min  : الفريم الرئيسي
+    - confirm_min: الفريم التأكيدي (entry × 3)
+    - third_min  : فريم RSI/Stoch (entry ÷ 3)
+    """
+    # اختر المصدر المناسب حسب حجم الفريم
+    if entry_min >= 240:
+        # الفريمات الكبيرة من 60m أكثر كفاءة
+        df_entry   = resample_ohlcv(raw_60m, entry_min)
+        df_confirm = resample_ohlcv(raw_60m, confirm_min)
+    else:
+        df_entry   = resample_ohlcv(raw_1m, entry_min)
+        df_confirm = resample_ohlcv(raw_1m, confirm_min)
+
+    # third_min دائماً من 1m لأنه الأصغر
+    if third_min >= 60:
+        df_third = resample_ohlcv(raw_60m, third_min)
+    else:
+        df_third = resample_ohlcv(raw_1m, third_min)
+
+    return df_entry, df_confirm, df_third
 
 
-def _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min):
+def _passes_filters(df_entry, df_confirm, df_third, raw_1m, entry_min):
     """Run all indicator filters; return the failing step name or None if all pass."""
     if not check_smi_oversold(df_entry):
         return "smi_oversold"
 
     next_tf = NEXT_TF.get(entry_min)
     if next_tf:
-        df_next = resample_ohlcv(raw_ec, next_tf)
+        if next_tf >= 240:
+            with ohlcv_cache_lock:
+                raw_60m = ohlcv_cache.get(("_temp_", "60m"))
+            df_next = resample_ohlcv(raw_1m, next_tf) if next_tf < 240 else pd.DataFrame()
+        else:
+            df_next = resample_ohlcv(raw_1m, next_tf)
         if not df_next.empty and check_smi_oversold(df_next):
             return "active_skip"
 
@@ -883,27 +904,28 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
         log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
 
 
-def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def scan_symbol(symbol, entry_min, confirm_min, third_min):
     """Scan a single symbol against all entry criteria and fire a signal if matched."""
-    raw_ec = get_cached(symbol, ec_api)
-    raw_t  = get_cached(symbol, t_api)
+    raw_1m  = get_cached(symbol, "1m")
+    raw_60m = get_cached(symbol, "60m")
 
     with diag_lock:
         diag_counts["total"] += 1
 
-    if raw_ec.empty or raw_t.empty:
+    if raw_1m.empty:
         _record_diag("no_data", symbol, entry_min)
         return
 
+    # ✅ بناء كل الفريمات من resample
     df_entry, df_confirm, df_third = _build_scan_frames(
-        raw_ec, raw_t, entry_min, confirm_min, third_min
+        raw_1m, raw_60m, entry_min, confirm_min, third_min
     )
 
     if df_entry.empty or df_confirm.empty or df_third.empty:
         _record_diag("no_data", symbol, entry_min)
         return
 
-    failed_step = _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min)
+    failed_step = _passes_filters(df_entry, df_confirm, df_third, raw_1m, entry_min)
     if failed_step:
         _record_diag(failed_step, symbol, entry_min)
         return
@@ -922,7 +944,7 @@ def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):  # pylint:
         fn = partial(
             scan_symbol,
             entry_min=entry_min, confirm_min=confirm_min,
-            third_min=third_min, ec_api=ec_api, t_api=t_api,
+            third_min=third_min,
         )
         with ThreadPoolExecutor(max_workers=20) as executor:
             list(executor.map(fn, syms))
@@ -1129,6 +1151,7 @@ def main():
     threading.Thread(target=send_diag_report,       daemon=True).start()
 
     for params in TRIPLING_PAIRS:
+        # params = (entry_min, confirm_min, third_min, ec_api, t_api)
         threading.Thread(target=candle_watcher, args=params, daemon=True).start()
 
     while True:
