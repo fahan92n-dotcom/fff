@@ -535,17 +535,33 @@ def calc_donchian_trend(df, length=20):
     return trend
 
 
+def calc_donchian_ribbon(df, dlen=20):
+    """Calculate full Donchian Ribbon like TradingView (10 lines)."""
+    if len(df) < dlen + 2:
+        return 0, False
+    main = calc_donchian_trend(df, dlen)
+    if not main:
+        return 0, False
+    maintrend = main[-1]
+    all_agree = True
+    for offset in range(10):
+        sub = calc_donchian_trend(df, dlen - offset)
+        if not sub or sub[-1] != maintrend:
+            all_agree = False
+            break
+    return maintrend, all_agree
+
+
 def check_donchian_ribbon(df, direction="green"):
-    """Check if the Donchian ribbon is in the given direction."""
+    """Check if full Donchian Ribbon agrees in the given direction."""
     if len(df) < 22:
         return False
-    trend = calc_donchian_trend(df)
-    if not trend:
+    maintrend, all_agree = calc_donchian_ribbon(df)
+    if not all_agree:
         return False
-    last_trend = trend[-1]
     if direction == "green":
-        return last_trend == 1
-    return last_trend == -1
+        return maintrend == 1
+    return maintrend == -1
 
 
 def check_ema50_below(df):
