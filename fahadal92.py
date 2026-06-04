@@ -89,6 +89,7 @@ ohlcv_cache_lock    = threading.Lock()
 
 fast_prefetch_done = threading.Event()
 prefetch_done      = threading.Event()
+check5_running     = threading.Lock()  # يمنع تشغيل أكثر من check5 في نفس الوقت
 
 diag_counts = {
     "total": 0, "no_data": 0, "smi_oversold": 0, "active_skip": 0,
@@ -740,6 +741,17 @@ def get_next_close(tf_minutes):
     return epoch + timedelta(minutes=next_min)
 
 
+def _safe_check5(chat_id, symbol):
+    """يمنع تشغيل أكثر من check5 في نفس الوقت."""
+    if not check5_running.acquire(blocking=False):
+        log.warning("⚠️ check5 لسا شغّال — تخطي")
+        return
+    try:
+        handle_check5(chat_id, symbol)
+    finally:
+        check5_running.release()
+
+
 def check5_watcher():
     """
     Background thread: يرسل تقرير 5m برأس كل شمعة بالضبط.
@@ -770,8 +782,9 @@ def check5_watcher():
                 if not df_new.empty:
                     cache_merge("BTCUSDT", "1m", df_new)
 
+            # ✅ لو thread سابق لسا شغّال، يُتجاهل الجديد تلقائياً
             threading.Thread(
-                target=handle_check5,
+                target=_safe_check5,
                 args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
                 daemon=True,
             ).start()
