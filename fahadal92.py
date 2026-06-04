@@ -94,19 +94,6 @@ diag_lock         = threading.Lock()
 cache_diag_logged = threading.Event()
 _local            = threading.local()
 
-step_symbols = {
-    "smi_oversold"    : set(),
-    "active_skip"     : set(),
-    "macd_red"        : set(),
-    "donchian_entry"  : set(),
-    "donchian_confirm": set(),
-    "macd_confirm"    : set(),
-    "ema50"           : set(),
-    "rsi_stoch"       : set(),
-    "passed"          : set(),
-}
-step_symbols_lock = threading.Lock()
-
 # ------------------------------------------
 # Last Check
 # ------------------------------------------
@@ -812,10 +799,10 @@ def check5_watcher():
                 log.warning("⚠️ check5_watcher تأخر %sث — تخطي للشمعة التالية", abs(wait))
                 next_nxt  = get_next_close(5)
                 next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
-                time.sleep(max(next_wait, 0) + 5)
+                time.sleep(max(next_wait, 0) + 10)  # ✅ تم التعديل: 10 بدل 5
                 continue
 
-            time.sleep(max(wait, 0) + 5)
+            time.sleep(max(wait, 0) + 10)  # ✅ تم التعديل: 10 بدل 5
 
             if not fast_prefetch_done.is_set():
                 continue
@@ -839,8 +826,6 @@ def _record_diag(step, symbol, entry_min):
     """Increment the diag counter for step and update last_diag."""
     with diag_lock:
         diag_counts[step] += 1
-    with step_symbols_lock:
-        step_symbols[step].add(symbol)
     with last_diag_lock:
         last_diag["symbol"]    = symbol
         last_diag["step"]      = step
@@ -869,12 +854,12 @@ def _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min):
             return "active_skip"
 
     checks = [
-        (check_macd_red(df_entry),              "macd_red"),
+        (check_macd_red(df_entry),               "macd_red"),
         (check_donchian_ribbon(df_entry, "green"), "donchian_entry"),
         (check_donchian_ribbon(df_confirm, "green"), "donchian_confirm"),
-        (check_macd_green(df_confirm),           "macd_confirm"),
-        (check_ema50_below(df_entry),            "ema50"),
-        (check_rsi_stoch(df_third),              "rsi_stoch"),
+        (check_macd_green(df_confirm),            "macd_confirm"),
+        (check_ema50_below(df_entry),             "ema50"),
+        (check_rsi_stoch(df_third),               "rsi_stoch"),
     ]
     for passed, label in checks:
         if not passed:
@@ -894,8 +879,6 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
     try:
         with diag_lock:
             diag_counts["passed"] += 1
-        with step_symbols_lock:
-            step_symbols["passed"].add(symbol)
         price      = df_entry["close"].iloc[-1]
         entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
         save_signal(symbol, price, entry_min, confirm_min, third_min)
