@@ -891,12 +891,12 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
         if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
             return
         alerted_keys[key] = now
-    try:
-                            
-           with diag_lock:
-           diag_counts["passed"] += 1
-       with step_symbols_lock:
-           step_symbols["passed"].add(symbol)
+        try:
+
+            with diag_lock:
+            diag_counts["passed"] += 1
+        with step_symbols_lock:
+            step_symbols["passed"].add(symbol)
        price      = df_entry["close"].iloc[-1]
        entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
        save_signal(symbol, price, entry_min, confirm_min, third_min)
