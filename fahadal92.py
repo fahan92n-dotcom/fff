@@ -962,23 +962,39 @@ def _cmd_status(chat_id):
 
 
 def _cmd_diag(chat_id):
-    """Send last scanned symbol diagnostics."""
-    with last_diag_lock:
-        ld = dict(last_diag)
-    if not ld["symbol"]:
+    """Send step-by-step diagnostics report."""
+    if diag_counts["total"] == 0:
         send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
         return
-    step_ar = DIAG_LABELS.get(ld["step"], ld["step"])
-    t_str   = ld["time"].strftime("%H:%M:%S UTC") if ld["time"] else ""
-    send_telegram(
-        f"🔍 <b>آخر فحص:</b>\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"🪙 الرمز: <b>{ld['symbol']}</b>\n"
-        f"⏱ الفريم: <b>{ld['entry_min']}m</b>\n"
-        f"❌ سبب الفشل: <b>{step_ar}</b>\n"
-        f"🕐 الوقت: {t_str}",
-        chat_id,
-    )
+    with diag_lock:
+        t = diag_counts["total"] or 1
+        remaining = t
+        lines = [
+            "🔍 <b>تقرير الشروط</b>",
+            "━━━━━━━━━━━━━━━",
+            f"📊 إجمالي الفحوصات: <b>{t}</b>",
+            "",
+        ]
+        steps = [
+            ("smi_oversold",     "① تشبع بيعي SMI"),
+            ("active_skip",      "⭐ الفريم الأكبر"),
+            ("macd_red",         "② MACD أحمر"),
+            ("donchian_entry",   "③ Donchian أخضر"),
+            ("donchian_confirm", "④ Donchian Confirm"),
+            ("macd_confirm",     "⑤ MACD Confirm"),
+            ("ema50",            "⑥ EMA50"),
+            ("rsi_stoch",        "⑦ RSI/Stoch"),
+        ]
+        for key, label in steps:
+            failed    = diag_counts[key]
+            passed    = remaining - failed
+            remaining = passed
+            lines.append(f"{label}: <b>{passed}</b> عملة ✅")
+        lines += [
+            "",
+            f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
+        ]
+    send_telegram("\n".join(lines), chat_id)
 
 
 def _cmd_check5(chat_id, txt):
