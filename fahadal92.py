@@ -31,7 +31,7 @@ PORT = int(os.environ.get("PORT", "8080"))
 ALERT_EXPIRY_HOURS = 4
 NEAR6_EXPIRY_HOURS = 2
 
-TF_MAP = {"1m": "1m", "60m": "1h"}
+TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}  # ✅ أضفنا 5m
 
 TRIPLING_PAIRS = [
     (9,   27,  3,  "1m",  "1m"),
@@ -649,12 +649,10 @@ def check_rsi_stoch(df, lookback=5):
 
 
 def _get_fresh_df5(symbol):
-    """Fetch latest 1m data, update cache, and return resampled 5m DataFrame + raw 1m."""
-    df_fresh = get_ohlcv(symbol, "1m", limit=1000)
-    if not df_fresh.empty:
-        cache_merge(symbol, "1m", df_fresh)
+    """Fetch latest 5m data directly from Binance + raw 1m from cache."""
+    # ✅ جلب الـ5m مباشرة من Binance بدل بناءها من الـ1m
+    df5 = get_ohlcv(symbol, "5m", limit=1000)
     df_raw = get_cached(symbol, "1m")
-    df5    = resample_ohlcv_closed(df_raw, 5) if not df_raw.empty else pd.DataFrame()
     return df_raw, df5
 
 
@@ -711,11 +709,11 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
     send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
     try:
         df_raw, df5 = _get_fresh_df5(symbol)
-        if df_raw.empty:
+        if df5.empty:
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
             return
 
-        if df5.empty or len(df5) < MIN_CANDLES:
+        if len(df5) < MIN_CANDLES:
             send_telegram(
                 f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})\n"
                 f"💡 جرب بعد اكتمال التحميل الكامل", chat_id
@@ -724,19 +722,12 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 
         now             = datetime.now(timezone.utc)
         last_candle_end = df5["ts"].iloc[-1] + timedelta(minutes=5)
-        age_minutes     = (now - df5["ts"].iloc[-1]).total_seconds() / 60
 
-        if age_minutes > 10:
-            try:
-                log.warning("⚠️ بيانات قديمة %s دقيقة — إعادة جلب %s", round(age_minutes), symbol)
-                df_raw, df5 = _get_fresh_df5(symbol)
-            except requests.RequestException as exc:
-                log.error("Error refreshing data: %s", exc)
-
+        # ✅ استبعاد الشمعة الحالية غير المكتملة
         if now < last_candle_end:
             df5 = df5.iloc[:-1]
 
-        if df5.empty or len(df5) < MIN_CANDLES:
+        if len(df5) < MIN_CANDLES:
             send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)
             return
 
@@ -799,10 +790,10 @@ def check5_watcher():
                 log.warning("⚠️ check5_watcher تأخر %sث — تخطي للشمعة التالية", abs(wait))
                 next_nxt  = get_next_close(5)
                 next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
-                time.sleep(max(next_wait, 0) + 10)  # ✅ تم التعديل: 10 بدل 5
+                time.sleep(max(next_wait, 0) + 10)
                 continue
 
-            time.sleep(max(wait, 0) + 10)  # ✅ تم التعديل: 10 بدل 5
+            time.sleep(max(wait, 0) + 10)
 
             if not fast_prefetch_done.is_set():
                 continue
