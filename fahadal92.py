@@ -892,7 +892,6 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
             return
         alerted_keys[key] = now
         try:
-
         with diag_lock:
             diag_counts["passed"] += 1
         with step_symbols_lock:
