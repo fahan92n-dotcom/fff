@@ -1,4 +1,5 @@
 """بوت مسح العملات من Binance مع تنبيهات Telegram."""
+"""بوت مسح العملات من Binance مع تنبيهات Telegram."""
 import os
 import time
 import logging
@@ -22,16 +23,42 @@ log = logging.getLogger(__name__)
 # Main Settings
 # ------------------------------------------
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8907286779:AAFTn1sfkpOnUgwlChN3RIV9xLqQ9EqAnzk")
+TELEGRAM_TOKEN  = os.environ.get("TELEGRAM_TOKEN",  "8907286779:AAFTn1sfkpOnUgwlChN3RIV9xLqQ9EqAnzk")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003972769219")
 
-BINANCE_BASE = "https://data-api.binance.vision"
+BINANCE_BASE     = "https://data-api.binance.vision"
 TOP_SYMBOLS_LIMIT = 200
-PORT = int(os.environ.get("PORT", "8080"))
+PORT             = int(os.environ.get("PORT", "8080"))
 ALERT_EXPIRY_HOURS = 4
 NEAR6_EXPIRY_HOURS = 2
 
 TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}
+
+# ------------------------------------------
+# جدول الاستراتيجيات: entry_min → (main_min, confirm_min)
+# الأمر /checkN يعني entry_min = N
+# ------------------------------------------
+ENTRY_TO_STRATEGY = {
+    3:   (9,   27),
+    4:   (12,  36),
+    5:   (15,  45),
+    6:   (18,  54),
+    7:   (21,  63),
+    8:   (24,  72),
+    9:   (27,  81),
+    10:  (30,  90),
+    15:  (45,  135),
+    20:  (60,  180),
+    30:  (90,  270),
+    40:  (120, 360),
+    60:  (180, 540),
+    80:  (240, 720),
+    120: (360, 1080),
+    160: (480, 1440),
+}
+
+# أوامر /checkN المدعومة (فريم الدخول)
+SUPPORTED_CHECK_TFS = sorted(ENTRY_TO_STRATEGY.keys())
 
 TRIPLING_PAIRS = [
     (9,   27,  3,   "1m",  "1m"),
@@ -86,9 +113,9 @@ symbols_cache_lock  = threading.Lock()
 ohlcv_cache         = {}
 ohlcv_cache_lock    = threading.Lock()
 
-fast_prefetch_done = threading.Event()
-prefetch_done      = threading.Event()
-check5_running     = threading.Lock()  # يمنع تشغيل أكثر من check5 في نفس الوقت
+fast_prefetch_done  = threading.Event()
+prefetch_done       = threading.Event()
+check_running       = threading.Lock()  # يمنع تشغيل أكثر من check في نفس الوقت
 
 diag_counts = {
     "total": 0, "no_data": 0, "smi_oversold": 0, "active_skip": 0,
@@ -425,7 +452,7 @@ def cache_updater_60m():
 def resample_ohlcv(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
     """
     Resample OHLCV إلى فريم أكبر — يتزامن مع TradingView.
-    يحذف الشمعة الحالية المفتوحة فقط (مش آخر شمعة عمياً).
+    يحذف الشمعة الحالية المفتوحة فقط.
     """
     if df.empty:
         return pd.DataFrame()
@@ -443,17 +470,12 @@ def resample_ohlcv(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
     if resampled.empty:
         return resampled
 
-    # احسب وقت بداية الشمعة الحالية المفتوحة
-    now_utc = pd.Timestamp.now(tz="UTC")
-    epoch   = pd.Timestamp("1970-01-01", tz="UTC")
-    elapsed_min = (now_utc - epoch).total_seconds() / 60
-    current_candle_open = epoch + pd.Timedelta(
-        minutes=int(elapsed_min // minutes) * minutes
-    )
+    now_utc       = pd.Timestamp.now(tz="UTC")
+    epoch         = pd.Timestamp("1970-01-01", tz="UTC")
+    elapsed_min   = (now_utc - epoch).total_seconds() / 60
+    current_open  = epoch + pd.Timedelta(minutes=int(elapsed_min // minutes) * minutes)
 
-    # احذف الشمعة الحالية المفتوحة فقط ✅
-    mask = resampled["ts"] < current_candle_open
-    return resampled[mask].reset_index(drop=True)
+    return resampled[resampled["ts"] < current_open].reset_index(drop=True)
 
 
 def resample_ohlcv_closed(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
@@ -626,7 +648,7 @@ def check_rsi_stoch(df, lookback=5):
     return False
 
 # ------------------------------------------
-# handle_check5
+# _calc_check_indicators — دالة عامة للمؤشرات
 # ------------------------------------------
 
 
@@ -639,24 +661,25 @@ def _zone_label(value, low, high, low_label="🔴 تشبع بيعي",
     return neutral
 
 
-def _calc_check5_indicators(df5):  # pylint: disable=too-many-locals
-    rsi_series = calc_rsi_tv(df5["close"], period=14)
+def _calc_check_indicators(df):  # pylint: disable=too-many-locals
+    """احسب كل المؤشرات لفريم واحد وارجع dict."""
+    rsi_series = calc_rsi_tv(df["close"], period=14)
     rsi_val    = round(float(rsi_series.iloc[-1]), 2)
 
-    k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
+    k_series, d_series = calc_stoch_tv(df["close"], df["high"], df["low"])
     stoch_k = round(float(k_series.iloc[-1]), 2)
     stoch_d = round(float(d_series.iloc[-1]), 2)
 
-    macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
+    macd_line, signal_line, histogram = _calc_macd_full(df["close"])
     macd_hist_val   = round(float(histogram.iloc[-1]),   4)
     macd_line_val   = round(float(macd_line.iloc[-1]),   4)
     signal_line_val = round(float(signal_line.iloc[-1]), 4)
 
-    smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
+    smi_series, smi_sig_series = calc_smi(df["high"], df["low"], df["close"])
     smi_val = round(float(smi_series.iloc[-1]),     2)
     smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
 
-    don_trend = calc_donchian_trend(df5)
+    don_trend = calc_donchian_trend(df)
     if don_trend:
         don_map   = {1: "🟢 أخضر (صاعد)", -1: "🔴 أحمر (هابط)"}
         don_color = don_map.get(don_trend[-1], "⚪ محايد")
@@ -676,58 +699,99 @@ def _calc_check5_indicators(df5):  # pylint: disable=too-many-locals
     }
 
 
-def handle_check5(chat_id, symbol="BTCUSDT"):
-    send_telegram(f"🔄 جاري بناء فريم 5 دقايق لـ {symbol} من الـ1m...", chat_id)
+def _format_tf_block(label, tf_min, df):
+    """ارجع نص مؤشرات فريم واحد."""
+    if df is None or df.empty or len(df) < MIN_CANDLES:
+        return (
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📌 <b>{label} — {tf_min}m</b>\n"
+            f"⚠️ بيانات غير كافية ({len(df) if df is not None else 0} شمعة)\n"
+        )
+
+    ind       = _calc_check_indicators(df)
+    price     = float(df["close"].iloc[-1])
+    candle_ts = df["ts"].iloc[-1].strftime("%H:%M UTC")
+
+    return (
+        f"━━━━━━━━━━━━━━━━\n"
+        f"📌 <b>{label} — {tf_min}m</b>  |  🕯 {candle_ts}  |  💰 {price:.6g}$\n"
+        f"🎀 Donchian: {ind['don_color']}\n"
+        f"📈 RSI: <b>{ind['rsi_val']}</b> {ind['rsi_zone']}\n"
+        f"📉 Stoch K: <b>{ind['stoch_k']}</b> {ind['stoch_zone']}  D: <b>{ind['stoch_d']}</b>\n"
+        f"⚡ MACD Hist: {ind['macd_color']} <b>{ind['macd_hist_val']}</b>"
+        f"  Line: <b>{ind['macd_line_val']}</b>  Sig: <b>{ind['signal_line_val']}</b>\n"
+        f"🔵 SMI: <b>{ind['smi_val']}</b> {ind['smi_zone']}  Signal: <b>{ind['smi_sig']}</b>\n"
+        f"📦 شموع: {len(df)}\n"
+    )
+
+# ------------------------------------------
+# handle_check — دالة عامة تستقبل entry_min
+# ------------------------------------------
+
+
+def handle_check(chat_id, entry_min, symbol="BTCUSDT"):
+    """
+    يعرض مؤشرات الثلاثة فريمات:
+      - فريم الدخول    (entry_min)
+      - فريم الرئيسي   (main_min)
+      - فريم التأكيد   (confirm_min)
+    """
+    if entry_min not in ENTRY_TO_STRATEGY:
+        supported = " | ".join(f"/check{n}" for n in SUPPORTED_CHECK_TFS)
+        send_telegram(
+            f"❌ فريم <b>{entry_min}m</b> غير مدعوم.\n"
+            f"الفريمات المدعومة:\n{supported}",
+            chat_id,
+        )
+        return
+
+    main_min, confirm_min = ENTRY_TO_STRATEGY[entry_min]
+    send_telegram(
+        f"🔄 جاري بناء الفريمات لـ {symbol}...\n"
+        f"  📌 دخول: {entry_min}m  |  رئيسي: {main_min}m  |  تأكيد: {confirm_min}m",
+        chat_id,
+    )
+
     try:
-        df_raw = get_cached(symbol, "1m")
-        if df_raw.empty:
+        raw_1m  = get_cached(symbol, "1m")
+        raw_60m = get_cached(symbol, "60m")
+
+        if raw_1m.empty:
             send_telegram("❌ لا يوجد بيانات 1m في الكاش", chat_id)
             return
 
-        df5 = resample_ohlcv(df_raw, 5)
+        # بناء الفريمات — نفس منطق _build_scan_frames
+        def _build(minutes):
+            if minutes >= 240:
+                return resample_ohlcv(raw_60m, minutes) if not raw_60m.empty else pd.DataFrame()
+            return resample_ohlcv(raw_1m, minutes)
 
-        if df5.empty or len(df5) < MIN_CANDLES:
-            send_telegram(
-                f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})\n"
-                f"💡 جرب بعد اكتمال التحميل الكامل", chat_id
-            )
-            return
+        df_entry   = _build(entry_min)
+        df_main    = _build(main_min)
+        df_confirm = _build(confirm_min)
 
-        ind       = _calc_check5_indicators(df5)
-        price     = float(df5["close"].iloc[-1])
-        candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
-        fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
-        send_telegram(
-            f"📊 <b>{symbol} — فريم 5 دقايق (من resample 1m)</b>\n"
-            f"🕯 الشمعة المغلقة: <b>{candle_ts}</b>\n"
+        msg = (
+            f"📊 <b>{symbol} — استراتيجية {main_min}m</b>\n"
             f"🕐 وقت الجلب: {fetch_ts}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"💰 سعر إغلاق الشمعة: <b>{price:.2f}$</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"🎀 Donchian Ribbon (20): {ind['don_color']}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📈 RSI (14): <b>{ind['rsi_val']}</b> {ind['rsi_zone']}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📉 Stoch K(15,3): <b>{ind['stoch_k']}</b> {ind['stoch_zone']}\n"
-            f"  Stoch D(3): <b>{ind['stoch_d']}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"⚡ MACD Histogram: {ind['macd_color']} <b>{ind['macd_hist_val']}</b>\n"
-            f"  MACD Line: <b>{ind['macd_line_val']}</b>\n"
-            f"  Signal Line: <b>{ind['signal_line_val']}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"🔵 SMI: <b>{ind['smi_val']}</b> {ind['smi_zone']}\n"
-            f"  Signal: <b>{ind['smi_sig']}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
-            chat_id,
         )
+        msg += _format_tf_block("فريم الدخول",  entry_min,   df_entry)
+        msg += _format_tf_block("فريم الرئيسي", main_min,    df_main)
+        msg += _format_tf_block("فريم التأكيد", confirm_min, df_confirm)
+        msg += (
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📡 بيانات 1m: {len(raw_1m)} | 60m: {len(raw_60m)}"
+        )
+
+        send_telegram(msg, chat_id)
+
     except Exception as exc:  # pylint: disable=broad-except
-        log.error("check5 error: %s", exc)
-        send_telegram(f"خطا في check5: {exc}", chat_id)
+        log.error("handle_check error: %s", exc)
+        send_telegram(f"❌ خطأ في check{entry_min}: {exc}", chat_id)
 
 # ------------------------------------------
-# check5_watcher — يرسل برأس كل 5 دقايق بالضبط
+# check_watcher — يرسل تقرير الفريم المحدد برأس كل شمعة
 # ------------------------------------------
 
 
@@ -740,56 +804,54 @@ def get_next_close(tf_minutes):
     return epoch + timedelta(minutes=next_min)
 
 
-def _safe_check5(chat_id, symbol):
-    """يمنع تشغيل أكثر من check5 في نفس الوقت."""
-    if not check5_running.acquire(blocking=False):
-        log.warning("⚠️ check5 لسا شغّال — تخطي")
+def _safe_check(chat_id, entry_min, symbol):
+    """يمنع تشغيل أكثر من check في نفس الوقت."""
+    if not check_running.acquire(blocking=False):
+        log.warning("⚠️ check لسا شغّال — تخطي")
         return
     try:
-        handle_check5(chat_id, symbol)
+        handle_check(chat_id, entry_min, symbol)
     finally:
-        check5_running.release()
+        check_running.release()
 
 
-def check5_watcher():
+def check_watcher(entry_min=5, symbol="BTCUSDT"):
     """
-    Background thread: يرسل تقرير 5m برأس كل شمعة بالضبط.
-    10:00 / 10:05 / 10:10 ...
+    Background thread: يرسل تقرير برأس كل شمعة بالضبط.
+    افتراضي: فريم 5 دقايق (entry_min=5 → استراتيجية 15m).
     """
     while True:
         try:
-            nxt  = get_next_close(5)
+            nxt  = get_next_close(entry_min)
             now  = datetime.now(timezone.utc)
             wait = (nxt - now).total_seconds()
 
             if wait < -60:
-                log.warning("⚠️ check5_watcher تأخر %sث — تخطي للشمعة التالية", abs(wait))
+                log.warning("⚠️ check_watcher تأخر %sث — تخطي للشمعة التالية", abs(wait))
                 time.sleep(10)
                 continue
 
-            # انتظر حتى إغلاق الشمعة + 3 ثواني فقط ✅
             time.sleep(max(wait, 0) + 3)
 
             if not fast_prefetch_done.is_set():
                 continue
 
-            # ✅ جيب أحدث شموع 1m قبل البناء مباشرة
+            # جيب أحدث شموع قبل البناء
             with symbols_cache_lock:
                 syms = list(symbols_cache)
-            if "BTCUSDT" in syms:
-                df_new = get_ohlcv("BTCUSDT", "1m", limit=10)
+            if symbol in syms:
+                df_new = get_ohlcv(symbol, "1m", limit=10)
                 if not df_new.empty:
-                    cache_merge("BTCUSDT", "1m", df_new)
+                    cache_merge(symbol, "1m", df_new)
 
-            # ✅ لو thread سابق لسا شغّال، يُتجاهل الجديد تلقائياً
             threading.Thread(
-                target=_safe_check5,
-                args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
+                target=_safe_check,
+                args=(TELEGRAM_CHAT_ID, entry_min, symbol),
                 daemon=True,
             ).start()
 
         except Exception as exc:  # pylint: disable=broad-except
-            log.error("check5_watcher error: %s", exc)
+            log.error("check_watcher error: %s", exc)
             time.sleep(10)
 
 # ------------------------------------------
@@ -977,16 +1039,33 @@ def _cmd_diag(chat_id):
     send_telegram("\n".join(lines), chat_id)
 
 
-def _cmd_check5(chat_id, txt):
-    parts  = txt.split()
+def _cmd_check(chat_id, txt):
+    """
+    يعالج /checkN — N هو فريم الدخول.
+    مثال: /check4 ETHUSDT
+    """
+    parts = txt.split()
+    # استخرج الرقم من /checkN
+    cmd = parts[0].lower()  # "/check4"
+    try:
+        entry_min = int(cmd.replace("/check", ""))
+    except ValueError:
+        send_telegram("❌ صيغة غير صحيحة. مثال: /check4 أو /check4 ETHUSDT", chat_id)
+        return
+
     symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
     if not symbol.endswith("USDT"):
         symbol += "USDT"
-    threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
+
+    threading.Thread(
+        target=handle_check, args=(chat_id, entry_min, symbol), daemon=True
+    ).start()
 
 
 def _dispatch_command(txt, chat_id):
-    if txt == "/status":
+    cmd = txt.split()[0].lower()
+
+    if cmd == "/status":
         _cmd_status(chat_id)
     elif txt in ("1", "/today"):
         send_telegram(get_report("today"), chat_id)
@@ -994,19 +1073,25 @@ def _dispatch_command(txt, chat_id):
         send_telegram(get_report("yesterday"), chat_id)
     elif txt in ("3", "/week"):
         send_telegram(get_report("week"), chat_id)
-    elif txt in ("/سبب", "/diag"):
+    elif cmd in ("/سبب", "/diag"):
         _cmd_diag(chat_id)
-    elif txt.startswith("/check5"):
-        _cmd_check5(chat_id, txt)
-    elif txt == "/help":
+    elif cmd.startswith("/check") and len(cmd) > 6:
+        # /checkN أو /checkN SYMBOL
+        _cmd_check(chat_id, txt)
+    elif cmd == "/help":
+        check_cmds = "\n".join(
+            f"  <code>/check{n}</code> — دخول {n}m / رئيسي {ENTRY_TO_STRATEGY[n][0]}m / تأكيد {ENTRY_TO_STRATEGY[n][1]}m"
+            for n in SUPPORTED_CHECK_TFS
+        )
         send_telegram(
-            "📋 <b>الأوامر المتاحة:</b>\n"
-            "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
-            "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
+            "📋 <b>الأوامر المتاحة:</b>\n\n"
+            "📊 <b>أوامر المؤشرات (افتراضي BTC):</b>\n"
+            f"{check_cmds}\n\n"
+            "💡 يمكن تحديد العملة: <code>/check4 ETH</code>\n\n"
             "1️⃣ <code>1</code> — إشارات اليوم\n"
             "2️⃣ <code>2</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> — آخر 7 أيام\n"
-            "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
+            "🔍 <code>/سبب</code> — تقرير الشروط\n"
             "📊 <code>/status</code> — حالة البوت\n"
             "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
@@ -1106,7 +1191,8 @@ def main():
     threading.Thread(target=poll_telegram_commands, daemon=True).start()
     threading.Thread(target=cache_updater_1m,       daemon=True).start()
     threading.Thread(target=cache_updater_60m,      daemon=True).start()
-    threading.Thread(target=check5_watcher,         daemon=True).start()
+    # watcher افتراضي: فريم 5m (استراتيجية 15m)
+    threading.Thread(target=check_watcher, args=(5, "BTCUSDT"), daemon=True).start()
     threading.Thread(target=send_diag_report,       daemon=True).start()
 
     for params in TRIPLING_PAIRS:
