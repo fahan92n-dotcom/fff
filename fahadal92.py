@@ -896,10 +896,10 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
             diag_counts["passed"] += 1
         with step_symbols_lock:
             step_symbols["passed"].add(symbol)
-       price      = df_entry["close"].iloc[-1]
-       entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
-       save_signal(symbol, price, entry_min, confirm_min, third_min)
-       send_telegram(
+        price      = df_entry["close"].iloc[-1]
+        entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
+        save_signal(symbol, price, entry_min, confirm_min, third_min)
+        send_telegram(
             f"🚨 <b>إشارة دخول:</b> {symbol}\n"
             f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
             f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
