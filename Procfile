@@ -1,1 +1,1 @@
-web: python Fahadal92.py
+web: python fahadal92.p
