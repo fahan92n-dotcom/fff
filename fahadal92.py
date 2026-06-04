@@ -886,7 +886,7 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
     """Send the Telegram alert and record the signal."""
     key = (symbol, entry_min, confirm_min, third_min)
     now = datetime.now(timezone.utc)
-        with alerted_keys_lock:
+    with alerted_keys_lock:
         last_alert = alerted_keys.get(key)
         if last_alert and now - last_alert...
             return
