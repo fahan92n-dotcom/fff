@@ -94,6 +94,19 @@ diag_lock         = threading.Lock()
 cache_diag_logged = threading.Event()
 _local            = threading.local()
 
+step_symbols = {
+    "smi_oversold"    : set(),
+    "active_skip"     : set(),
+    "macd_red"        : set(),
+    "donchian_entry"  : set(),
+    "donchian_confirm": set(),
+    "macd_confirm"    : set(),
+    "ema50"           : set(),
+    "rsi_stoch"       : set(),
+    "passed"          : set(),
+}
+step_symbols_lock = threading.Lock()
+
 # ------------------------------------------
 # Last Check
 # ------------------------------------------
@@ -826,6 +839,8 @@ def _record_diag(step, symbol, entry_min):
     """Increment the diag counter for step and update last_diag."""
     with diag_lock:
         diag_counts[step] += 1
+    with step_symbols_lock:
+        step_symbols[step].add(symbol)
     with last_diag_lock:
         last_diag["symbol"]    = symbol
         last_diag["step"]      = step
@@ -877,12 +892,15 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
             return
         alerted_keys[key] = now
     try:
-        with diag_lock:
-            diag_counts["passed"] += 1
-        price      = df_entry["close"].iloc[-1]
-        entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
-        save_signal(symbol, price, entry_min, confirm_min, third_min)
-        send_telegram(
+                            
+           with diag_lock:
+           diag_counts["passed"] += 1
+       with step_symbols_lock:
+           step_symbols["passed"].add(symbol)
+       price      = df_entry["close"].iloc[-1]
+       entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
+       save_signal(symbol, price, entry_min, confirm_min, third_min)
+       send_telegram(
             f"🚨 <b>إشارة دخول:</b> {symbol}\n"
             f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
             f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
