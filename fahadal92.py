@@ -893,9 +893,7 @@ def _passes_filters(df_entry, df_confirm, df_third, raw_1m, entry_min):
     next_tf = NEXT_TF.get(entry_min)
     if next_tf:
         if next_tf >= 240:
-            with ohlcv_cache_lock:
-                raw_60m = ohlcv_cache.get(("_temp_", "60m"))
-            df_next = resample_ohlcv(raw_1m, next_tf) if next_tf < 240 else pd.DataFrame()
+                df_next = resample_ohlcv(raw_60m, next_tf)
         else:
             df_next = resample_ohlcv(raw_1m, next_tf)
         if not df_next.empty and check_smi_oversold(df_next):
@@ -1126,7 +1124,7 @@ def _dispatch_command(txt, chat_id):
     elif txt in ("3", "/week"):
         send_telegram(get_report("week"), chat_id)
     elif cmd in ("/سبب", "/diag"):
-        _cmd_diag(chat_id)
+        threading.Thread(target=_cmd_diag, args=(chat_id,), daemon=True).start()
     elif cmd == "/alerts":
         _cmd_alerts(chat_id)
     elif cmd.startswith("/check") and len(cmd) > 6:
