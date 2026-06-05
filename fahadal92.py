@@ -1015,7 +1015,8 @@ def _cmd_diag(chat_id):
         send_telegram("⚠️ لا توجد عملات محملة بعد.", chat_id)
         return
 
-عدادات مؤقتة للفحص الآن فقط #
+    # temporary counts for instant check
+    
     counts = {
         "total": 0, "smi_oversold": 0, "active_skip": 0,
         "macd_red": 0, "donchian_entry": 0, "donchian_confirm": 0,
