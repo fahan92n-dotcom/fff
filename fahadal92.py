@@ -100,7 +100,10 @@ _local = threading.local()
 
 last_diag = {"symbol": None, "step": None, "entry_min": None, "time": None}
 last_diag_lock = threading.Lock()
-
+# Donchian color tracker
+donchian_last_color = {}
+donchian_last_color_lock = threading.Lock()
+(
 # ------------------------------------------
 # Diagnostics
 # ------------------------------------------
@@ -585,7 +588,37 @@ def check_donchian_trend_ribbon(df, direction="green"):
     if direction == "green":
         return trend == 1
     return trend == -1
+def check_donchian_color_change(symbol, df5):
+    """يراقب تغير لون Donchian ويرجع تنبيه أو None."""
+    if len(df5) < 35:
+        return None
 
+    main_trend = calc_donchian_trend(df5, length=20)
+    if not main_trend:
+        return None
+
+    current = main_trend[-1]
+
+    with donchian_last_color_lock:
+        previous = donchian_last_color.get(symbol)
+        if previous == current:
+            return None
+        donchian_last_color[symbol] = current
+
+    if previous is None:
+        return None
+
+    color_label = "🟢 أخضر (صاعد)" if current == 1 else "🔴 أحمر (هابط)"
+    prev_label  = "🟢 أخضر"        if previous == 1 else "🔴 أحمر"
+    price       = float(df5["close"].iloc[-1])
+    now_str     = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+    return (
+        f"🎀 <b>Donchian Trend Ribbon — {symbol}</b>\n"
+        f"🔄 تغيّر اللون: {prev_label} ← {color_label}\n"
+        f"💰 السعر: <b>{price:.4g}</b>\n"
+        f"🕐 الوقت: {now_str}"
+    )
 
 def check_ema50_below(df):
 """Return True if the latest close is below EMA50."""
@@ -779,6 +812,9 @@ send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id
 return
 
 ind = _calc_check5_indicators(df5)
+alert_msg = check_donchian_color_change(symbol, df5)
+if alert_msg:
+    send_telegram(alert_msg)
 price = float(df5["close"].iloc[-1])
 candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
 fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
