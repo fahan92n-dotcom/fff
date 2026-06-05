@@ -103,7 +103,7 @@ last_diag_lock = threading.Lock()
 # Donchian color tracker
 donchian_last_color = {}
 donchian_last_color_lock = threading.Lock()
-(
+
 # ------------------------------------------
 # Diagnostics
 # ------------------------------------------
