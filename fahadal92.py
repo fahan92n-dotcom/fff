@@ -511,78 +511,80 @@ return False
 return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
 # ------------------------------------------
-# Donchian Trend Ribbon (✅ جديد)
+# Donchian Trend Ribbon (✅ صحيح)
 # ------------------------------------------
 
-
 def calc_donchian_trend(df, length=20):
-"""Calculate the Donchian channel trend direction."""
-if len(df) < length + 2:
-return []
-hh = df["high"].rolling(length).max().shift(1)
-ll = df["low"].rolling(length).min().shift(1)
-trend = [0] * len(df)
-for i in range(1, len(df)):
-if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
-trend[i] = trend[i - 1]
-continue
-if df["close"].iloc[i] > hh.iloc[i]:
-trend[i] = 1
-elif df["close"].iloc[i] < ll.iloc[i]:
-trend[i] = -1
-else:
-trend[i] = trend[i - 1]
-return trend
+    """Calculate the Donchian channel trend direction."""
+    if len(df) < length + 2:
+        return []
+    hh = df["high"].rolling(length).max().shift(1)
+    ll = df["low"].rolling(length).min().shift(1)
+    trend = [0] * len(df)
+    for i in range(1, len(df)):
+        if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
+            trend[i] = trend[i - 1]
+            continue
+        if df["close"].iloc[i] > hh.iloc[i]:
+            trend[i] = 1
+        elif df["close"].iloc[i] < ll.iloc[i]:
+            trend[i] = -1
+        else:
+            trend[i] = trend[i - 1]
+    return trend
 
 
-def calc_donchian_trend_ribbon(df, length=20):
-"""
-Donchian Trend Ribbon - يفحص استمرارية الـ Trend
-أخضر: Trend صاعد مستمر (آخر 5 شموع كلهم صاعدة)
-أحمر: Trend هابط مستمر (آخر 5 شموع كلهم هابطة)
-"""
-if len(df) < length + 2:
-return 0, False
-
-hh = df["high"].rolling(length).max().shift(1)
-ll = df["low"].rolling(length).min().shift(1)
-
-trend = [0] * len(df)
-for i in range(1, len(df)):
-if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
-trend[i] = trend[i - 1]
-continue
-if df["close"].iloc[i] > hh.iloc[i]:
-trend[i] = 1  # صاعد
-elif df["close"].iloc[i] < ll.iloc[i]:
-trend[i] = -1  # هابط
-else:
-trend[i] = trend[i - 1]
-
-# ✅ الـ Trend Ribbon: آخر 5 شموات كلهم نفس الاتجاه
-ribbon_length = 5
-if len(trend) < ribbon_length:
-return 0, False
-
-last_trends = trend[-ribbon_length:]
-current_trend = last_trends[-1]
-
-# تحقق أن آخر 5 شموات كلهم نفس الاتجاه
-all_consistent = all(t == current_trend for t in last_trends)
-
-return current_trend, all_consistent
+def calc_donchian_trend_ribbon_correct(df, length=20):
+    """
+    Donchian Trend Ribbon - حساب صحيح:
+    ✅ main trend بـ length الأساسي (20)
+    ✅ 10 طبقات: 20, 19, 18, ..., 11
+    ✅ أخضر: كل الـ 10 طبقات صاعدة
+    ✅ أحمر: كل الـ 10 طبقات هابطة
+    """
+    if len(df) < length + 2:
+        return 0, False
+    
+    # الـ main trend بـ length الأساسي
+    main_trend = calc_donchian_trend(df, length=length)
+    if not main_trend:
+        return 0, False
+    
+    current_main = main_trend[-1]
+    
+    # 10 طبقات
+    layers = []
+    for offset in range(10):
+        layer_len = length - offset  # 20, 19, 18, ..., 11
+        
+        layer_trends = calc_donchian_trend(df, length=layer_len)
+        if not layer_trends:
+            return 0, False
+            
+        layers.append(layer_trends[-1])
+    
+    if len(layers) < 10:
+        return 0, False
+    
+    # كل الـ 10 طبقات تطابق الـ main trend
+    all_consistent = all(t == current_main for t in layers)
+    
+    return current_main, all_consistent
 
 
 def check_donchian_trend_ribbon(df, direction="green"):
-"""فحص Donchian Trend Ribbon"""
-if len(df) < 27:
-return False
-trend, consistent = calc_donchian_trend_ribbon(df, length=20)
-if not consistent:
-return False
-if direction == "green":
-return trend == 1
-return trend == -1
+    """فحص Donchian Trend Ribbon بشكل صحيح"""
+    if len(df) < 35:
+        return False
+    
+    trend, consistent = calc_donchian_trend_ribbon_correct(df, length=20)
+    
+    if not consistent:
+        return False
+    
+    if direction == "green":
+        return trend == 1
+    return trend == -1
 
 
 def check_ema50_below(df):
