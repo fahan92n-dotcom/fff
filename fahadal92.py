@@ -134,8 +134,8 @@ STEP_LABELS = {
 
 
 def build_diag_msg(reset=False):
-"""Build a diagnostic report message."""
-with diag_lock:
+    """Build a diagnostic report message."""
+    with diag_lock:
 total = diag_counts["total"] or 1
 non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
 worst_k = max(non_total, key=lambda k: non_total[k])
