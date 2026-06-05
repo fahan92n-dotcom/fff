@@ -946,7 +946,8 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint
        with diag_lock:
            diag_counts["passed"] += 1
        price = df_entry["close"].iloc[-1]
-       entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
+       candle_close = df_entry["ts"].iloc[-1] + pd.Timedelta(minutes=entry_min)
+       entry_time = candle_close.strftime("%Y-%m-%d %H:%M UTC")
        save_signal(symbol, price, entry_min, confirm_min, third_min)
        send_telegram(
            f"🚨 <b>إشارة دخول:</b> {symbol}\n"
