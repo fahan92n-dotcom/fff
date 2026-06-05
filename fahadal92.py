@@ -1,5 +1,4 @@
-"""بوت مسح العملات من Binance مع تنبيهات Telegram."""
- """بوت مسح العملات من Binance مع تنبيهات Telegram."""
+"""بوت مسح العملات من Binance مع تنبيهات Telegram.""" 
 import os
 import time
 import logging
@@ -1029,11 +1028,12 @@ def _cmd_diag(chat_id):
             ("ema50",            "⑥ EMA50"),
             ("rsi_stoch",        "⑦ RSI/Stoch"),
         ]
-        for key, label in steps:
-            failed    = diag_counts[key]
-            passed    = remaining - failed
-            remaining = passed
-            lines.append(f"{label}: <b>{passed}</b> عملة ✅")
+    for key, label in steps:
+        failed = diag_counts[key]
+        remaining = remaining - failed
+        if remaining < 0:
+            remaining = 0
+        lines.append(f"{label}: <b>{remaining}</b>
         lines += [
             "",
             f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
