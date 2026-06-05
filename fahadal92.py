@@ -675,7 +675,12 @@ def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):  # pylint
 # check_rsi_stoch
 # ------------------------------------------
 
-
+def check_rsi_touched_oversold(df, lookback=10, threshold=35):
+    """Return True if RSI touched 35 or below in the last 10 candles."""
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return bool((rsi.iloc[-lookback:] <= threshold).any())
 def check_rsi_stoch(df, lookback=20, max_gap=5):
     """Return True if RSI and Stochastic both crossed up with max 5 candles between them."""
     if len(df) < WARMUP_RSI + lookback:
