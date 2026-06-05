@@ -141,11 +141,10 @@ def build_diag_msg(reset=False):
         worst_k = max(non_total, key=lambda k: non_total[k])
         worst_v = non_total[worst_k]
         lines = [
-            "🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
-            f"📊 إجمالي الفحوصات: <b>{total}</b>", "",
+        "🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
+        f"📊 إجمالي الفحوصات: <b>{total}</b>", "",
         ]
         remaining = total
-        for k, pass_label in STEP_LABELS.items():
         for k, pass_label in STEP_LABELS.items():
             failed = diag_counts[k]
             passed = remaining - failed
