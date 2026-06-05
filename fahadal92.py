@@ -285,165 +285,161 @@ def get_report(period="today"):
 
 
 def _parse_binance_klines(resp):
-"""Parse raw Binance kline response into a DataFrame."""
-df = pd.DataFrame(resp, columns=[
-"ts", "open", "high", "low", "close", "vol",
-"close_time", "quote_vol", "trades",
-"taker_buy_base", "taker_buy_quote", "ignore"
-])
-for col in ["open", "high", "low", "close", "vol"]:
-df[col] = df[col].astype(float)
-df["ts"] = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True)
-return df.sort_values("ts").reset_index(drop=True)[
-["ts", "open", "high", "low", "close", "vol"]
-]
+    """Parse raw Binance kline response into a DataFrame."""
+    df = pd.DataFrame(resp, columns=[
+        "ts", "open", "high", "low", "close", "vol",
+        "close_time", "quote_vol", "trades",
+        "taker_buy_base", "taker_buy_quote", "ignore"
+    ])
+    for col in ["open", "high", "low", "close", "vol"]:
+        df[col] = df[col].astype(float)
+    df["ts"] = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True)
+    return df.sort_values("ts").reset_index(drop=True)[
+        ["ts", "open", "high", "low", "close", "vol"]
+    ]
 
 
 def get_ohlcv(symbol, tf, limit=500):
-"""Fetch OHLCV data from Binance for the given symbol and timeframe."""
-binance_tf = TF_MAP.get(tf, "1m")
-try:
-resp = get_session().get(
-f"{BINANCE_BASE}/api/v3/klines",
-params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)},
-timeout=10,
-).json()
-if isinstance(resp, list) and resp:
-return _parse_binance_klines(resp)
-except requests.RequestException as exc:
-log.error("get_ohlcv %s %s: %s", symbol, tf, exc)
-return pd.DataFrame()
+    """Fetch OHLCV data from Binance for the given symbol and timeframe."""
+    binance_tf = TF_MAP.get(tf, "1m")
+    try:
+        resp = get_session().get(
+            f"{BINANCE_BASE}/api/v3/klines",
+            params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)},
+            timeout=10,
+        ).json()
+        if isinstance(resp, list) and resp:
+            return _parse_binance_klines(resp)
+    except requests.RequestException as exc:
+        log.error("get_ohlcv %s %s: %s", symbol, tf, exc)
+    return pd.DataFrame()
 
 
 def get_ohlcv_full(symbol, tf, target):
-"""Fetch a large batch of OHLCV data by paginating backwards."""
-binance_tf = TF_MAP.get(tf, "1m")
-tf_ms = 60_000 if tf == "1m" else 3_600_000
-bin_max = 1000
-all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
+    """Fetch a large batch of OHLCV data by paginating backwards."""
+    binance_tf = TF_MAP.get(tf, "1m")
+    tf_ms = 60_000 if tf == "1m" else 3_600_000
+    bin_max = 1000
+    all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
 
-while fetched < target:
-batch = min(bin_max, target - fetched)
-start_ms = end_ms - batch * tf_ms
+    while fetched < target:
+        batch = min(bin_max, target - fetched)
+        start_ms = end_ms - batch * tf_ms
+        try:
+            resp = get_session().get(
+                f"{BINANCE_BASE}/api/v3/klines",
+                params={
+                    "symbol": symbol, "interval": binance_tf,
+                    "startTime": start_ms, "endTime": end_ms, "limit": batch,
+                },
+                timeout=15,
+            ).json()
+            if not isinstance(resp, list) or not resp:
+                retries += 1
+                if retries >= 3:
+                    break
+                time.sleep(2 ** retries)
+                continue
+            df = _parse_binance_klines(resp)
+            all_dfs.insert(0, df)
+            fetched += len(df)
+            retries = 0
+            end_ms = start_ms - 1
+            if len(df) < batch:
+                break
+        except requests.RequestException:
+            retries += 1
+            if retries >= 3:
+                break
+            time.sleep(2)
 
-try:
-resp = get_session().get(
-f"{BINANCE_BASE}/api/v3/klines",
-params={
-"symbol": symbol, "interval": binance_tf,
-"startTime": start_ms, "endTime": end_ms, "limit": batch,
-},
-timeout=15,
-).json()
-
-if not isinstance(resp, list) or not resp:
-retries += 1
-if retries >= 3:
-break
-time.sleep(2 ** retries)
-continue
-
-df = _parse_binance_klines(resp)
-all_dfs.insert(0, df)
-fetched += len(df)
-retries = 0
-end_ms = start_ms - 1
-
-if len(df) < batch:
-break
-
-except requests.RequestException:
-retries += 1
-if retries >= 3:
-break
-time.sleep(2)
-
-return (
-pd.concat(all_dfs).drop_duplicates(subset="ts")
-.sort_values("ts").reset_index(drop=True)
-if all_dfs else pd.DataFrame()
-)
+    return (
+        pd.concat(all_dfs).drop_duplicates(subset="ts")
+        .sort_values("ts").reset_index(drop=True)
+        if all_dfs else pd.DataFrame()
+    )
 
 
 def cache_merge(symbol, tf, new_df):
-"""Merge new OHLCV data into the cache for the given symbol/timeframe."""
-if new_df.empty:
-return
-key = (symbol, tf)
-maxc = CACHE_MAX_CANDLES.get(tf, 5000)
-with ohlcv_cache_lock:
-old = ohlcv_cache.get(key)
-if old is not None and not old.empty:
-merged = pd.concat([old, new_df]).drop_duplicates(subset="ts").sort_values("ts")
-ohlcv_cache[key] = merged.tail(maxc).reset_index(drop=True)
-else:
-ohlcv_cache[key] = new_df.tail(maxc).reset_index(drop=True)
+    """Merge new OHLCV data into the cache for the given symbol/timeframe."""
+    if new_df.empty:
+        return
+    key = (symbol, tf)
+    maxc = CACHE_MAX_CANDLES.get(tf, 5000)
+    with ohlcv_cache_lock:
+        old = ohlcv_cache.get(key)
+        if old is not None and not old.empty:
+            merged = pd.concat([old, new_df]).drop_duplicates(subset="ts").sort_values("ts")
+            ohlcv_cache[key] = merged.tail(maxc).reset_index(drop=True)
+        else:
+            ohlcv_cache[key] = new_df.tail(maxc).reset_index(drop=True)
 
 
 def get_cached(symbol, tf):
-"""Return a copy of the cached OHLCV data for the given symbol/timeframe."""
-with ohlcv_cache_lock:
-df = ohlcv_cache.get((symbol, tf))
-return df.copy() if df is not None else pd.DataFrame()
+    """Return a copy of the cached OHLCV data for the given symbol/timeframe."""
+    with ohlcv_cache_lock:
+        df = ohlcv_cache.get((symbol, tf))
+    return df.copy() if df is not None else pd.DataFrame()
 
 
 def prefetch_all(symbols):
-"""Prefetch OHLCV data for all symbols in two passes: fast then full."""
-def fetch_sym_fast(sym):
-for tf, n in FAST_FETCH_CANDLES.items():
-df = get_ohlcv_full(sym, tf, target=n)
-cache_merge(sym, tf, df)
+    """Prefetch OHLCV data for all symbols in two passes: fast then full."""
+    def fetch_sym_fast(sym):
+        for tf, n in FAST_FETCH_CANDLES.items():
+            df = get_ohlcv_full(sym, tf, target=n)
+            cache_merge(sym, tf, df)
 
-def fetch_sym_full(sym):
-for tf, n in API_FETCH_CANDLES.items():
-df = get_ohlcv_full(sym, tf, target=n)
-cache_merge(sym, tf, df)
+    def fetch_sym_full(sym):
+        for tf, n in API_FETCH_CANDLES.items():
+            df = get_ohlcv_full(sym, tf, target=n)
+            cache_merge(sym, tf, df)
 
-log.info("🚀 بدء التحميل السريع بالـ threads...")
-with ThreadPoolExecutor(max_workers=15) as executor:
-executor.map(fetch_sym_fast, symbols)
-fast_prefetch_done.set()
-send_telegram("⚡ <b>التحميل السريع اكتمل — البوت يعمل الآن!</b>")
+    log.info("🚀 بدء التحميل السريع بالـ threads...")
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        executor.map(fetch_sym_fast, symbols)
+    fast_prefetch_done.set()
+    send_telegram("⚡ <b>التحميل السريع اكتمل — البوت يعمل الآن!</b>")
 
-log.info("📦 بدء التحميل الكامل...")
-with ThreadPoolExecutor(max_workers=10) as executor:
-executor.map(fetch_sym_full, symbols)
-prefetch_done.set()
-send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعمل!</b>")
+    log.info("📦 بدء التحميل الكامل...")
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        executor.map(fetch_sym_full, symbols)
+    prefetch_done.set()
+    send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعمل!</b>")
 
 
 def _update_batch(symbols, tf, limit):
-"""Fetch recent candles for a batch of symbols and update cache."""
-def fetch_one(sym):
-df = get_ohlcv(sym, tf, limit=limit)
-if not df.empty:
-cache_merge(sym, tf, df)
-with ThreadPoolExecutor(max_workers=30) as executor:
-executor.map(fetch_one, symbols)
+    """Fetch recent candles for a batch of symbols and update cache."""
+    def fetch_one(sym):
+        df = get_ohlcv(sym, tf, limit=limit)
+        if not df.empty:
+            cache_merge(sym, tf, df)
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        executor.map(fetch_one, symbols)
 
 
 def cache_updater_1m():
-"""Background thread: refresh 1m cache every 55 seconds."""
-while True:
-if not fast_prefetch_done.is_set():
-time.sleep(5)
-continue
-with symbols_cache_lock:
-syms = list(symbols_cache)
-if syms:
-_update_batch(syms, "1m", limit=5)
-time.sleep(55)
+    """Background thread: refresh 1m cache every 55 seconds."""
+    while True:
+        if not fast_prefetch_done.is_set():
+            time.sleep(5)
+            continue
+        with symbols_cache_lock:
+            syms = list(symbols_cache)
+        if syms:
+            _update_batch(syms, "1m", limit=5)
+        time.sleep(55)
 
 
 def cache_updater_60m():
-"""Background thread: refresh 60m cache every hour."""
-while True:
-time.sleep(3600)
-if fast_prefetch_done.is_set():
-with symbols_cache_lock:
-syms = list(symbols_cache)
-if syms:
-_update_batch(syms, "60m", limit=5)
+    """Background thread: refresh 60m cache every hour."""
+    while True:
+        time.sleep(3600)
+        if fast_prefetch_done.is_set():
+            with symbols_cache_lock:
+                syms = list(symbols_cache)
+            if syms:
+                _update_batch(syms, "60m", limit=5)
+
 
 # ------------------------------------------
 # Technical Indicators
@@ -518,164 +514,162 @@ return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 # ------------------------------------------
 
 def calc_donchian_trend(df, length=20):
-    """Calculate the Donchian channel trend direction."""
-    if len(df) < length + 2:
-        return []
-    hh = df["high"].rolling(length).max().shift(1)
-    ll = df["low"].rolling(length).min().shift(1)
-    trend = [0] * len(df)
-    for i in range(1, len(df)):
-        if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
-            trend[i] = trend[i - 1]
-            continue
-        if df["close"].iloc[i] > hh.iloc[i]:
-            trend[i] = 1
-        elif df["close"].iloc[i] < ll.iloc[i]:
-            trend[i] = -1
-        else:
-            trend[i] = trend[i - 1]
-    return trend
+   """Calculate the Donchian channel trend direction."""
+   if len(df) < length + 2:
+       return []
+   hh = df["high"].rolling(length).max().shift(1)
+   ll = df["low"].rolling(length).min().shift(1)
+   trend = [0] * len(df)
+   for i in range(1, len(df)):
+       if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
+           trend[i] = trend[i - 1]
+           continue
+       if df["close"].iloc[i] > hh.iloc[i]:
+           trend[i] = 1
+       elif df["close"].iloc[i] < ll.iloc[i]:
+           trend[i] = -1
+       else:
+           trend[i] = trend[i - 1]
+   return trend
 
 
 def calc_donchian_trend_ribbon_correct(df, length=20):
-    """
-    Donchian Trend Ribbon - حساب صحيح:
-    ✅ main trend بـ length الأساسي (20)
-    ✅ 10 طبقات: 20, 19, 18, ..., 11
-    ✅ أخضر: كل الـ 10 طبقات صاعدة
-    ✅ أحمر: كل الـ 10 طبقات هابطة
-    """
-    if len(df) < length + 2:
-        return 0, False
-    
-    # الـ main trend بـ length الأساسي
-    main_trend = calc_donchian_trend(df, length=length)
-    if not main_trend:
-        return 0, False
-    
-    current_main = main_trend[-1]
-    
-    # 10 طبقات
-    layers = []
-    for offset in range(10):
-        layer_len = length - offset  # 20, 19, 18, ..., 11
-        
-        layer_trends = calc_donchian_trend(df, length=layer_len)
-        if not layer_trends:
-            return 0, False
-            
-        layers.append(layer_trends[-1])
-    
-    if len(layers) < 10:
-        return 0, False
-    
-    # كل الـ 10 طبقات تطابق الـ main trend
-    all_consistent = all(t == current_main for t in layers)
-    
-    return current_main, all_consistent
+   """
+   Donchian Trend Ribbon - حساب صحيح:
+   ✅ main trend بـ length الأساسي (20)
+   ✅ 10 طبقات: 20, 19, 18, ..., 11
+   ✅ أخضر: كل الـ 10 طبقات صاعدة
+   ✅ أحمر: كل الـ 10 طبقات هابطة
+   """
+   if len(df) < length + 2:
+       return 0, False
+
+   main_trend = calc_donchian_trend(df, length=length)
+   if not main_trend:
+       return 0, False
+
+   current_main = main_trend[-1]
+
+   layers = []
+   for offset in range(10):
+       layer_len = length - offset
+       layer_trends = calc_donchian_trend(df, length=layer_len)
+       if not layer_trends:
+           return 0, False
+       layers.append(layer_trends[-1])
+
+   if len(layers) < 10:
+       return 0, False
+
+   all_consistent = all(t == current_main for t in layers)
+   return current_main, all_consistent
 
 
 def check_donchian_trend_ribbon(df, direction="green"):
-    """فحص Donchian Trend Ribbon بشكل صحيح"""
-    if len(df) < 35:
-        return False
-    
-    trend, consistent = calc_donchian_trend_ribbon_correct(df, length=20)
-    
-    if not consistent:
-        return False
-    
-    if direction == "green":
-        return trend == 1
-    return trend == -1
+   """فحص Donchian Trend Ribbon بشكل صحيح"""
+   if len(df) < 35:
+       return False
+
+   trend, consistent = calc_donchian_trend_ribbon_correct(df, length=20)
+
+   if not consistent:
+       return False
+
+   if direction == "green":
+       return trend == 1
+   return trend == -1
+
+
 def check_donchian_color_change(symbol, df5):
-    """يراقب تغير لون Donchian ويرجع تنبيه أو None."""
-    if len(df5) < 35:
-        return None
+   """يراقب تغير لون Donchian ويرجع تنبيه أو None."""
+   if len(df5) < 35:
+       return None
 
-    main_trend = calc_donchian_trend(df5, length=20)
-    if not main_trend:
-        return None
+   main_trend = calc_donchian_trend(df5, length=20)
+   if not main_trend:
+       return None
 
-    current = main_trend[-1]
+   current = main_trend[-1]
 
-    with donchian_last_color_lock:
-        previous = donchian_last_color.get(symbol)
-        if previous == current:
-            return None
-        donchian_last_color[symbol] = current
+   with donchian_last_color_lock:
+       previous = donchian_last_color.get(symbol)
+       if previous == current:
+           return None
+       donchian_last_color[symbol] = current
 
-    if previous is None:
-        return None
+   if previous is None:
+       return None
 
-    color_label = "🟢 أخضر (صاعد)" if current == 1 else "🔴 أحمر (هابط)"
-    prev_label  = "🟢 أخضر"        if previous == 1 else "🔴 أحمر"
-    price       = float(df5["close"].iloc[-1])
-    now_str     = datetime.now(timezone.utc).strftime("%H:%M UTC")
+   color_label = "🟢 أخضر (صاعد)" if current == 1 else "🔴 أحمر (هابط)"
+   prev_label  = "🟢 أخضر"        if previous == 1 else "🔴 أحمر"
+   price       = float(df5["close"].iloc[-1])
+   now_str     = datetime.now(timezone.utc).strftime("%H:%M UTC")
 
-    return (
-        f"🎀 <b>Donchian Trend Ribbon — {symbol}</b>\n"
-        f"🔄 تغيّر اللون: {prev_label} ← {color_label}\n"
-        f"💰 السعر: <b>{price:.4g}</b>\n"
-        f"🕐 الوقت: {now_str}"
-    )
+   return (
+       f"🎀 <b>Donchian Trend Ribbon — {symbol}</b>\n"
+       f"🔄 تغيّر اللون: {prev_label} ← {color_label}\n"
+       f"💰 السعر: <b>{price:.4g}</b>\n"
+       f"🕐 الوقت: {now_str}"
+   )
+
 
 def check_ema50_below(df):
-"""Return True if the latest close is below EMA50."""
-ema = df["close"].ewm(span=50, adjust=False).mean()
-return bool(df["close"].iloc[-1] < ema.iloc[-1])
+   """Return True if the latest close is below EMA50."""
+   ema = df["close"].ewm(span=50, adjust=False).mean()
+   return bool(df["close"].iloc[-1] < ema.iloc[-1])
 
 
-def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1): # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
-"""Calculate the Stochastic Momentum Index (SMI)."""
-hh = high.rolling(k, min_periods=k).max()
-ll = low.rolling(k, min_periods=k).min()
-diff = hh - ll
-rdiff = close - (hh + ll) / 2
-avgrel = rdiff.ewm(span=d, min_periods=d, adjust=False).mean()
-avgdiff = diff.ewm(span=d, min_periods=d, adjust=False).mean()
-smi_arr = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
-smi = pd.Series(smi_arr, index=close.index)
-if smooth > 1:
-smi = smi.rolling(smooth, min_periods=smooth).mean()
-sig = smi.ewm(span=ema_len, min_periods=ema_len, adjust=False).mean()
-return smi, sig
+def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1):  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+   """Calculate the Stochastic Momentum Index (SMI)."""
+   hh = high.rolling(k, min_periods=k).max()
+   ll = low.rolling(k, min_periods=k).min()
+   diff = hh - ll
+   rdiff = close - (hh + ll) / 2
+   avgrel = rdiff.ewm(span=d, min_periods=d, adjust=False).mean()
+   avgdiff = diff.ewm(span=d, min_periods=d, adjust=False).mean()
+   smi_arr = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
+   smi = pd.Series(smi_arr, index=close.index)
+   if smooth > 1:
+       smi = smi.rolling(smooth, min_periods=smooth).mean()
+   sig = smi.ewm(span=ema_len, min_periods=ema_len, adjust=False).mean()
+   return smi, sig
 
 
 def check_smi_oversold(df, threshold=-40):
-"""Return True if the latest SMI value is at or below the oversold threshold."""
-if len(df) < WARMUP_SMI:
-return False
-smi, _ = calc_smi(df["high"], df["low"], df["close"])
-return bool(smi.iloc[-1] <= threshold)
+   """Return True if the latest SMI value is at or below the oversold threshold."""
+   if len(df) < WARMUP_SMI:
+       return False
+   smi, _ = calc_smi(df["high"], df["low"], df["close"])
+   return bool(smi.iloc[-1] <= threshold)
 
 
 def get_smi_value(df):
-"""Return the latest SMI and signal values, or (None, None) if insufficient data."""
-if len(df) < WARMUP_SMI:
-return None, None
-smi, sig = calc_smi(df["high"], df["low"], df["close"])
-return round(float(smi.iloc[-1]), 2), round(float(sig.iloc[-1]), 2)
+   """Return the latest SMI and signal values, or (None, None) if insufficient data."""
+   if len(df) < WARMUP_SMI:
+       return None, None
+   smi, sig = calc_smi(df["high"], df["low"], df["close"])
+   return round(float(smi.iloc[-1]), 2), round(float(sig.iloc[-1]), 2)
 
 
 def calc_rsi_tv(close, period=14):
-"""Calculate RSI using Wilder's smoothing method."""
-delta = close.diff()
-gain = delta.clip(lower=0)
-loss = -delta.clip(upper=0)
-up = wilder_rma(gain, period)
-down = wilder_rma(loss, period)
-return 100.0 - (100.0 / (1.0 + up / (down + 1e-10)))
+   """Calculate RSI using Wilder's smoothing method."""
+   delta = close.diff()
+   gain = delta.clip(lower=0)
+   loss = -delta.clip(upper=0)
+   up = wilder_rma(gain, period)
+   down = wilder_rma(loss, period)
+   return 100.0 - (100.0 / (1.0 + up / (down + 1e-10)))
 
 
-def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3): # pylint: disable=too-many-arguments,too-many-positional-arguments
-"""Calculate Stochastic oscillator K and D lines."""
-lo = low.rolling(k_len, min_periods=k_len).min()
-hi = high.rolling(k_len, min_periods=k_len).max()
-raw = 100.0 * (close - lo) / (hi - lo + 1e-10)
-k = raw.rolling(k_smooth, min_periods=k_smooth).mean()
-d = k.rolling(d_smooth, min_periods=d_smooth).mean()
-return k, d
+def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+   """Calculate Stochastic oscillator K and D lines."""
+   lo = low.rolling(k_len, min_periods=k_len).min()
+   hi = high.rolling(k_len, min_periods=k_len).max()
+   raw = 100.0 * (close - lo) / (hi - lo + 1e-10)
+   k = raw.rolling(k_smooth, min_periods=k_smooth).mean()
+   d = k.rolling(d_smooth, min_periods=d_smooth).mean()
+   return k, d
+
 
 # ------------------------------------------
 # check_rsi_stoch
