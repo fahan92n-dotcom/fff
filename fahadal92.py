@@ -136,42 +136,43 @@ STEP_LABELS = {
 def build_diag_msg(reset=False):
     """Build a diagnostic report message."""
     with diag_lock:
-total = diag_counts["total"] or 1
-non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
-worst_k = max(non_total, key=lambda k: non_total[k])
-worst_v = non_total[worst_k]
-lines = [
-"🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
-f"📊 إجمالي الفحوصات: <b>{total}</b>", "",
-]
-remaining = total
-for k, pass_label in STEP_LABELS.items():
-failed = diag_counts[k]
-passed = remaining - failed
-pass_pct = int(passed / total * 100)
-fail_pct = int(failed / total * 100)
-progress_bar = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
-lines.append(
-f"{pass_label}\n"
-f" {progress_bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
-)
-remaining = passed
-lines += [
-"", f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
-"━━━━━━━━━━━━━━━",
-f"⚠️ أكثر سبب فشل: <b>{DIAG_LABELS.get(worst_k, worst_k)}</b> ({worst_v})",
-]
-if reset:
-for k in diag_counts:
-diag_counts[k] = 0
-return "\n".join(lines)
+        total = diag_counts["total"] or 1
+        non_total = {k: v for k, v in diag_counts.items() if k not in ["total", "passed"]}
+        worst_k = max(non_total, key=lambda k: non_total[k])
+        worst_v = non_total[worst_k]
+        lines = [
+            "🔍 <b>تقرير التشخيص</b>", "━━━━━━━━━━━━━━━",
+            f"📊 إجمالي الفحوصات: <b>{total}</b>", "",
+        ]
+        remaining = total
+        for k, pass_label in STEP_LABELS.items():
+        for k, pass_label in STEP_LABELS.items():
+            failed = diag_counts[k]
+            passed = remaining - failed
+            pass_pct = int(passed / total * 100)
+            fail_pct = int(failed / total * 100)
+            progress_bar = "█" * (pass_pct // 10) + "░" * (10 - pass_pct // 10)
+            lines.append(
+                f"{pass_label}\n"
+                f" {progress_bar} نجح: {passed} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
+            )
+            remaining = passed
+        lines += [
+            "", f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
+            "━━━━━━━━━━━━━━━",
+            f"⚠️ أكثر سبب فشل: <b>{DIAG_LABELS.get(worst_k, worst_k)}</b> ({worst_v})",
+        ]
+        if reset:
+            for k in diag_counts:
+                diag_counts[k] = 0
+        return "\n".join(lines)
 
 
 def send_diag_report():
-"""Periodically send diagnostic report every hour."""
-while True:
-time.sleep(3600)
-send_telegram(build_diag_msg(reset=True))
+    """Periodically send diagnostic report every hour."""
+    while True:
+        time.sleep(3600)
+        send_telegram(build_diag_msg(reset=True))
 
 # ------------------------------------------
 # Helpers
@@ -179,105 +180,105 @@ send_telegram(build_diag_msg(reset=True))
 
 
 def get_session():
-"""Return a thread-local requests session."""
-if not hasattr(_local, "s"):
-session = requests.Session()
-session.headers.update({"Accept-Encoding": "gzip", "User-Agent": "Mozilla/5.0"})
-_local.s = session
-return _local.s
+    """Return a thread-local requests session."""
+    if not hasattr(_local, "s"):
+        session = requests.Session()
+        session.headers.update({"Accept-Encoding": "gzip", "User-Agent": "Mozilla/5.0"})
+        _local.s = session
+    return _local.s
 
 
 def delete_webhook():
-"""Delete the Telegram webhook."""
-try:
-r = get_session().post(
-f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
-json={"drop_pending_updates": True}, timeout=10,
-).json()
-if r.get("ok"):
-log.info("✅ تم حذف الـ Webhook")
-except requests.RequestException as exc:
-log.error("deleteWebhook error: %s", exc)
+    """Delete the Telegram webhook."""
+    try:
+        r = get_session().post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
+            json={"drop_pending_updates": True}, timeout=10,
+        ).json()
+        if r.get("ok"):
+            log.info("✅ تم حذف الـ Webhook")
+    except requests.RequestException as exc:
+        log.error("deleteWebhook error: %s", exc)
 
 
 def cleanup_alerted_keys():
-"""Remove expired alert keys."""
-now = datetime.now(timezone.utc)
-with alerted_keys_lock:
-expired = [
-k for k, t in list(alerted_keys.items())
-if now - t > timedelta(hours=ALERT_EXPIRY_HOURS)
-]
-for k in expired:
-del alerted_keys[k]
+    """Remove expired alert keys."""
+    now = datetime.now(timezone.utc)
+    with alerted_keys_lock:
+        expired = [
+            k for k, t in list(alerted_keys.items())
+            if now - t > timedelta(hours=ALERT_EXPIRY_HOURS)
+        ]
+        for k in expired:
+            del alerted_keys[k]
 
 
 def cleanup_near6():
-"""Remove expired near-signal-6 entries."""
-now = datetime.now(timezone.utc)
-with near_signals_6_lock:
-expired = [
-k for k, v in list(near_signals_6.items())
-if now - v["time"] > timedelta(hours=NEAR6_EXPIRY_HOURS)
-]
-for k in expired:
-del near_signals_6[k]
+    """Remove expired near-signal-6 entries."""
+    now = datetime.now(timezone.utc)
+    with near_signals_6_lock:
+        expired = [
+            k for k, v in list(near_signals_6.items())
+            if now - v["time"] > timedelta(hours=NEAR6_EXPIRY_HOURS)
+        ]
+        for k in expired:
+            del near_signals_6[k]
 
 
 def save_signal(symbol, price, entry_min, confirm_min, third_min):
-"""Save a trading signal to history."""
-with trades_lock:
-trades_history.append({
-"time" : datetime.now(timezone.utc),
-"symbol" : symbol,
-"price" : price,
-"timeframe": f"{entry_min}m/{confirm_min}m/{third_min}m",
-})
+    """Save a trading signal to history."""
+    with trades_lock:
+        trades_history.append({
+            "time"     : datetime.now(timezone.utc),
+            "symbol"   : symbol,
+            "price"    : price,
+            "timeframe": f"{entry_min}m/{confirm_min}m/{third_min}m",
+        })
 
 
 def send_telegram(msg, chat_id=None):
-"""Send a message via Telegram."""
-target = chat_id or TELEGRAM_CHAT_ID
-try:
-r = get_session().post(
-f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-json={"chat_id": target, "text": msg, "parse_mode": "HTML"},
-timeout=10,
-).json()
-return r.get("ok", False)
-except requests.RequestException as exc:
-log.error("Telegram send error: %s", exc)
-return False
+    """Send a message via Telegram."""
+    target = chat_id or TELEGRAM_CHAT_ID
+    try:
+        r = get_session().post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": target, "text": msg, "parse_mode": "HTML"},
+            timeout=10,
+        ).json()
+        return r.get("ok", False)
+    except requests.RequestException as exc:
+        log.error("Telegram send error: %s", exc)
+        return False
 
 
 def get_report(period="today"):
-"""Generate a report of signals for the given period."""
-now = datetime.now(timezone.utc)
+    """Generate a report of signals for the given period."""
+    now = datetime.now(timezone.utc)
 
-if period == "today":
-start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-end, title = now, "📅 إشارات اليوم"
-elif period == "yesterday":
-end = now.replace(hour=0, minute=0, second=0, microsecond=0)
-start = end - timedelta(days=1)
-title = "📅 إشارات أمس"
-else:
-start = now - timedelta(days=7)
-end, title = now, "🗓️ آخر 7 أيام"
+    if period == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end, title = now, "📅 إشارات اليوم"
+    elif period == "yesterday":
+        end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=1)
+        title = "📅 إشارات أمس"
+    else:
+        start = now - timedelta(days=7)
+        end, title = now, "🗓️ آخر 7 أيام"
 
-with trades_lock:
-rows = [t for t in trades_history if start <= t["time"] < end]
+    with trades_lock:
+        rows = [t for t in trades_history if start <= t["time"] < end]
 
-if not rows:
-return f"<b>{title}:</b>\nلا توجد إشارات."
+    if not rows:
+        return f"<b>{title}:</b>\nلا توجد إشارات."
 
-lines = [f"<b>{title} ({len(rows)})</b>\n" + "━" * 15]
-for t in rows:
-lines.append(
-f"✅ {t['symbol']} | {t['timeframe']} | "
-f"{t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}"
-)
-return "\n".join(lines)
+    lines = [f"<b>{title} ({len(rows)})</b>\n" + "━" * 15]
+    for t in rows:
+        lines.append(
+            f"✅ {t['symbol']} | {t['timeframe']} | "
+            f"{t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}"
+        )
+    return "\n".join(lines)
 
 # ------------------------------------------
 # Binance OHLCV
