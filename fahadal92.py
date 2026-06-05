@@ -723,123 +723,121 @@ def check_rsi_stoch(df, lookback=5):
 
 
 def _get_fresh_df5(symbol):
-"""Fetch latest 5m data directly from Binance + raw 1m from cache."""
-# ✅ جلب الـ5m مباشرة من Binance بدل بناءها من الـ1m
-df5 = get_ohlcv(symbol, "5m", limit=1000)
-df_raw = get_cached(symbol, "1m")
-return df_raw, df5
+   """Fetch latest 5m data directly from Binance + raw 1m from cache."""
+   df5 = get_ohlcv(symbol, "5m", limit=1000)
+   df_raw = get_cached(symbol, "1m")
+   return df_raw, df5
 
 
-def _zone_label(value, low, high, low_label="🔴 تشبع بيعي", # pylint: disable=too-many-arguments,too-many-positional-arguments
-high_label="🟠 تشبع شرائي", neutral="🟡 محايد"):
-"""Return a zone label based on thresholds."""
-if value <= low:
-return low_label
-if value >= high:
-return high_label
-return neutral
+def _zone_label(value, low, high, low_label="🔴 تشبع بيعي",
+               high_label="🟠 تشبع شرائي", neutral="🟡 محايد"):
+   """Return a zone label based on thresholds."""
+   if value <= low:
+       return low_label
+   if value >= high:
+       return high_label
+   return neutral
 
 
-def _calc_check5_indicators(df5): # pylint: disable=too-many-locals
-"""Calculate all indicators for the 5m report and return a dict."""
-rsi_series = calc_rsi_tv(df5["close"], period=14)
-rsi_val = round(float(rsi_series.iloc[-1]), 2)
+def _calc_check5_indicators(df5):
+   """Calculate all indicators for the 5m report and return a dict."""
+   rsi_series = calc_rsi_tv(df5["close"], period=14)
+   rsi_val = round(float(rsi_series.iloc[-1]), 2)
 
-k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
-stoch_k = round(float(k_series.iloc[-1]), 2)
-stoch_d = round(float(d_series.iloc[-1]), 2)
+   k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
+   stoch_k = round(float(k_series.iloc[-1]), 2)
+   stoch_d = round(float(d_series.iloc[-1]), 2)
 
-macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
-macd_hist_val = round(float(histogram.iloc[-1]), 4)
-macd_line_val = round(float(macd_line.iloc[-1]), 4)
-signal_line_val = round(float(signal_line.iloc[-1]), 4)
+   macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
+   macd_hist_val = round(float(histogram.iloc[-1]), 4)
+   macd_line_val = round(float(macd_line.iloc[-1]), 4)
+   signal_line_val = round(float(signal_line.iloc[-1]), 4)
 
-smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
-smi_val = round(float(smi_series.iloc[-1]), 2)
-smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
+   smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
+   smi_val = round(float(smi_series.iloc[-1]), 2)
+   smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
 
-don_trend = calc_donchian_trend(df5)
-if don_trend:
-don_map = {1: "🟢 أخضر (صاعد)", -1: "🔴 أحمر (هابط)"}
-don_color = don_map.get(don_trend[-1], "⚪ محايد")
-else:
-don_color = "⚪ محايد"
+   don_trend = calc_donchian_trend(df5)
+   if don_trend:
+       don_map = {1: "🟢 أخضر (صاعد)", -1: "🔴 أحمر (هابط)"}
+       don_color = don_map.get(don_trend[-1], "⚪ محايد")
+   else:
+       don_color = "⚪ محايد"
 
-return {
-"rsi_val": rsi_val, "rsi_zone": _zone_label(rsi_val, 30, 70),
-"stoch_k": stoch_k, "stoch_d": stoch_d,
-"stoch_zone": _zone_label(stoch_k, 20, 80),
-"macd_hist_val": macd_hist_val, "macd_line_val": macd_line_val,
-"signal_line_val": signal_line_val,
-"macd_color": "🟢" if macd_hist_val > 0 else "🔴",
-"smi_val": smi_val, "smi_sig": smi_sig,
-"smi_zone": _zone_label(smi_val, -40, 40),
-"don_color": don_color,
-}
+   return {
+       "rsi_val": rsi_val, "rsi_zone": _zone_label(rsi_val, 30, 70),
+       "stoch_k": stoch_k, "stoch_d": stoch_d,
+       "stoch_zone": _zone_label(stoch_k, 20, 80),
+       "macd_hist_val": macd_hist_val, "macd_line_val": macd_line_val,
+       "signal_line_val": signal_line_val,
+       "macd_color": "🟢" if macd_hist_val > 0 else "🔴",
+       "smi_val": smi_val, "smi_sig": smi_sig,
+       "smi_zone": _zone_label(smi_val, -40, 40),
+       "don_color": don_color,
+   }
 
 
 def handle_check5(chat_id, symbol="BTCUSDT"):
-"""Fetch and send a 5-minute indicator report for the given symbol."""
-send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
-try:
-df_raw, df5 = _get_fresh_df5(symbol)
-if df5.empty:
-send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
-return
+   """Fetch and send a 5-minute indicator report for the given symbol."""
+   send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
+   try:
+       df_raw, df5 = _get_fresh_df5(symbol)
+       if df5.empty:
+           send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
+           return
 
-if len(df5) < MIN_CANDLES:
-send_telegram(
-f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})\n"
-f"💡 جرب بعد اكتمال التحميل الكامل", chat_id
-)
-return
+       if len(df5) < MIN_CANDLES:
+           send_telegram(
+               f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})\n"
+               f"💡 جرب بعد اكتمال التحميل الكامل", chat_id
+           )
+           return
 
-now = datetime.now(timezone.utc)
-last_candle_end = df5["ts"].iloc[-1] + timedelta(minutes=5)
+       now = datetime.now(timezone.utc)
+       last_candle_end = df5["ts"].iloc[-1] + timedelta(minutes=5)
 
-# ✅ استبعاد الشمعة الحالية غير المكتملة
-if now < last_candle_end:
-df5 = df5.iloc[:-1]
+       if now < last_candle_end:
+           df5 = df5.iloc[:-1]
 
-if len(df5) < MIN_CANDLES:
-send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)
-return
+       if len(df5) < MIN_CANDLES:
+           send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)
+           return
 
-ind = _calc_check5_indicators(df5)
-alert_msg = check_donchian_color_change(symbol, df5)
-if alert_msg:
-    send_telegram(alert_msg)
-price = float(df5["close"].iloc[-1])
-candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
-fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+       ind = _calc_check5_indicators(df5)
+       alert_msg = check_donchian_color_change(symbol, df5)
+       if alert_msg:
+           send_telegram(alert_msg)
+       price = float(df5["close"].iloc[-1])
+       candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
+       fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
-send_telegram(
-f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
-f"🕯 الشمعة المغلقة: <b>{candle_ts}</b>\n"
-f"🕐 وقت الجلب: {fetch_ts}\n"
-f"━━━━━━━━━━━━━━━━\n"
-f"💰 سعر إغلاق الشمعة : <b>{price:.2f}$</b>\n"
-f"━━━━━━━━━━━━━━━━\n"
-f"🎀 Donchian Ribbon (20): {ind['don_color']}\n"
-f"━━━━━━━━━━━━━━━━\n"
-f"📈 RSI (14): <b>{ind['rsi_val']}</b> {ind['rsi_zone']}\n"
-f"━━━━━━━━━━━━━━━━\n"
-f"📉 Stoch K(15,3): <b>{ind['stoch_k']}</b> {ind['stoch_zone']}\n"
-f" Stoch D(3): <b>{ind['stoch_d']}</b>\n"
-f"━━━━━━━━━━━━━━━━\n"
-f"⚡ MACD Histogram: {ind['macd_color']} <b>{ind['macd_hist_val']}</b>\n"
-f" MACD Line: <b>{ind['macd_line_val']}</b>\n"
-f" Signal Line: <b>{ind['signal_line_val']}</b>\n"
-f"━━━━━━━━━━━━━━━━\n"
-f"🔵 SMI: <b>{ind['smi_val']}</b> {ind['smi_zone']}\n"
-f" Signal: <b>{ind['smi_sig']}</b>\n"
-f"━━━━━━━━━━━━━━━━\n"
-f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
-chat_id,
-)
-except Exception as exc: # pylint: disable=broad-except
-log.error("check5 error: %s", exc)
-send_telegram(f"خطا في check5: {exc}", chat_id)
+       send_telegram(
+           f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+           f"🕯 الشمعة المغلقة: <b>{candle_ts}</b>\n"
+           f"🕐 وقت الجلب: {fetch_ts}\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"💰 سعر إغلاق الشمعة : <b>{price:.2f}$</b>\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"🎀 Donchian Ribbon (20): {ind['don_color']}\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"📈 RSI (14): <b>{ind['rsi_val']}</b> {ind['rsi_zone']}\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"📉 Stoch K(15,3): <b>{ind['stoch_k']}</b> {ind['stoch_zone']}\n"
+           f" Stoch D(3): <b>{ind['stoch_d']}</b>\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"⚡ MACD Histogram: {ind['macd_color']} <b>{ind['macd_hist_val']}</b>\n"
+           f" MACD Line: <b>{ind['macd_line_val']}</b>\n"
+           f" Signal Line: <b>{ind['signal_line_val']}</b>\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"🔵 SMI: <b>{ind['smi_val']}</b> {ind['smi_zone']}\n"
+           f" Signal: <b>{ind['smi_sig']}</b>\n"
+           f"━━━━━━━━━━━━━━━━\n"
+           f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
+           chat_id,
+       )
+   except Exception as exc:  # pylint: disable=broad-except
+       log.error("check5 error: %s", exc)
+       send_telegram(f"خطا في check5: {exc}", chat_id)
 
 # ------------------------------------------
 # check5_watcher
@@ -847,43 +845,43 @@ send_telegram(f"خطا في check5: {exc}", chat_id)
 
 
 def get_next_close(tf_minutes):
-"""Return the datetime of the next candle close for the given timeframe."""
-now = datetime.now(timezone.utc)
-epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-elapsed_min = (now - epoch).total_seconds() / 60
-next_min = (int(elapsed_min // tf_minutes) + 1) * tf_minutes
-return epoch + timedelta(minutes=next_min)
+   """Return the datetime of the next candle close for the given timeframe."""
+   now = datetime.now(timezone.utc)
+   epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+   elapsed_min = (now - epoch).total_seconds() / 60
+   next_min = (int(elapsed_min // tf_minutes) + 1) * tf_minutes
+   return epoch + timedelta(minutes=next_min)
 
 
 def check5_watcher():
-"""Background thread: send 5m BTC report at every candle close."""
-while True:
-try:
-nxt = get_next_close(5)
-now = datetime.now(timezone.utc)
-wait = (nxt - now).total_seconds()
+   """Background thread: send 5m BTC report at every candle close."""
+   while True:
+       try:
+           nxt = get_next_close(5)
+           now = datetime.now(timezone.utc)
+           wait = (nxt - now).total_seconds()
 
-if wait < -60:
-log.warning("⚠️ check5_watcher تأخر %sث — تخطي للشمعة التالية", abs(wait))
-next_nxt = get_next_close(5)
-next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
-time.sleep(max(next_wait, 0) + 10)
-continue
+           if wait < -60:
+               log.warning("⚠️ check5_watcher تأخر %sث — تخطي للشمعة التالية", abs(wait))
+               next_nxt = get_next_close(5)
+               next_wait = (next_nxt - datetime.now(timezone.utc)).total_seconds()
+               time.sleep(max(next_wait, 0) + 10)
+               continue
 
-time.sleep(max(wait, 0) + 10)
+           time.sleep(max(wait, 0) + 10)
 
-if not fast_prefetch_done.is_set():
-continue
+           if not fast_prefetch_done.is_set():
+               continue
 
-threading.Thread(
-target=handle_check5,
-args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
-daemon=True,
-).start()
+           threading.Thread(
+               target=handle_check5,
+               args=(TELEGRAM_CHAT_ID, "BTCUSDT"),
+               daemon=True,
+           ).start()
 
-except Exception as exc: # pylint: disable=broad-except
-log.error("check5_watcher error: %s", exc)
-time.sleep(10)
+       except Exception as exc:  # pylint: disable=broad-except
+           log.error("check5_watcher error: %s", exc)
+           time.sleep(10)
 
 # ------------------------------------------
 # Scanning and Monitoring
@@ -891,118 +889,118 @@ time.sleep(10)
 
 
 def _record_diag(step, symbol, entry_min):
-"""Increment the diag counter for step and update last_diag."""
-with diag_lock:
-diag_counts[step] += 1
-with last_diag_lock:
-last_diag["symbol"] = symbol
-last_diag["step"] = step
-last_diag["entry_min"] = entry_min
-last_diag["time"] = datetime.now(timezone.utc)
+   """Increment the diag counter for step and update last_diag."""
+   with diag_lock:
+       diag_counts[step] += 1
+   with last_diag_lock:
+       last_diag["symbol"] = symbol
+       last_diag["step"] = step
+       last_diag["entry_min"] = entry_min
+       last_diag["time"] = datetime.now(timezone.utc)
 
 
 def _build_scan_frames(raw_ec, raw_t, entry_min, confirm_min, third_min):
-"""Resample raw data into entry, confirm, and third DataFrames."""
-return (
-resample_ohlcv(raw_ec, entry_min),
-resample_ohlcv(raw_ec, confirm_min),
-resample_ohlcv(raw_t, third_min),
-)
+   """Resample raw data into entry, confirm, and third DataFrames."""
+   return (
+       resample_ohlcv(raw_ec, entry_min),
+       resample_ohlcv(raw_ec, confirm_min),
+       resample_ohlcv(raw_t, third_min),
+   )
 
 
 def _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min):
-"""Run all indicator filters; return the failing step name or None if all pass."""
-if not check_smi_oversold(df_entry):
-return "smi_oversold"
+   """Run all indicator filters; return the failing step name or None if all pass."""
+   if not check_smi_oversold(df_entry):
+       return "smi_oversold"
 
-next_tf = NEXT_TF.get(entry_min)
-if next_tf:
-df_next = resample_ohlcv(raw_ec, next_tf)
-if not df_next.empty and check_smi_oversold(df_next):
-return "active_skip"
+   next_tf = NEXT_TF.get(entry_min)
+   if next_tf:
+       df_next = resample_ohlcv(raw_ec, next_tf)
+       if not df_next.empty and check_smi_oversold(df_next):
+           return "active_skip"
 
-checks = [
-(check_macd_red(df_entry), "macd_red"),
-(check_donchian_trend_ribbon(df_entry, "green"), "donchian_entry"),  # ✅ استخدام Trend Ribbon
-(check_donchian_trend_ribbon(df_confirm, "green"), "donchian_confirm"),  # ✅ استخدام Trend Ribbon
-(check_macd_green(df_confirm), "macd_confirm"),
-(check_ema50_below(df_entry), "ema50"),
-(check_rsi_stoch(df_third), "rsi_stoch"),
-]
-for passed, label in checks:
-if not passed:
-return label
-return None
-
-
-def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry): # pylint: disable=too-many-arguments,too-many-positional-arguments
-"""Send the Telegram alert and record the signal."""
-key = (symbol, entry_min, confirm_min, third_min)
-now = datetime.now(timezone.utc)
-with alerted_keys_lock:
-last_alert = alerted_keys.get(key)
-if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
-return
-alerted_keys[key] = now
-try:
-with diag_lock:
-diag_counts["passed"] += 1
-price = df_entry["close"].iloc[-1]
-entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
-save_signal(symbol, price, entry_min, confirm_min, third_min)
-send_telegram(
-f"🚨 <b>إشارة دخول:</b> {symbol}\n"
-f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
-f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
-f"🕐 وقت الدخول: <b>{entry_time}</b>"
-)
-except Exception as exc: # pylint: disable=broad-except
-log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
+   checks = [
+       (check_macd_red(df_entry), "macd_red"),
+       (check_donchian_trend_ribbon(df_entry, "green"), "donchian_entry"),
+       (check_donchian_trend_ribbon(df_confirm, "green"), "donchian_confirm"),
+       (check_macd_green(df_confirm), "macd_confirm"),
+       (check_ema50_below(df_entry), "ema50"),
+       (check_rsi_stoch(df_third), "rsi_stoch"),
+   ]
+   for passed, label in checks:
+       if not passed:
+           return label
+   return None
 
 
-def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api): # pylint: disable=too-many-arguments,too-many-positional-arguments
-"""Scan a single symbol against all entry criteria and fire a signal if matched."""
-raw_ec = get_cached(symbol, ec_api)
-raw_t = get_cached(symbol, t_api)
-
-with diag_lock:
-diag_counts["total"] += 1
-
-if raw_ec.empty or raw_t.empty:
-_record_diag("no_data", symbol, entry_min)
-return
-
-df_entry, df_confirm, df_third = _build_scan_frames(
-raw_ec, raw_t, entry_min, confirm_min, third_min
-)
-
-if df_entry.empty or df_confirm.empty or df_third.empty:
-_record_diag("no_data", symbol, entry_min)
-return
-
-failed_step = _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min)
-if failed_step:
-_record_diag(failed_step, symbol, entry_min)
-return
-
-_fire_signal(symbol, entry_min, confirm_min, third_min, df_entry)
+def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+   """Send the Telegram alert and record the signal."""
+   key = (symbol, entry_min, confirm_min, third_min)
+   now = datetime.now(timezone.utc)
+   with alerted_keys_lock:
+       last_alert = alerted_keys.get(key)
+       if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
+           return
+       alerted_keys[key] = now
+   try:
+       with diag_lock:
+           diag_counts["passed"] += 1
+       price = df_entry["close"].iloc[-1]
+       entry_time = now.strftime("%Y-%m-%d %H:%M UTC")
+       save_signal(symbol, price, entry_min, confirm_min, third_min)
+       send_telegram(
+           f"🚨 <b>إشارة دخول:</b> {symbol}\n"
+           f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
+           f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
+           f"🕐 وقت الدخول: <b>{entry_time}</b>"
+       )
+   except Exception as exc:  # pylint: disable=broad-except
+       log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
 
 
-def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api): # pylint: disable=too-many-arguments,too-many-positional-arguments
-"""Background thread: scan all symbols every 30 seconds."""
-while True:
-time.sleep(30)
-if not fast_prefetch_done.is_set():
-continue
-with symbols_cache_lock:
-syms = list(symbols_cache)
-fn = partial(
-scan_symbol,
-entry_min=entry_min, confirm_min=confirm_min,
-third_min=third_min, ec_api=ec_api, t_api=t_api,
-)
-with ThreadPoolExecutor(max_workers=20) as executor:
-list(executor.map(fn, syms))
+def scan_symbol(symbol, entry_min, confirm_min, third_min, ec_api, t_api):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+   """Scan a single symbol against all entry criteria and fire a signal if matched."""
+   raw_ec = get_cached(symbol, ec_api)
+   raw_t = get_cached(symbol, t_api)
+
+   with diag_lock:
+       diag_counts["total"] += 1
+
+   if raw_ec.empty or raw_t.empty:
+       _record_diag("no_data", symbol, entry_min)
+       return
+
+   df_entry, df_confirm, df_third = _build_scan_frames(
+       raw_ec, raw_t, entry_min, confirm_min, third_min
+   )
+
+   if df_entry.empty or df_confirm.empty or df_third.empty:
+       _record_diag("no_data", symbol, entry_min)
+       return
+
+   failed_step = _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min)
+   if failed_step:
+       _record_diag(failed_step, symbol, entry_min)
+       return
+
+   _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry)
+
+
+def candle_watcher(entry_min, confirm_min, third_min, ec_api, t_api):  # pylint: disable=too-many-arguments,too-many-positional-arguments
+   """Background thread: scan all symbols every 30 seconds."""
+   while True:
+       time.sleep(30)
+       if not fast_prefetch_done.is_set():
+           continue
+       with symbols_cache_lock:
+           syms = list(symbols_cache)
+       fn = partial(
+           scan_symbol,
+           entry_min=entry_min, confirm_min=confirm_min,
+           third_min=third_min, ec_api=ec_api, t_api=t_api,
+       )
+       with ThreadPoolExecutor(max_workers=20) as executor:
+           list(executor.map(fn, syms))
 
 # ------------------------------------------
 # Telegram Commands
@@ -1010,116 +1008,116 @@ list(executor.map(fn, syms))
 
 
 def _cmd_status(chat_id):
-"""Send bot status message."""
-with trades_lock:
-cnt = len(trades_history)
-with alerted_keys_lock:
-active = len(alerted_keys)
-with ohlcv_cache_lock:
-keys = len(ohlcv_cache)
-send_telegram(
-f"🤖 البوت يعمل — Binance API\n"
-f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
-f"📊 إجمالي الإشارات: {cnt}\n"
-f"🔑 تنبيهات نشطة: {active}\n"
-f"💾 الكاش: {keys} مفتاح\n"
-f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
-f"📦 تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}",
-chat_id,
-)
+   """Send bot status message."""
+   with trades_lock:
+       cnt = len(trades_history)
+   with alerted_keys_lock:
+       active = len(alerted_keys)
+   with ohlcv_cache_lock:
+       keys = len(ohlcv_cache)
+   send_telegram(
+       f"🤖 البوت يعمل — Binance API\n"
+       f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
+       f"📊 إجمالي الإشارات: {cnt}\n"
+       f"🔑 تنبيهات نشطة: {active}\n"
+       f"💾 الكاش: {keys} مفتاح\n"
+       f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
+       f"📦 تحميل كامل: {'✅' if prefetch_done.is_set() else '⏳'}",
+       chat_id,
+   )
 
 
 def _cmd_diag(chat_id):
-"""Send step-by-step diagnostics report."""
-if diag_counts["total"] == 0:
-send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
-return
-with diag_lock:
-t = diag_counts["total"] or 1
-remaining = t
-lines = [
-"🔍 <b>تقرير الشروط</b>",
-"━━━━━━━━━━━━━━━",
-f"📊 إجمالي الفحوصات: <b>{t}</b>",
-"",
-]
-steps = [
-("smi_oversold", "① تشبع بيعي SMI"),
-("active_skip", "⭐ الفريم الأكبر"),
-("macd_red", "② MACD أحمر"),
-("donchian_entry", "③ Donchian Trend Ribbon أخضر"),
-("donchian_confirm", "④ Donchian Trend Ribbon Confirm أخضر"),
-("macd_confirm", "⑤ MACD Confirm"),
-("ema50", "⑥ EMA50"),
-("rsi_stoch", "⑦ RSI/Stoch"),
-]
-for key, label in steps:
-failed = diag_counts[key]
-passed = remaining - failed
-remaining = passed
-lines.append(f"{label}: <b>{passed}</b> عملة ✅")
-lines += [
-"",
-f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
-]
-send_telegram("\n".join(lines), chat_id)
+   """Send step-by-step diagnostics report."""
+   if diag_counts["total"] == 0:
+       send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
+       return
+   with diag_lock:
+       t = diag_counts["total"] or 1
+       remaining = t
+       lines = [
+           "🔍 <b>تقرير الشروط</b>",
+           "━━━━━━━━━━━━━━━",
+           f"📊 إجمالي الفحوصات: <b>{t}</b>",
+           "",
+       ]
+       steps = [
+           ("smi_oversold", "① تشبع بيعي SMI"),
+           ("active_skip", "⭐ الفريم الأكبر"),
+           ("macd_red", "② MACD أحمر"),
+           ("donchian_entry", "③ Donchian Trend Ribbon أخضر"),
+           ("donchian_confirm", "④ Donchian Trend Ribbon Confirm أخضر"),
+           ("macd_confirm", "⑤ MACD Confirm"),
+           ("ema50", "⑥ EMA50"),
+           ("rsi_stoch", "⑦ RSI/Stoch"),
+       ]
+       for key, label in steps:
+           failed = diag_counts[key]
+           passed = remaining - failed
+           remaining = passed
+           lines.append(f"{label}: <b>{passed}</b> عملة ✅")
+       lines += [
+           "",
+           f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
+       ]
+   send_telegram("\n".join(lines), chat_id)
 
 
 def _cmd_check5(chat_id, txt):
-"""Launch a check5 thread for the requested symbol."""
-parts = txt.split()
-symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
-if not symbol.endswith("USDT"):
-symbol += "USDT"
-threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
+   """Launch a check5 thread for the requested symbol."""
+   parts = txt.split()
+   symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+   if not symbol.endswith("USDT"):
+       symbol += "USDT"
+   threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
 
 
 def _dispatch_command(txt, chat_id):
-"""Route a Telegram command to its handler."""
-if txt == "/status":
-_cmd_status(chat_id)
-elif txt in ("1", "/today"):
-send_telegram(get_report("today"), chat_id)
-elif txt in ("2", "/yesterday"):
-send_telegram(get_report("yesterday"), chat_id)
-elif txt in ("3", "/week"):
-send_telegram(get_report("week"), chat_id)
-elif txt in ("/سبب", "/diag"):
-_cmd_diag(chat_id)
-elif txt.startswith("/check5"):
-_cmd_check5(chat_id, txt)
-elif txt == "/help":
-send_telegram(
-"📋 <b>الأوامر المتاحة:</b>\n"
-"📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
-"📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
-"1️⃣ <code>1</code> — إشارات اليوم\n"
-"2️⃣ <code>2</code> — إشارات أمس\n"
-"3️⃣ <code>3</code> — آخر 7 أيام\n"
-"🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
-"📊 <code>/status</code> — حالة البوت\n"
-"📋 <code>/help</code> — قائمة الأوامر",
-chat_id,
-)
+   """Route a Telegram command to its handler."""
+   if txt == "/status":
+       _cmd_status(chat_id)
+   elif txt in ("1", "/today"):
+       send_telegram(get_report("today"), chat_id)
+   elif txt in ("2", "/yesterday"):
+       send_telegram(get_report("yesterday"), chat_id)
+   elif txt in ("3", "/week"):
+       send_telegram(get_report("week"), chat_id)
+   elif txt in ("/سبب", "/diag"):
+       _cmd_diag(chat_id)
+   elif txt.startswith("/check5"):
+       _cmd_check5(chat_id, txt)
+   elif txt == "/help":
+       send_telegram(
+           "📋 <b>الأوامر المتاحة:</b>\n"
+           "📊 <code>/check5</code> — تقرير BTC فريم 5 دقايق\n"
+           "📊 <code>/check5 ETH</code> — تقرير ETH فريم 5 دقايق\n"
+           "1️⃣ <code>1</code> — إشارات اليوم\n"
+           "2️⃣ <code>2</code> — إشارات أمس\n"
+           "3️⃣ <code>3</code> — آخر 7 أيام\n"
+           "🔍 <code>/سبب</code> — آخر رمز فُحص وسبب فشله\n"
+           "📊 <code>/status</code> — حالة البوت\n"
+           "📋 <code>/help</code> — قائمة الأوامر",
+           chat_id,
+       )
 
 
 def poll_telegram_commands():
-"""Long-poll Telegram for commands and dispatch them."""
-last_id = 0
-while True:
-try:
-r = get_session().get(
-f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
-params={"offset": last_id + 1, "timeout": 30}, timeout=35,
-).json()
-for upd in r.get("result", []):
-last_id = upd["update_id"]
-txt = upd.get("message", {}).get("text", "").strip()
-chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
-if txt and chat_id:
-_dispatch_command(txt, chat_id)
-except Exception: # pylint: disable=broad-except
-time.sleep(10)
+   """Long-poll Telegram for commands and dispatch them."""
+   last_id = 0
+   while True:
+       try:
+           r = get_session().get(
+               f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
+               params={"offset": last_id + 1, "timeout": 30}, timeout=35,
+           ).json()
+           for upd in r.get("result", []):
+               last_id = upd["update_id"]
+               txt = upd.get("message", {}).get("text", "").strip()
+               chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
+               if txt and chat_id:
+                   _dispatch_command(txt, chat_id)
+       except Exception:  # pylint: disable=broad-except
+           time.sleep(10)
 
 # ------------------------------------------
 # Symbols Loop
@@ -1127,36 +1125,36 @@ time.sleep(10)
 
 
 def update_symbols_loop():
-"""Periodically refresh the top symbols list from Binance."""
-while True:
-try:
-resp = get_session().get(f"{BINANCE_BASE}/api/v3/ticker/24hr").json()
-if isinstance(resp, list):
-tickers = resp
-elif isinstance(resp, dict):
-tickers = resp.get("data", [])
-else:
-tickers = []
+   """Periodically refresh the top symbols list from Binance."""
+   while True:
+       try:
+           resp = get_session().get(f"{BINANCE_BASE}/api/v3/ticker/24hr").json()
+           if isinstance(resp, list):
+               tickers = resp
+           elif isinstance(resp, dict):
+               tickers = resp.get("data", [])
+           else:
+               tickers = []
 
-top = sorted(
-[
-t for t in tickers
-if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")
-],
-key=lambda x: float(x.get("quoteVolume", 0)),
-reverse=True
-)[:TOP_SYMBOLS_LIMIT]
+           top = sorted(
+               [
+                   t for t in tickers
+                   if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")
+               ],
+               key=lambda x: float(x.get("quoteVolume", 0)),
+               reverse=True
+           )[:TOP_SYMBOLS_LIMIT]
 
-with symbols_cache_lock:
-symbols_cache[:] = [t["symbol"] for t in top]
-log.info("✅ عملات: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
-if not fast_prefetch_done.is_set():
-threading.Thread(
-target=prefetch_all, args=(list(symbols_cache),), daemon=True
-).start()
-except requests.RequestException as exc:
-log.error("update_symbols_loop: %s", exc)
-time.sleep(3600)
+           with symbols_cache_lock:
+               symbols_cache[:] = [t["symbol"] for t in top]
+           log.info("✅ عملات: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
+           if not fast_prefetch_done.is_set():
+               threading.Thread(
+                   target=prefetch_all, args=(list(symbols_cache),), daemon=True
+               ).start()
+       except requests.RequestException as exc:
+           log.error("update_symbols_loop: %s", exc)
+       time.sleep(3600)
 
 # ------------------------------------------
 # Health Server
@@ -1164,16 +1162,16 @@ time.sleep(3600)
 
 
 class HealthHandler(BaseHTTPRequestHandler):
-"""Simple HTTP handler that responds OK to health checks."""
+   """Simple HTTP handler that responds OK to health checks."""
 
-def do_GET(self): # pylint: disable=invalid-name
-"""Handle GET requests with a 200 OK response."""
-self.send_response(200)
-self.end_headers()
-self.wfile.write(b"OK")
+   def do_GET(self):  # pylint: disable=invalid-name
+       """Handle GET requests with a 200 OK response."""
+       self.send_response(200)
+       self.end_headers()
+       self.wfile.write(b"OK")
 
-def log_message(self, *_):
-"""Suppress default request logging."""
+   def log_message(self, *_):
+       """Suppress default request logging."""
 
 # ------------------------------------------
 # Main
@@ -1181,52 +1179,52 @@ def log_message(self, *_):
 
 
 def main():
-"""Start all background threads and run the main heartbeat loop."""
-def handle_exception(exc_type, exc_value, exc_tb):
-msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-log.error("💥 خطأ غير متوقع أوقف البوت:\n%s", msg)
-try:
-send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")
-except Exception: # pylint: disable=broad-except
-pass
+   """Start all background threads and run the main heartbeat loop."""
+   def handle_exception(exc_type, exc_value, exc_tb):
+       msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+       log.error("💥 خطأ غير متوقع أوقف البوت:\n%s", msg)
+       try:
+           send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")
+       except Exception:  # pylint: disable=broad-except
+           pass
 
-sys.excepthook = handle_exception
+   sys.excepthook = handle_exception
 
-server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-threading.Thread(target=server.serve_forever, daemon=True).start()
-log.info("✅ Health server شغّال على port %s", PORT)
+   server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+   threading.Thread(target=server.serve_forever, daemon=True).start()
+   log.info("✅ Health server شغّال على port %s", PORT)
 
-delete_webhook()
+   delete_webhook()
 
-threading.Thread(target=update_symbols_loop, daemon=True).start()
-threading.Thread(target=poll_telegram_commands, daemon=True).start()
-threading.Thread(target=cache_updater_1m, daemon=True).start()
-threading.Thread(target=cache_updater_60m, daemon=True).start()
-threading.Thread(target=check5_watcher, daemon=True).start()
-threading.Thread(target=send_diag_report, daemon=True).start()
+   threading.Thread(target=update_symbols_loop, daemon=True).start()
+   threading.Thread(target=poll_telegram_commands, daemon=True).start()
+   threading.Thread(target=cache_updater_1m, daemon=True).start()
+   threading.Thread(target=cache_updater_60m, daemon=True).start()
+   threading.Thread(target=check5_watcher, daemon=True).start()
+   threading.Thread(target=send_diag_report, daemon=True).start()
 
-for params in TRIPLING_PAIRS:
-threading.Thread(target=candle_watcher, args=params, daemon=True).start()
+   for params in TRIPLING_PAIRS:
+       threading.Thread(target=candle_watcher, args=params, daemon=True).start()
 
-while True:
-try:
-time.sleep(300)
-cleanup_alerted_keys()
-with ohlcv_cache_lock:
-cache_size = len(ohlcv_cache)
-with trades_lock:
-signals_count = len(trades_history)
-log.info(
-"💓 البوت يعمل | كاش: %s مفتاح | إشارات: %s | سريع: %s | كامل: %s",
-cache_size,
-signals_count,
-"✅" if fast_prefetch_done.is_set() else "⏳",
-"✅" if prefetch_done.is_set() else "⏳",
-)
-except Exception as exc: # pylint: disable=broad-except
-log.error("❌ خطأ في main loop: %s\n%s", exc, traceback.format_exc())
-time.sleep(10)
+   while True:
+       try:
+           time.sleep(300)
+           cleanup_alerted_keys()
+           with ohlcv_cache_lock:
+               cache_size = len(ohlcv_cache)
+           with trades_lock:
+               signals_count = len(trades_history)
+           log.info(
+               "💓 البوت يعمل | كاش: %s مفتاح | إشارات: %s | سريع: %s | كامل: %s",
+               cache_size,
+               signals_count,
+               "✅" if fast_prefetch_done.is_set() else "⏳",
+               "✅" if prefetch_done.is_set() else "⏳",
+           )
+       except Exception as exc:  # pylint: disable=broad-except
+           log.error("❌ خطأ في main loop: %s\n%s", exc, traceback.format_exc())
+           time.sleep(10)
 
 
 if __name__ == "__main__":
-main()
+   main()
