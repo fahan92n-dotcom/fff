@@ -447,67 +447,67 @@ def cache_updater_60m():
 
 
 def resample_ohlcv(df, minutes):
-"""Resample OHLCV data to a larger timeframe, excluding the last (open) candle."""
-if df.empty:
-return pd.DataFrame()
-return (
-df.copy().set_index("ts")
-.resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
-.agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
-.dropna().iloc[:-1].reset_index()
-)
+   """Resample OHLCV data to a larger timeframe, excluding the last (open) candle."""
+   if df.empty:
+       return pd.DataFrame()
+   return (
+       df.copy().set_index("ts")
+       .resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
+       .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
+       .dropna().iloc[:-1].reset_index()
+   )
 
 
 def resample_ohlcv_closed(df, minutes):
-"""Resample OHLCV data to a larger timeframe, including the last candle."""
-if df.empty:
-return pd.DataFrame()
-return (
-df.copy().set_index("ts")
-.resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
-.agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
-.dropna().reset_index()
-)
+   """Resample OHLCV data to a larger timeframe, including the last candle."""
+   if df.empty:
+       return pd.DataFrame()
+   return (
+       df.copy().set_index("ts")
+       .resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
+       .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
+       .dropna().reset_index()
+   )
 
 
 def wilder_rma(series, period):
-"""Calculate Wilder's smoothed moving average."""
-return series.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+   """Calculate Wilder's smoothed moving average."""
+   return series.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
 
 
 def _calc_macd_hist(close):
-"""Calculate MACD histogram."""
-macd_line = (
-close.ewm(span=12, min_periods=12, adjust=False).mean()
-- close.ewm(span=26, min_periods=26, adjust=False).mean()
-)
-signal = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
-return macd_line - signal
+   """Calculate MACD histogram."""
+   macd_line = (
+       close.ewm(span=12, min_periods=12, adjust=False).mean()
+       - close.ewm(span=26, min_periods=26, adjust=False).mean()
+   )
+   signal = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
+   return macd_line - signal
 
 
 def _calc_macd_full(close):
-"""Calculate full MACD: line, signal, and histogram."""
-macd_line = (
-close.ewm(span=12, min_periods=12, adjust=False).mean()
-- close.ewm(span=26, min_periods=26, adjust=False).mean()
-)
-signal_line = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
-histogram = macd_line - signal_line
-return macd_line, signal_line, histogram
+   """Calculate full MACD: line, signal, and histogram."""
+   macd_line = (
+       close.ewm(span=12, min_periods=12, adjust=False).mean()
+       - close.ewm(span=26, min_periods=26, adjust=False).mean()
+   )
+   signal_line = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
+   histogram = macd_line - signal_line
+   return macd_line, signal_line, histogram
 
 
 def check_macd_red(df):
-"""Return True if the latest MACD histogram is negative."""
-if len(df) < WARMUP_MACD:
-return False
-return bool(_calc_macd_hist(df["close"]).iloc[-1] < 0)
+   """Return True if the latest MACD histogram is negative."""
+   if len(df) < WARMUP_MACD:
+       return False
+   return bool(_calc_macd_hist(df["close"]).iloc[-1] < 0)
 
 
 def check_macd_green(df):
-"""Return True if the latest MACD histogram is positive."""
-if len(df) < WARMUP_MACD:
-return False
-return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
+   """Return True if the latest MACD histogram is positive."""
+   if len(df) < WARMUP_MACD:
+       return False
+   return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
 # ------------------------------------------
 # Donchian Trend Ribbon (✅ صحيح)
