@@ -925,6 +925,7 @@ def _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min):
        (check_donchian_trend_ribbon(df_confirm, "green"), "donchian_confirm"),
        (check_macd_green(df_confirm), "macd_confirm"),
        (check_ema50_below(df_entry), "ema50"),
+       (check_rsi_touched_oversold(df_entry), "rsi_stoch"),
        (check_rsi_stoch(df_third), "rsi_stoch"),
    ]
    for passed, label in checks:
