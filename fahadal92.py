@@ -1009,6 +1009,7 @@ def _cmd_diag(chat_id):
     if diag_counts["total"] == 0:
         send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
         return
+
     with diag_lock:
         t = diag_counts["total"] or 1
         remaining = t
@@ -1028,16 +1029,19 @@ def _cmd_diag(chat_id):
             ("ema50",            "⑥ EMA50"),
             ("rsi_stoch",        "⑦ RSI/Stoch"),
         ]
-    for key, label in steps:
-        failed = diag_counts[key]
-        remaining = remaining - failed
-        if remaining < 0:
-            remaining = 0
-        lines.append(f"{label}: <b>{remaining}</b>")
+
+        for key, label in steps:
+            failed = diag_counts[key]
+            remaining = remaining - failed
+            if remaining < 0:
+                remaining = 0
+            lines.append(f"{label}: <b>{remaining}</b>")
+
         lines += [
             "",
             f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
         ]
+
     send_telegram("\n".join(lines), chat_id)
 
 
