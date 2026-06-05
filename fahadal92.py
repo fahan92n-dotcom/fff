@@ -1033,7 +1033,7 @@ def _cmd_diag(chat_id):
         remaining = remaining - failed
         if remaining < 0:
             remaining = 0
-        lines.append(f"{label}: <b>{remaining}</b>
+        lines.append(f"{label}: <b>{remaining}</b>")
         lines += [
             "",
             f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
