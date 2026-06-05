@@ -1012,7 +1012,7 @@ def _cmd_diag(chat_id):
 
     with diag_lock:
         t = diag_counts["total"] or 1
-        remaining = t
+        passed = t  # ابدأ بالكل اللي نجح
         lines = [
             "🔍 <b>تقرير الشروط</b>",
             "━━━━━━━━━━━━━━━",
@@ -1032,10 +1032,16 @@ def _cmd_diag(chat_id):
 
         for key, label in steps:
             failed = diag_counts[key]
-            remaining = remaining - failed
-            if remaining < 0:
-                remaining = 0
-            lines.append(f"{label}: <b>{remaining}</b>")
+            # passed هو عدد اللي نجحوا في هذا الشرط
+            passed_this_step = passed - failed
+            fail_pct = int(failed / t * 100) if t > 0 else 0
+            pass_pct = int(passed_this_step / t * 100) if t > 0 else 0
+            
+            lines.append(
+                f"{label}\n"
+                f"  نجح: {passed_this_step} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
+            )
+            passed = passed_this_step  # للشرط التالي
 
         lines += [
             "",
