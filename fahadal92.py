@@ -676,46 +676,35 @@ def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):  # pylint
 # ------------------------------------------
 
 
-def check_rsi_stoch(df, lookback=5):
-    """Return True if BOTH RSI and Stochastic crossed up within the lookback window."""
+def check_rsi_stoch(df, lookback=20, max_gap=5):
+    """Return True if RSI and Stochastic both crossed up with max 5 candles between them."""
     if len(df) < WARMUP_RSI + lookback:
         return False
-    
+
     rsi = calc_rsi_tv(df["close"], period=14)
     rsi_sig = rsi.rolling(14).mean()
     k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-    
-    stoch_cross_found = False
-    rsi_cross_found = False
-    
+
+    stoch_crosses = []
+    rsi_crosses = []
+
     for i in range(-lookback, 0):
-        # فحص Stochastic تقاطع تحت 20 ويطلع فوقها
-        if not stoch_cross_found:
-            try:
-                stoch_prev = float(k.iloc[i - 1])
-                stoch_curr = float(k.iloc[i])
-                stoch_cross = stoch_prev < 20 <= stoch_curr
-                if stoch_cross:
-                    stoch_cross_found = True
-            except (ValueError, IndexError):
-                continue
-        
-        # فحص RSI تقاطع مع الـ signal line
-        if not rsi_cross_found:
-            try:
-                rsi_prev = float(rsi.iloc[i - 1])
-                rsi_sig_prev = float(rsi_sig.iloc[i - 1])
-                rsi_curr = float(rsi.iloc[i])
-                rsi_sig_curr = float(rsi_sig.iloc[i])
-                
-                rsi_cross = (rsi_prev < rsi_sig_prev and rsi_curr >= rsi_sig_curr)
-                if rsi_cross:
-                    rsi_cross_found = True
-            except (ValueError, IndexError):
-                continue
-    
-    # يرجع True فقط إذا اتحقق الاثنين معاً
-    return stoch_cross_found and rsi_cross_found
+        try:
+            if float(k.iloc[i - 1]) < 20 <= float(k.iloc[i]):
+                stoch_crosses.append(i)
+            if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and \
+               float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
+                rsi_crosses.append(i)
+        except (ValueError, IndexError):
+            continue
+
+    for sc in stoch_crosses:
+        for rc in rsi_crosses:
+            if 1 <= abs(sc - rc) <= max_gap:
+                return True
+
+    return False
+
 
 # ------------------------------------------
 # handle_check5
