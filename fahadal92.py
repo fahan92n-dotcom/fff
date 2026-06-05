@@ -559,8 +559,10 @@ def calc_donchian_ribbon(df, dlen=20):
     if not main:
         return 0, False
     maintrend = main[-1]
+    if maintrend == 0:
+        return 0, False
     all_agree = True
-    for offset in range(10):
+    for offset in range(1, 10):
         sub = calc_donchian_trend(df, dlen - offset)
         if not sub or sub[-1] != maintrend:
             all_agree = False
