@@ -1006,48 +1006,64 @@ def _cmd_status(chat_id):
 
 
 def _cmd_diag(chat_id):
-    if diag_counts["total"] == 0:
-        send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
+    send_telegram("🔄 جاري الفحص الفوري...", chat_id)
+    
+    with symbols_cache_lock:
+        syms = list(symbols_cache)
+    
+    if not syms:
+        send_telegram("⚠️ لا توجد عملات محملة بعد.", chat_id)
         return
 
-    with diag_lock:
-        t = diag_counts["total"] or 1
-        passed = t  # ابدأ بالكل اللي نجح
-        lines = [
-            "🔍 <b>تقرير الشروط</b>",
-            "━━━━━━━━━━━━━━━",
-            f"📊 إجمالي الفحوصات: <b>{t}</b>",
-            "",
-        ]
-        steps = [
-            ("smi_oversold",     "① تشبع بيعي SMI"),
-            ("active_skip",      "⭐ الفريم الأكبر"),
-            ("macd_red",         "② MACD أحمر"),
-            ("donchian_entry",   "③ Donchian أخضر"),
-            ("donchian_confirm", "④ Donchian Confirm"),
-            ("macd_confirm",     "⑤ MACD Confirm"),
-            ("ema50",            "⑥ EMA50"),
-            ("rsi_stoch",        "⑦ RSI/Stoch"),
-        ]
+عدادات مؤقتة للفحص الآن فقط #
+    counts = {
+        "total": 0, "smi_oversold": 0, "active_skip": 0,
+        "macd_red": 0, "donchian_entry": 0, "donchian_confirm": 0,
+        "macd_confirm": 0, "ema50": 0, "rsi_stoch": 0, "passed": 0,
+    }
 
-        for key, label in steps:
-            failed = diag_counts[key]
-            # passed هو عدد اللي نجحوا في هذا الشرط
-            passed_this_step = passed - failed
-            fail_pct = int(failed / t * 100) if t > 0 else 0
-            pass_pct = int(passed_this_step / t * 100) if t > 0 else 0
-            
-            lines.append(
-                f"{label}\n"
-                f"  نجح: {passed_this_step} ({pass_pct}%) | فشل: {failed} ({fail_pct}%)"
+    for entry_min, (main_min, confirm_min) in ENTRY_TO_STRATEGY.items():
+        for symbol in syms:
+            raw_1m  = get_cached(symbol, "1m")
+            raw_60m = get_cached(symbol, "60m")
+            counts["total"] += 1
+            if raw_1m.empty:
+                continue
+            df_entry, df_confirm, df_third = _build_scan_frames(
+                raw_1m, raw_60m, entry_min, main_min, confirm_min
             )
-            passed = passed_this_step  # للشرط التالي
+            if df_entry.empty or df_confirm.empty or df_third.empty:
+                continue
+            failed = _passes_filters(df_entry, df_confirm, df_third, raw_1m, entry_min)
+            if failed:
+                counts[failed] = counts.get(failed, 0) + 1
+            else:
+                counts["passed"] += 1
 
-        lines += [
-            "",
-            f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
-        ]
-
+    t = counts["total"] or 1
+    passed = t
+    lines = [
+        "🔍 <b>تقرير الشروط - الآن</b>",
+        "━━━━━━━━━━━━━━━",
+        f"📊 إجمالي الفحوصات: <b>{t}</b>", "",
+    ]
+    steps = [
+        ("smi_oversold",     "① تشبع بيعي SMI"),
+        ("active_skip",      "⭐ الفريم الأكبر"),
+        ("macd_red",         "② MACD أحمر"),
+        ("donchian_entry",   "③ Donchian أخضر"),
+        ("donchian_confirm", "④ Donchian Confirm"),
+        ("macd_confirm",     "⑤ MACD Confirm"),
+        ("ema50",            "⑥ EMA50"),
+        ("rsi_stoch",        "⑦ RSI/Stoch"),
+    ]
+    for key, label in steps:
+        failed = counts[key]
+        passed_this = passed - failed
+        pct = int(passed_this / t * 100)
+        lines.append(f"{label}: <b>{passed_this}</b> ({pct}%)")
+        passed = passed_this
+    lines += ["", f"🏆 اجتازت الكل: <b>{counts['passed']}</b>"]
     send_telegram("\n".join(lines), chat_id)
 
 
