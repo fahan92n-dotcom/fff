@@ -598,56 +598,6 @@ def check_rsi_stoch(df, lookback=20, max_gap=5):
 
     return False
 
-def _cmd_check_symbol(symbol, chat_id):
-    """فحص عملة محددة على جميع الفريمات"""
-    raw_1m = get_cached(symbol, "1m")
-    raw_60m = get_cached(symbol, "60m")
-
-    if raw_1m.empty and raw_60m.empty:
-        send_telegram(f"❌ لا توجد بيانات للعملة {symbol}", chat_id)
-        return
-
-    lines = [f"🔍 <b>فحص {symbol}</b>\n{'━'*20}"]
-
-    for entry_min, confirm_min, third_min, ec_api, t_api in TRIPLING_PAIRS:
-        raw_ec = raw_1m if ec_api == "1m" else raw_60m
-        raw_t = raw_1m if t_api == "1m" else raw_60m
-
-        if raw_ec.empty or raw_t.empty:
-            continue
-
-        df_entry = resample_ohlcv(raw_ec, entry_min)
-        df_confirm = resample_ohlcv(raw_ec, confirm_min)
-        df_third = resample_ohlcv(raw_t, third_min)
-
-        if df_entry.empty or len(df_entry) < MIN_CANDLES:
-            continue
-
-        s1 = check_smi_oversold(df_entry)
-        s2 = check_macd_red(df_entry) if s1 else False
-        s3 = check_donchian_trend_ribbon(df_entry, "green") if s2 else False
-        s4 = check_donchian_trend_ribbon(df_confirm, "green") if s3 else False
-        s5 = check_macd_green(df_confirm) if s4 else False
-        s6 = check_ema50_below(df_entry) if s5 else False
-        s7 = (check_rsi_touched_oversold(df_entry) and check_rsi_stoch(df_third)) if s6 else False
-
-        steps = [s1, s2, s3, s4, s5, s6, s7]
-        icons = ["✅" if s else "❌" for s in steps]
-        passed = sum(steps)
-
-        lines.append(
-            f"\n⏱ <b>{entry_min}m/{confirm_min}m/{third_min}m</b>\n"
-            f"{icons[0]}SMI {icons[1]}MACD {icons[2]}Don "
-            f"{icons[3]}DonC {icons[4]}MACDC {icons[5]}EMA {icons[6]}RSI\n"
-            f"{'🎯 إشارة!' if passed == 7 else f'خطوة {passed}/7'}"
-        )
-
-    msg = "\n".join(lines)
-    if len(msg) > 4000:
-        for i in range(0, len(msg), 4000):
-            send_telegram(msg[i:i + 4000], chat_id)
-    else:
-        send_telegram(msg, chat_id)
         
 # ------------------------------------------
 # CASCADE PIPELINE - محسّن مع thread-safe resample
@@ -982,7 +932,105 @@ def poll_telegram_commands():
         except Exception:
             time.sleep(10)
 
+def handle_check5(chat_id, symbol="BTCUSDT"):
+    send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
+    try:
+        df_fresh = get_ohlcv(symbol, "1m", limit=1000)
+        if not df_fresh.empty:
+            cache_merge(symbol, "1m", df_fresh)
 
+        df_raw = get_cached(symbol, "1m")
+        if df_raw.empty:
+            send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
+            return
+
+        df5 = resample_ohlcv_closed(df_raw, 5)
+
+        if df5.empty or len(df5) < MIN_CANDLES:
+            send_telegram(
+                f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})\n"
+                f"💡 جرب بعد اكتمال التحميل الكامل", chat_id
+            )
+            return
+
+        now             = datetime.now(timezone.utc)
+        last_candle_end = df5["ts"].iloc[-1] + timedelta(minutes=5)
+
+        if now < last_candle_end:
+            df5 = df5.iloc[:-1]
+
+        if df5.empty or len(df5) < MIN_CANDLES:
+            send_telegram("⚠️ شموع غير كافية بعد الفلترة", chat_id)
+            return
+
+        price     = df5["close"].iloc[-1]
+        candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
+        fetch_ts  = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+
+        rsi_series = calc_rsi_tv(df5["close"], period=14)
+        rsi_val    = round(float(rsi_series.iloc[-1]), 2)
+
+        k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
+        stoch_k = round(float(k_series.iloc[-1]), 2)
+        stoch_d = round(float(d_series.iloc[-1]), 2)
+
+        macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
+        macd_hist_val   = round(float(histogram.iloc[-1]),   4)
+        macd_line_val   = round(float(macd_line.iloc[-1]),   4)
+        signal_line_val = round(float(signal_line.iloc[-1]), 4)
+        macd_color      = "🟢" if macd_hist_val > 0 else "🔴"
+
+        smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
+        smi_val = round(float(smi_series.iloc[-1]),     2)
+        smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
+
+        don_trend = calc_donchian_trend(df5)
+        if don_trend:
+            don_val = don_trend[-1]
+            if don_val == 1:
+                don_color = "🟢 أخضر (صاعد)"
+            elif don_val == -1:
+                don_color = "🔴 أحمر (هابط)"
+            else:
+                don_color = "⚪ محايد"
+        else:
+            don_color = "⚪ محايد"
+
+        rsi_zone   = ("🔴 تشبع بيعي" if rsi_val < 30
+                      else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد"))
+        stoch_zone = ("🔴 تشبع بيعي" if stoch_k < 20
+                      else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد"))
+        smi_zone   = ("🔴 تشبع بيعي" if smi_val <= -40
+                      else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد"))
+
+        send_telegram(
+            f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+            f"🕯️ الشمعة المغلقة: <b>{candle_ts}</b>\n"
+            f"🕐 وقت الجلب: {fetch_ts}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"💰 السعر: <b>{price:.2f}$</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"🎀 Donchian Ribbon (20): {don_color}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\n"
+            f"  Stoch D(3): <b>{stoch_d}</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\n"
+            f"  MACD Line: <b>{macd_line_val}</b>\n"
+            f"  Signal Line: <b>{signal_line_val}</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\n"
+            f"  Signal: <b>{smi_sig}</b>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
+            chat_id,
+        )
+    except Exception as e:
+        log.error(f"check5 error: {e}")
+        send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
+        
 # ------------------------------------------
 # Symbols Loop
 # ------------------------------------------
