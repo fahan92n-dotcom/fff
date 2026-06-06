@@ -82,6 +82,13 @@ symbols_cache_lock = threading.Lock()
 ohlcv_cache = {}
 ohlcv_cache_lock = threading.Lock()
 
+# ============ جديد: تتبع التقدم خطوة خطوة ============
+step_progress = {}  # {(symbol, entry_min): {"step": 1, "time": datetime, "price": float}}
+step_progress_lock = threading.Lock()
+near_step6_signals = {}  # {(symbol, entry_min, confirm_min, third_min): {"time": datetime, "price": float}}
+near_step6_lock = threading.Lock()
+# ====================================================
+
 fast_prefetch_done = threading.Event()
 prefetch_done = threading.Event()
 
@@ -440,6 +447,33 @@ def cache_updater_60m():
             if syms:
                 _update_batch(syms, "60m", limit=5)
 
+            if syms:
+                _update_batch(syms, "60m", limit=5)
+
+
+# ========== جديد: أسماء الشروط السبعة ==========            if syms:
+                _update_batch(syms, "60m", limit=5)
+
+
+# ========== جديد: أسماء الشروط السبعة ==========            if syms:
+                _update_batch(syms, "60m", limit=5)
+
+
+# ========== جديد: أسماء الشروط السبعة ==========            if syms:
+                _update_batch(syms, "60m", limit=5)
+
+
+# ========== جديد: أسماء الشروط السبعة ==========
+STEPS_7 = [
+    ("smi_oversold", "① تشبع بيعي SMI"),
+    ("macd_red", "② MACD أحمر"),
+    ("donchian_entry", "③ Donchian أخضر"),
+    ("donchian_confirm", "④ Donchian Confirm أخضر"),
+    ("macd_confirm", "⑤ MACD Confirm أخضر"),
+    ("ema50", "⑥ السعر تحت EMA50"),
+    ("rsi_stoch", "⑦ RSI/Stoch تقاطع"),
+]
+# ===============================================
 
 # ------------------------------------------
 # Technical Indicators
@@ -1085,7 +1119,7 @@ def _dispatch_command(txt, chat_id):
    elif txt in ("3", "/week"):
        send_telegram(get_report("week"), chat_id)
    elif txt in ("/سبب", "/diag"):
-       _cmd_diag(chat_id)
+       _cmd_step_ladder(chat_id)
    elif txt.startswith("/check5"):
        _cmd_check5(chat_id, txt)
    elif txt == "/help":
