@@ -944,7 +944,7 @@ def _dispatch_command(txt, chat_id):
     elif txt in ("/سبب", "/diag"):
         _cmd_cascade_diag(chat_id)
     elif txt.startswith("/check"):
-                parts = txt.split()
+        parts = txt.split()
         symbol = parts[1].upper() if len(parts) > 1 else "BTC"
         if not symbol.endswith("USDT"):
             symbol += "USDT"
