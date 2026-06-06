@@ -598,7 +598,57 @@ def check_rsi_stoch(df, lookback=20, max_gap=5):
 
     return False
 
+def _cmd_check_symbol(symbol, chat_id):
+    """فحص عملة محددة على جميع الفريمات"""
+    raw_1m = get_cached(symbol, "1m")
+    raw_60m = get_cached(symbol, "60m")
 
+    if raw_1m.empty and raw_60m.empty:
+        send_telegram(f"❌ لا توجد بيانات للعملة {symbol}", chat_id)
+        return
+
+    lines = [f"🔍 <b>فحص {symbol}</b>\n{'━'*20}"]
+
+    for entry_min, confirm_min, third_min, ec_api, t_api in TRIPLING_PAIRS:
+        raw_ec = raw_1m if ec_api == "1m" else raw_60m
+        raw_t = raw_1m if t_api == "1m" else raw_60m
+
+        if raw_ec.empty or raw_t.empty:
+            continue
+
+        df_entry = resample_ohlcv(raw_ec, entry_min)
+        df_confirm = resample_ohlcv(raw_ec, confirm_min)
+        df_third = resample_ohlcv(raw_t, third_min)
+
+        if df_entry.empty or len(df_entry) < MIN_CANDLES:
+            continue
+
+        s1 = check_smi_oversold(df_entry)
+        s2 = check_macd_red(df_entry) if s1 else False
+        s3 = check_donchian_trend_ribbon(df_entry, "green") if s2 else False
+        s4 = check_donchian_trend_ribbon(df_confirm, "green") if s3 else False
+        s5 = check_macd_green(df_confirm) if s4 else False
+        s6 = check_ema50_below(df_entry) if s5 else False
+        s7 = (check_rsi_touched_oversold(df_entry) and check_rsi_stoch(df_third)) if s6 else False
+
+        steps = [s1, s2, s3, s4, s5, s6, s7]
+        icons = ["✅" if s else "❌" for s in steps]
+        passed = sum(steps)
+
+        lines.append(
+            f"\n⏱ <b>{entry_min}m/{confirm_min}m/{third_min}m</b>\n"
+            f"{icons[0]}SMI {icons[1]}MACD {icons[2]}Don "
+            f"{icons[3]}DonC {icons[4]}MACDC {icons[5]}EMA {icons[6]}RSI\n"
+            f"{'🎯 إشارة!' if passed == 7 else f'خطوة {passed}/7'}"
+        )
+
+    msg = "\n".join(lines)
+    if len(msg) > 4000:
+        for i in range(0, len(msg), 4000):
+            send_telegram(msg[i:i + 4000], chat_id)
+    else:
+        send_telegram(msg, chat_id)
+        
 # ------------------------------------------
 # CASCADE PIPELINE - محسّن مع thread-safe resample
 # ------------------------------------------
@@ -893,6 +943,10 @@ def _dispatch_command(txt, chat_id):
         send_telegram(get_report("week"), chat_id)
     elif txt in ("/سبب", "/diag"):
         _cmd_cascade_diag(chat_id)
+    elif txt.startswith("/check"):
+        parts = txt.split()
+        symbol = parts[1].upper() + "USDT" if len(parts) > 1 else "BTCUSDT"
+        _cmd_check_symbol(symbol, chat_id)
     elif txt == "/help":
         send_telegram(
             "📋 <b>الأوامر المتاحة:</b>\n"
