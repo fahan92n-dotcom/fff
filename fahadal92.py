@@ -436,31 +436,15 @@ def cache_updater_1m():
             _update_batch(syms, "1m", limit=5)
         time.sleep(55)
 
-
 def cache_updater_60m():
     """Background thread: refresh 60m cache every hour."""
-    while True:
-        time.sleep(3600)
-        if fast_prefetch_done.is_set():
-            with symbols_cache_lock:
-                syms = list(symbols_cache)
-            if syms:
-                _update_batch(syms, "60m", limit=5)
-
-            if syms:
-                _update_batch(syms, "60m", limit=5)
-
-
-# ========== جديد: أسماء الشروط السبعة ==========            if syms:
-                _update_batch(syms, "60m", limit=5)
-
-
-# ========== جديد: أسماء الشروط السبعة ==========            if syms:
-                _update_batch(syms, "60m", limit=5)
-
-
-# ========== جديد: أسماء الشروط السبعة ==========            if syms:
-                _update_batch(syms, "60m", limit=5)
+   while True:
+       time.sleep(3600)
+       if fast_prefetch_done.is_set():
+           with symbols_cache_lock:
+          syms = list(symbols_cache)
+       if syms:
+           _update_batch(syms, "60m", limit=5)
 
 
 # ========== جديد: أسماء الشروط السبعة ==========
@@ -709,12 +693,6 @@ def calc_stoch_tv(close, high, low, k_len=15, k_smooth=3, d_smooth=3):  # pylint
 # check_rsi_stoch
 # ------------------------------------------
 
-def check_rsi_touched_oversold(df, lookback=10, threshold=35):
-    """Return True if RSI touched 35 or below in the last 10 candles."""
-    if len(df) < WARMUP_RSI + lookback:
-        return False
-    rsi = calc_rsi_tv(df["close"], period=14)
-    return bool((rsi.iloc[-lookback:] <= threshold).any())
 def check_rsi_touched_oversold(df, lookback=10, threshold=35):
     """Return True if RSI touched 35 or below in the last 10 candles."""
     if len(df) < WARMUP_RSI + lookback:
@@ -1107,7 +1085,27 @@ def _cmd_check5(chat_id, txt):
        symbol += "USDT"
    threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
 
-
+def _cmd_step_ladder(chat_id):
+    """Send last-checked symbol and reason for failure."""
+    with last_diag_lock:
+        sym  = last_diag["symbol"]
+        step = last_diag["step"]
+        emin = last_diag["entry_min"]
+        t    = last_diag["time"]
+    if not sym:
+        send_telegram("⚠️ لم يُفحص أي رمز بعد.", chat_id)
+        return
+    time_str = t.strftime("%H:%M UTC") if t else "—"
+    reason   = DIAG_LABELS.get(step, step or "—")
+    send_telegram(
+        f"🔍 <b>آخر رمز فُحص</b>\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"💠 الرمز: <b>{sym}</b>\n"
+        f"⏱ الفريم: <b>{emin}m</b>\n"
+        f"❌ سبب الفشل: <b>{reason}</b>\n"
+        f"🕐 الوقت: {time_str}",
+        chat_id,
+    )
 def _dispatch_command(txt, chat_id):
    """Route a Telegram command to its handler."""
    if txt == "/status":
