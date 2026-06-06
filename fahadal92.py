@@ -893,13 +893,13 @@ def _dispatch_command(txt, chat_id):
         send_telegram(get_report("week"), chat_id)
     elif txt in ("/سبب", "/diag"):
         _cmd_cascade_diag(chat_id)
-    elif txt.startswith("/check"):
+    elif txt.startswith("/check5"):
         parts = txt.split()
-        symbol = parts[1].upper() if len(parts) > 1 else "BTC"
+        symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
         if not symbol.endswith("USDT"):
             symbol += "USDT"
         threading.Thread(
-            target=_cmd_check_symbol, args=(symbol, chat_id), daemon=True
+            target=handle_check5, args=(chat_id, symbol), daemon=True
         ).start()
     elif txt == "/help":
         send_telegram(
