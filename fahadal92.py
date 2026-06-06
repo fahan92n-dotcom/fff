@@ -84,7 +84,9 @@ cascade_results_lock = threading.Lock()
 cascade_stats = {i: {"total": 0, "passed": 0} for i in range(1, 8)}
 cascade_stats_lock = threading.Lock()
 # ================================================
-
+last_complete_stats = {i: {"total": 0, "passed": 0} for i in range(1, 8)}
+last_complete_results = defaultdict(dict)
+last_complete_lock = threading.Lock()
 fast_prefetch_done = threading.Event()
 prefetch_done = threading.Event()
 
@@ -746,7 +748,11 @@ def run_cascade_scan():
 
         log.info("📍 خطوة %d: %d/%d نجحوا", step_num, len(passed), len(results))
         candidates = passed
-
+    # ── حفظ نسخة مكتملة ──
+    with last_complete_lock, cascade_stats_lock, cascade_results_lock:
+        for i in range(1, 8):
+            last_complete_stats[i] = dict(cascade_stats[i])
+            last_complete_results[i] = dict(cascade_results[i])
     # ── إرسال الإشارات النهائية ──
     log.info("🎉 الإشارات النهائية: %d", len(candidates))
     for c in candidates:
@@ -830,7 +836,7 @@ def _cmd_status(chat_id):
 
 def _cmd_cascade_diag(chat_id):
     """Show detailed cascade diagnostic report."""
-    with cascade_results_lock, cascade_stats_lock:
+    with last_complete_lock:
         lines = [
             "🔍 <b>تقرير Cascade Pipeline — الـ 2600 فريم</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
@@ -840,7 +846,7 @@ def _cmd_cascade_diag(chat_id):
         for step_num in range(1, 8):
             step_name = STEP_NAMES[step_num - 1]
             step_label = STEP_LABELS[step_name]
-            stats = cascade_stats[step_num]
+            stats = last_complete_stats[step_num]
             total_t = stats["total"]
             total_p = stats["passed"]
             fail_count = total_t - total_p
@@ -863,7 +869,7 @@ def _cmd_cascade_diag(chat_id):
         ]
 
         for step_num in range(1, 8):
-            results_for_step = cascade_results.get(step_num, {})
+            results_for_step = last_complete_results.get(step_num, {})
             failure_reasons = defaultdict(int)
             for data in results_for_step.values():
                 if not data.get("passed", False):
