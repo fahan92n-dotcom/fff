@@ -441,8 +441,8 @@ def cache_updater_60m():
     while True:
        time.sleep(3600)
        if fast_prefetch_done.is_set():
-       with symbols_cache_lock:
-           syms = list(symbols_cache)
+           with symbols_cache_lock:
+               syms = list(symbols_cache)
        if syms:
            _update_batch(syms, "60m", limit=5)
 
