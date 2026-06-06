@@ -944,9 +944,13 @@ def _dispatch_command(txt, chat_id):
     elif txt in ("/سبب", "/diag"):
         _cmd_cascade_diag(chat_id)
     elif txt.startswith("/check"):
-        parts = txt.split()
-        symbol = parts[1].upper() + "USDT" if len(parts) > 1 else "BTCUSDT"
-        _cmd_check_symbol(symbol, chat_id)
+                parts = txt.split()
+        symbol = parts[1].upper() if len(parts) > 1 else "BTC"
+        if not symbol.endswith("USDT"):
+            symbol += "USDT"
+        threading.Thread(
+            target=handle_check5, args=(chat_id, symbol), daemon=True
+        ).start()
     elif txt == "/help":
         send_telegram(
             "📋 <b>الأوامر المتاحة:</b>\n"
