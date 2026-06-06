@@ -949,7 +949,7 @@ def _dispatch_command(txt, chat_id):
         if not symbol.endswith("USDT"):
             symbol += "USDT"
         threading.Thread(
-            target=handle_check5, args=(chat_id, symbol), daemon=True
+            target=_cmd_check_symbol, args=(symbol, chat_id), daemon=True
         ).start()
     elif txt == "/help":
         send_telegram(
