@@ -861,26 +861,6 @@ def _cmd_cascade_diag(chat_id):
             )
             prev_total = total_p  # الناجحون يصبحون input الخطوة التالية
 
-        lines += [
-            "\n━━━━━━━━━━━━━━━━━━━━━━",
-            f"🏆 <b>اجتازت جميع الخطوات: {prev_total}</b>",
-            "",
-            "📊 <b>تفصيل أسباب الفشل:</b>",
-        ]
-
-        for step_num in range(1, 8):
-            results_for_step = last_complete_results.get(step_num, {})
-            failure_reasons = defaultdict(int)
-            for data in results_for_step.values():
-                if not data.get("passed", False):
-                    failure_reasons[data.get("reason", "unknown")] += 1
-
-            if failure_reasons:
-                lines.append(f"\n<b>خطوة {step_num} — {STEP_LABELS[STEP_NAMES[step_num - 1]]}:</b>")
-                for reason, count in sorted(
-                    failure_reasons.items(), key=lambda x: x[1], reverse=True
-                ):
-                    lines.append(f"  • {reason}: {count}")
 
         # آخر وقت فحص
         all_times = [
