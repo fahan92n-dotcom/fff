@@ -1042,39 +1042,79 @@ def _cmd_status(chat_id):
 
 
 def _cmd_diag(chat_id):
-   """Send step-by-step diagnostics report."""
-   if diag_counts["total"] == 0:
-       send_telegram("⚠️ لا توجد بيانات بعد.", chat_id)
-       return
-   with diag_lock:
-       t = diag_counts["total"] or 1
-       remaining = t
-       lines = [
-           "🔍 <b>تقرير الشروط</b>",
-           "━━━━━━━━━━━━━━━",
-           f"📊 إجمالي الفحوصات: <b>{t}</b>",
-           "",
-       ]
-       steps = [
-           ("smi_oversold", "① تشبع بيعي SMI"),
-           ("active_skip", "⭐ الفريم الأكبر"),
-           ("macd_red", "② MACD أحمر"),
-           ("donchian_entry", "③ Donchian Trend Ribbon أخضر"),
-           ("donchian_confirm", "④ Donchian Trend Ribbon Confirm أخضر"),
-           ("macd_confirm", "⑤ MACD Confirm"),
-           ("ema50", "⑥ EMA50"),
-           ("rsi_stoch", "⑦ RSI/Stoch"),
-       ]
-       for key, label in steps:
-           failed = diag_counts[key]
-           passed = remaining - failed
-           remaining = passed
-           lines.append(f"{label}: <b>{passed}</b> عملة ✅")
-       lines += [
-           "",
-           f"🏆 اجتازت الكل: <b>{diag_counts['passed']}</b>",
-       ]
-   send_telegram("\n".join(lines), chat_id)
+    """Run an immediate scan and send results."""
+    send_telegram("🔄 جاري الفحص الآن...", chat_id)
+
+    with symbols_cache_lock:
+        syms = list(symbols_cache)
+
+    if not syms:
+        send_telegram("⚠️ لا توجد عملات بعد.", chat_id)
+        return
+
+    counts = {
+        "total": 0, "no_data": 0, "smi_oversold": 0, "active_skip": 0,
+        "macd_red": 0, "donchian_entry": 0, "donchian_confirm": 0,
+        "macd_confirm": 0, "ema50": 0, "rsi_stoch": 0, "passed": 0,
+    }
+
+    def scan_one(args):
+        symbol, entry_min, confirm_min, third_min, ec_api, t_api = args
+        counts["total"] += 1
+        raw_ec = get_cached(symbol, ec_api)
+        raw_t  = get_cached(symbol, t_api)
+        if raw_ec.empty or raw_t.empty:
+            counts["no_data"] += 1
+            return
+        df_entry, df_confirm, df_third = _build_scan_frames(
+            raw_ec, raw_t, entry_min, confirm_min, third_min
+        )
+        if df_entry.empty or df_confirm.empty or df_third.empty:
+            counts["no_data"] += 1
+            return
+        step = _passes_filters(df_entry, df_confirm, df_third, raw_ec, entry_min)
+        if step:
+            counts[step] += 1
+        else:
+            counts["passed"] += 1
+
+    tasks = [
+        (sym, e, c, t, ec, ta)
+        for sym in syms
+        for e, c, t, ec, ta in TRIPLING_PAIRS
+    ]
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        list(executor.map(scan_one, tasks))
+
+    total = counts["total"] or 1
+    remaining = total
+    steps = [
+        ("smi_oversold",     "① تشبع بيعي SMI"),
+        ("active_skip",      "⭐ الفريم الأكبر"),
+        ("macd_red",         "② MACD أحمر"),
+        ("donchian_entry",   "③ Donchian أخضر"),
+        ("donchian_confirm", "④ Donchian Confirm أخضر"),
+        ("macd_confirm",     "⑤ MACD Confirm"),
+        ("ema50",            "⑥ EMA50"),
+        ("rsi_stoch",        "⑦ RSI/Stoch"),
+    ]
+    lines = [
+        "🔍 <b>تقرير الشروط — فحص فوري</b>",
+        "━━━━━━━━━━━━━━━",
+        f"📊 إجمالي الفحوصات: <b>{total}</b>",
+        "",
+    ]
+    for key, label in steps:
+        failed = counts[key]
+        passed = remaining - failed
+        remaining = passed
+        lines.append(f"{label}: <b>{passed}</b> ✅ | فشل: <b>{failed}</b> ❌")
+    lines += [
+        "",
+        f"🏆 اجتازت الكل: <b>{counts['passed']}</b>",
+    ]
+    send_telegram("\n".join(lines), chat_id)
 
 
 def _cmd_check5(chat_id, txt):
