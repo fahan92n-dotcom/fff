@@ -954,7 +954,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
             return
 
-        df5 = resample_ohlcv_closed(df_raw, 5)
+        df5 = resample_ohlcv(df_raw,
 
         if df5.empty or len(df5) < MIN_CANDLES:
             send_telegram(
