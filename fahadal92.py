@@ -32,6 +32,7 @@ ALERT_EXPIRY_HOURS = 4
 
 TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}
 
+# ✅ TRIPLING_PAIRS مع الفريمات الجديدة
 TRIPLING_PAIRS = [
     (9, 27, 3, "1m", "1m"),
     (12, 36, 4, "1m", "1m"),
@@ -45,10 +46,14 @@ TRIPLING_PAIRS = [
     (60, 180, 20, "60m", "1m"),
     (90, 270, 30, "60m", "1m"),
     (120, 360, 40, "60m", "1m"),
+    (150, 450, 50, "60m", "1m"),
     (180, 540, 60, "60m", "60m"),
+    (210, 630, 70, "60m", "1m"),
+    (240, 720, 80, "60m", "1m"),
 ]
 
-TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 180]
+# ✅ TIMEFRAME_CHAIN محدث لـ 16 فريم
+TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150, 180, 210, 240]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i + 1] for i in range(len(TIMEFRAME_CHAIN) - 1)}
 
 FAST_FETCH_CANDLES = {"1m": 3500, "60m": 250}
@@ -691,11 +696,24 @@ def run_cascade_scan():
 
     # ── تعريف فحوصات كل خطوة (آمنة تماماً، بدون كتابة) ──
     def step1(c):
+        """✅ الخطوة 1: تشبع بيعي SMI في فريم الدخول
+        - يتعطل إذا الفريم الأكبر (next_tf) فيه SMI ≤ -40
+        - خاص بـ 240: يتعطل إذا SMI تشبع بيعي في 300 دقيقة
+        """
         if not check_smi_oversold(c["df_entry"]):
             return False, "smi_oversold"
+        
+        # منطق التعطيل العام: فحص الفريم الأكبر
         df_next = c["df_next_tf"]
         if df_next is not None and not df_next.empty and check_smi_oversold(df_next):
             return False, "active_skip"
+        
+        # ✅ خاص بـ 240: يتعطل إذا SMI تشبع بيعي في 300 دقيقة
+        if c["entry_min"] == 240:
+            df_300 = resample_ohlcv(c["raw_ec"], 300)
+            if not df_300.empty and check_smi_oversold(df_300):
+                return False, "active_skip"
+        
         return True, "passed"
 
     def step2(c):
