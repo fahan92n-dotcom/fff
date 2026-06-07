@@ -935,6 +935,10 @@ def poll_telegram_commands():
 def handle_check5(chat_id, symbol="BTCUSDT"):
     send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
     try:
+        fresh = get_ohlcv(symbol, "1m", limit=10)
+        if not fresh.empty:
+            cache_merge(symbol, "1m", fresh)
+        
         df_raw = get_cached(symbol, "1m")
         if df_raw.empty:
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
