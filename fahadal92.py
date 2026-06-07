@@ -86,6 +86,7 @@ cascade_stats_lock = threading.Lock()
 # ================================================
 last_complete_stats = {i: {"total": 0, "passed": 0} for i in range(1, 8)}
 last_complete_results = defaultdict(dict)
+last_complete_survivors = {}
 last_complete_lock = threading.Lock()
 fast_prefetch_done = threading.Event()
 prefetch_done = threading.Event()
@@ -636,6 +637,7 @@ def run_cascade_scan():
 
     # ── Cache للـ resample (يتم حسابها مرة واحدة فقط) ──
     resample_cache = {}  # {(sym, tf, minutes): DataFrame}
+    step_survivors = {}  # ← المتغير المحلي لتخزين الناجحين من كل خطوة
 
     def get_resampled(raw_df, sym, tf, minutes):
         """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
@@ -757,12 +759,17 @@ def run_cascade_scan():
                     passed.append(c)
 
         log.info("📍 خطوة %d: %d/%d نجحوا", step_num, len(passed), len(results))
+        step_survivors[step_num] = passed  # ← حفظ الناجحين من هذه الخطوة
         candidates = passed
+
     # ── حفظ نسخة مكتملة ──
+    global last_complete_survivors
     with last_complete_lock, cascade_stats_lock, cascade_results_lock:
         for i in range(1, 8):
             last_complete_stats[i] = dict(cascade_stats[i])
             last_complete_results[i] = dict(cascade_results[i])
+        last_complete_survivors = dict(step_survivors)  # ← حفظ الناجحين من جميع الخطوات
+
     # ── إرسال الإشارات النهائية ──
     log.info("🎉 الإشارات النهائية: %d", len(candidates))
     for c in candidates:
@@ -891,6 +898,39 @@ def _cmd_cascade_diag(chat_id):
         send_telegram(msg, chat_id)
 
 
+def _cmd_show_step_survivors(chat_id, step_num=6):
+    """Show all symbols that passed a specific step."""
+    with last_complete_lock:
+        survivors = last_complete_survivors.get(step_num, [])
+    
+    if not survivors:
+        send_telegram(
+            f"⚠️ لا توجد عملات نجحت حتى الخطوة {step_num}\n"
+            f"ربما لم يتم إجراء scan بعد، أو جميع الإشارات تنتظر إعادة تنبيه.",
+            chat_id
+        )
+        return
+    
+    lines = [
+        f"✅ <b>الناجحون حتى الخطوة {step_num} ({len(survivors)} عملات)</b>",
+        "━" * 30
+    ]
+    
+    for c in survivors:
+        lines.append(
+            f"• <b>{c['sym']}</b>\n"
+            f"  ├─ فريم الدخول: {c['entry_min']}m\n"
+            f"  ├─ فريم التأكيد: {c['confirm_min']}m\n"
+            f"  └─ الفريم الثالث: {c['third_min']}m"
+        )
+    
+    msg = "\n".join(lines)
+    
+    # تقسيم للرسائل إذا كانت طويلة جداً
+    for i in range(0, len(msg), 4000):
+        send_telegram(msg[i:i + 4000], chat_id)
+
+
 def _dispatch_command(txt, chat_id):
     """Route a Telegram command to its handler."""
     if txt == "/status":
@@ -903,6 +943,17 @@ def _dispatch_command(txt, chat_id):
         send_telegram(get_report("week"), chat_id)
     elif txt in ("/سبب", "/diag"):
         _cmd_cascade_diag(chat_id)
+    elif txt == "/survivors6":
+        _cmd_show_step_survivors(chat_id, step_num=6)
+    elif txt == "/survivors7":
+        _cmd_show_step_survivors(chat_id, step_num=7)
+    elif txt.startswith("/survivors"):
+        parts = txt.split()
+        step_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 6
+        if 1 <= step_num <= 7:
+            _cmd_show_step_survivors(chat_id, step_num=step_num)
+        else:
+            send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 7", chat_id)
     elif txt.startswith("/check5"):
         parts = txt.split()
         symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
@@ -917,7 +968,10 @@ def _dispatch_command(txt, chat_id):
             "1️⃣ <code>1</code> — إشارات اليوم\n"
             "2️⃣ <code>2</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> — آخر 7 أيام\n"
-            "🔍 <code>/سبب</code> — تقرير Cascade (جميع الخطوات + الأسباب)\n"
+            "🔍 <code>/سبب</code> — تقرير Cascade (جميع الخطوات)\n"
+            "🎯 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"
+            "🎯 <code>/survivors7</code> — الناجحون حتى الخطوة 7 (الإشارات)\n"
+            "🎯 <code>/survivors N</code> — الناجحون حتى الخطوة N\n"
             "📊 <code>/status</code> — حالة البوت\n"
             "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
