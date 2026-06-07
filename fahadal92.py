@@ -954,19 +954,27 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
             return
 
-        df5 = resample_ohlcv(df_raw, 5)
-
-        if df5.empty or len(df5) < MIN_CANDLES:
+        now = datetime.now(timezone.utc)
+        
+        df5_full = resample_ohlcv_closed(df_raw, 5)
+        
+        if df5_full.empty:
+            send_telegram("❌ فشل إعادة العينة", chat_id)
+            return
+        
+        last_candle_end = df5_full["ts"].iloc[-1] + timedelta(minutes=5)
+        if now < last_candle_end:
+            df5 = df5_full.iloc[:-1]
+        else:
+            df5 = df5_full
+        
+        if len(df5) < MIN_CANDLES:
             send_telegram(
                 f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})\n"
                 f"💡 جرب بعد اكتمال التحميل الكامل", chat_id
             )
             return
             
-        now = datetime.now(timezone.utc)
-        last_candle_end = df5["ts"].iloc[-1] + timedelta(minutes=5)
-        if now < last_candle_end:
-            df5 = df5.iloc[:-1]
         price = df5["close"].iloc[-1]
         
         candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
