@@ -1162,12 +1162,12 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
         lock = last_complete_lock
         stats = last_complete_stats
         results = last_complete_results
-        title = "🔍 <b>تقرير Cascade Pipeline — الشراء LONG (الـ 2600 فريم)</b>"
+        title = "🔍 <b>تقرير Cascade Pipeline — الشراء LONG (الـ 3200 فريم)</b>"
     else:
         lock = last_complete_short_lock
         stats = last_complete_short_stats
         results = last_complete_short_results
-        title = "🔍 <b>تقرير Cascade Pipeline — البيع SHORT (الـ 2600 فريم)</b>"
+        title = "🔍 <b>تقرير Cascade Pipeline — البيع SHORT (الـ 3200 فريم)</b>"
 
     with lock:
         lines = [
