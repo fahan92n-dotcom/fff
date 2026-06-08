@@ -1,5 +1,5 @@
-"""بوت مسح العملات من Binance مع تنبيهات Telegram.""" 
-"""بوت مسح العملات من Binance مع تنبيهات Telegram - نسخة Cascade Pipeline."""
+"""بوت مسح العملات من Binance مع تنبيهات Telegram - استراتيجية مزدوجة (شراء/بيع)."""
+"""بوت مسح العملات من Binance مع تنبيهات Telegram - نسخة Cascade Pipeline مع استراتيجية البيع."""
 import os
 import time
 import logging
@@ -88,11 +88,25 @@ cascade_results_lock = threading.Lock()
 
 cascade_stats = {i: {"total": 0, "passed": 0} for i in range(1, 8)}
 cascade_stats_lock = threading.Lock()
+
+# ============ SHORT CASCADE PIPELINE STATE ============
+short_cascade_results = defaultdict(dict)
+short_cascade_results_lock = threading.Lock()
+
+short_cascade_stats = {i: {"total": 0, "passed": 0} for i in range(1, 8)}
+short_cascade_stats_lock = threading.Lock()
 # ================================================
+
 last_complete_stats = {i: {"total": 0, "passed": 0} for i in range(1, 8)}
 last_complete_results = defaultdict(dict)
 last_complete_survivors = {}
 last_complete_lock = threading.Lock()
+
+last_complete_short_stats = {i: {"total": 0, "passed": 0} for i in range(1, 8)}
+last_complete_short_results = defaultdict(dict)
+last_complete_short_survivors = {}
+last_complete_short_lock = threading.Lock()
+
 fast_prefetch_done = threading.Event()
 prefetch_done = threading.Event()
 
@@ -121,6 +135,28 @@ STEP_LABELS = {
     "ema50": "⑥ السعر تحت EMA50",
     "rsi_stoch": "⑦ RSI/Stochastic تقاطع",
 }
+
+# ============ SHORT STRATEGY LABELS ============
+SHORT_STEP_NAMES = [
+    "smi_overbought",
+    "macd_green",
+    "donchian_entry_red",
+    "donchian_confirm_red",
+    "macd_confirm_red",
+    "ema50_above",
+    "rsi_stoch_short",
+]
+
+SHORT_STEP_LABELS = {
+    "smi_overbought": "① تشبع شرائي SMI ≥ +40",
+    "macd_green": "② MACD أخضر",
+    "donchian_entry_red": "③ Donchian Ribbon أحمر",
+    "donchian_confirm_red": "④ Donchian Ribbon Confirm أحمر",
+    "macd_confirm_red": "⑤ MACD Confirm أحمر",
+    "ema50_above": "⑥ السعر فوق EMA50",
+    "rsi_stoch_short": "⑦ RSI≥65 / Stochastic≤20",
+}
+# ================================================
 
 
 # ------------------------------------------
@@ -161,7 +197,7 @@ def cleanup_alerted_keys():
             del alerted_keys[k]
 
 
-def save_signal(symbol, price, entry_min, confirm_min, third_min):
+def save_signal(symbol, price, entry_min, confirm_min, third_min, signal_type="buy"):
     """Save a trading signal to history."""
     with trades_lock:
         trades_history.append({
@@ -169,6 +205,7 @@ def save_signal(symbol, price, entry_min, confirm_min, third_min):
             "symbol": symbol,
             "price": price,
             "timeframe": f"{entry_min}m/{confirm_min}m/{third_min}m",
+            "type": signal_type,  # "buy" أو "sell"
         })
 
 
@@ -187,7 +224,7 @@ def send_telegram(msg, chat_id=None):
         return False
 
 
-def get_report(period="today"):
+def get_report(period="today", signal_type=None):
     """Generate a report of signals for the given period."""
     now = datetime.now(timezone.utc)
 
@@ -204,14 +241,17 @@ def get_report(period="today"):
 
     with trades_lock:
         rows = [t for t in trades_history if start <= t["time"] < end]
+        if signal_type:
+            rows = [r for r in rows if r.get("type") == signal_type]
 
     if not rows:
         return f"<b>{title}:</b>\nلا توجد إشارات."
 
     lines = [f"<b>{title} ({len(rows)})</b>\n" + "━" * 15]
     for t in rows:
+        icon = "🟢" if t.get("type") == "buy" else "🔴"
         lines.append(
-            f"✅ {t['symbol']} | {t['timeframe']} | "
+            f"{icon} {t['symbol']} | {t['timeframe']} | "
             f"{t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}"
         )
     return "\n".join(lines)
@@ -523,6 +563,12 @@ def check_ema50_below(df):
     return bool(df["close"].iloc[-1] < ema.iloc[-1])
 
 
+def check_ema50_above(df):
+    """Return True if the latest close is above EMA50."""
+    ema = df["close"].ewm(span=50, adjust=False).mean()
+    return bool(df["close"].iloc[-1] > ema.iloc[-1])
+
+
 def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1):
     """Calculate the Stochastic Momentum Index (SMI)."""
     hh = high.rolling(k, min_periods=k).max()
@@ -545,6 +591,14 @@ def check_smi_oversold(df, threshold=-40):
         return False
     smi, _ = calc_smi(df["high"], df["low"], df["close"])
     return bool(smi.iloc[-1] <= threshold)
+
+
+def check_smi_overbought(df, threshold=40):
+    """Return True if the latest SMI value is at or above the overbought threshold."""
+    if len(df) < WARMUP_SMI:
+        return False
+    smi, _ = calc_smi(df["high"], df["low"], df["close"])
+    return bool(smi.iloc[-1] >= threshold)
 
 
 def calc_rsi_tv(close, period=14):
@@ -573,6 +627,14 @@ def check_rsi_touched_oversold(df, lookback=10, threshold=35):
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool((rsi.iloc[-lookback:] <= threshold).any())
+
+
+def check_rsi_overbought_short(df, lookback=10, threshold=65):
+    """Return True if RSI touched 65 or above in the last 10 candles."""
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return bool((rsi.iloc[-lookback:] >= threshold).any())
 
 
 def check_rsi_stoch(df, lookback=20, max_gap=5):
@@ -604,9 +666,39 @@ def check_rsi_stoch(df, lookback=20, max_gap=5):
 
     return False
 
+
+def check_rsi_stoch_short(df, lookback=20, max_gap=5):
+    """Return True if RSI and Stochastic both crossed down with max 5 candles between them."""
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+
+    rsi = calc_rsi_tv(df["close"], period=14)
+    rsi_sig = rsi.rolling(14).mean()
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+
+    stoch_crosses = []
+    rsi_crosses = []
+
+    for i in range(-lookback, 0):
+        try:
+            if float(k.iloc[i - 1]) > 80 >= float(k.iloc[i]):
+                stoch_crosses.append(i)
+            if float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1]) and \
+               float(rsi.iloc[i]) <= float(rsi_sig.iloc[i]):
+                rsi_crosses.append(i)
+        except (ValueError, IndexError):
+            continue
+
+    for sc in stoch_crosses:
+        for rc in rsi_crosses:
+            if 1 <= abs(sc - rc) <= max_gap:
+                return True
+
+    return False
+
         
 # ------------------------------------------
-# CASCADE PIPELINE - محسّن مع thread-safe resample
+# CASCADE PIPELINE - LONG (BUY)
 # ------------------------------------------
 
 def run_cascade_scan():
@@ -692,23 +784,18 @@ def run_cascade_scan():
                 "raw_ec": raw_ec,
             })
 
-    log.info("🔄 Cascade Scan: %d مرشح (resample cache: %d)", len(candidates), len(resample_cache))
+    log.info("🔄 Cascade Scan (LONG): %d مرشح (resample cache: %d)", len(candidates), len(resample_cache))
 
     # ── تعريف فحوصات كل خطوة (آمنة تماماً، بدون كتابة) ──
     def step1(c):
-        """✅ الخطوة 1: تشبع بيعي SMI في فريم الدخول
-        - يتعطل إذا الفريم الأكبر (next_tf) فيه SMI ≤ -40
-        - خاص بـ 240: يتعطل إذا SMI تشبع بيعي في 300 دقيقة
-        """
+        """✅ الخطوة 1: تشبع بيعي SMI في فريم الدخول"""
         if not check_smi_oversold(c["df_entry"]):
             return False, "smi_oversold"
         
-        # منطق التعطيل العام: فحص الفريم الأكبر
         df_next = c["df_next_tf"]
         if df_next is not None and not df_next.empty and check_smi_oversold(df_next):
             return False, "active_skip"
         
-        # ✅ خاص بـ 240: يتعطل إذا SMI تشبع بيعي في 300 دقيقة
         if c["entry_min"] == 240:
             df_300 = resample_ohlcv(c["raw_ec"], 300)
             if not df_300.empty and check_smi_oversold(df_300):
@@ -776,7 +863,7 @@ def run_cascade_scan():
                     cascade_stats[step_num]["passed"] += 1
                     passed.append(c)
 
-        log.info("📍 خطوة %d: %d/%d نجحوا", step_num, len(passed), len(results))
+        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
         step_survivors[step_num] = passed  # ← حفظ الناجحين من هذه الخطوة
         candidates = passed
 
@@ -789,17 +876,203 @@ def run_cascade_scan():
         last_complete_survivors = dict(step_survivors)  # ← حفظ الناجحين من جميع الخطوات
 
     # ── إرسال الإشارات النهائية ──
-    log.info("🎉 الإشارات النهائية: %d", len(candidates))
+    log.info("🎉 الإشارات النهائية (LONG): %d", len(candidates))
     for c in candidates:
         _fire_signal(
             c["sym"], c["entry_min"], c["confirm_min"],
-            c["third_min"], c["df_entry"]
+            c["third_min"], c["df_entry"], signal_type="buy"
         )
 
 
-def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):
+# ------------------------------------------
+# CASCADE PIPELINE - SHORT (SELL)
+# ------------------------------------------
+
+def run_short_cascade_scan():
+    """
+    Run the short cascade pipeline (البيع/الشورت):
+    - نفس البنية المنطقية للـ LONG ولكن مع عكس الشروط
+    """
+    with symbols_cache_lock:
+        symbols = list(symbols_cache)
+
+    if not symbols:
+        return
+
+    def fetch_fresh(sym):
+        for tf in ["1m", "60m"]:
+            df = get_ohlcv(sym, tf, limit=10)
+            if not df.empty:
+                cache_merge(sym, tf, df)
+
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        executor.map(fetch_fresh, symbols)
+
+    # ── تصفير الإحصاء والنتائج في بداية كل دورة ──
+    with short_cascade_stats_lock, short_cascade_results_lock:
+        for i in range(1, 8):
+            short_cascade_stats[i]["total"] = 0
+            short_cascade_stats[i]["passed"] = 0
+            short_cascade_results[i].clear()
+
+    # ── Cache للـ resample ──
+    resample_cache = {}
+    step_survivors = {}
+
+    def get_resampled(raw_df, sym, tf, minutes):
+        """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
+        key = (sym, tf, minutes)
+        if key not in resample_cache:
+            resample_cache[key] = resample_ohlcv(raw_df, minutes)
+        return resample_cache[key]
+
+    # ── بناء الـ candidates ──
+    candidates = []
+    for sym in symbols:
+        raw_ec_1m = get_cached(sym, "1m")
+        raw_ec_60m = get_cached(sym, "60m")
+
+        for entry_min, confirm_min, third_min, ec_api, t_api in TRIPLING_PAIRS:
+            raw_ec = raw_ec_1m if ec_api == "1m" else raw_ec_60m
+            raw_t = raw_ec_1m if t_api == "1m" else raw_ec_60m
+
+            if raw_ec.empty or raw_t.empty:
+                continue
+
+            df_entry = get_resampled(raw_ec, sym, ec_api, entry_min)
+            df_confirm = get_resampled(raw_ec, sym, ec_api, confirm_min)
+            df_third = get_resampled(raw_t, sym, t_api, third_min)
+
+            if df_entry.empty or df_confirm.empty or df_third.empty:
+                continue
+            if len(df_entry) < MIN_CANDLES:
+                continue
+
+            next_tf = NEXT_TF.get(entry_min)
+            df_next_tf = get_resampled(raw_ec, sym, ec_api, next_tf) if next_tf else None
+
+            candidates.append({
+                "sym": sym,
+                "ec_api": ec_api,
+                "t_api": t_api,
+                "entry_min": entry_min,
+                "confirm_min": confirm_min,
+                "third_min": third_min,
+                "df_entry": df_entry,
+                "df_confirm": df_confirm,
+                "df_third": df_third,
+                "df_next_tf": df_next_tf,
+                "raw_ec": raw_ec,
+            })
+
+    log.info("🔄 Cascade Scan (SHORT): %d مرشح (resample cache: %d)", len(candidates), len(resample_cache))
+
+    # ── تعريف فحوصات كل خطوة (عكس الـ LONG) ──
+    def step1_short(c):
+        """✅ الخطوة 1: تشبع شرائي SMI ≥ +40"""
+        if not check_smi_overbought(c["df_entry"], threshold=40):
+            return False, "smi_overbought"
+        
+        df_next = c["df_next_tf"]
+        if df_next is not None and not df_next.empty and check_smi_overbought(df_next):
+            return False, "active_skip"
+        
+        if c["entry_min"] == 240:
+            df_300 = resample_ohlcv(c["raw_ec"], 300)
+            if not df_300.empty and check_smi_overbought(df_300):
+                return False, "active_skip"
+        
+        return True, "passed"
+
+    def step2_short(c):
+        """✅ الخطوة 2: MACD أخضر"""
+        if not check_macd_green(c["df_entry"]):
+            return False, "macd_green"
+        return True, "passed"
+
+    def step3_short(c):
+        """✅ الخطوة 3: Donchian أحمر (هابط)"""
+        if not check_donchian_trend_ribbon(c["df_entry"], "red"):
+            return False, "donchian_entry_red"
+        return True, "passed"
+
+    def step4_short(c):
+        """✅ الخطوة 4: Donchian Confirm أحمر"""
+        if not check_donchian_trend_ribbon(c["df_confirm"], "red"):
+            return False, "donchian_confirm_red"
+        return True, "passed"
+
+    def step5_short(c):
+        """✅ الخطوة 5: MACD Confirm أحمر"""
+        if not check_macd_red(c["df_confirm"]):
+            return False, "macd_confirm_red"
+        return True, "passed"
+
+    def step6_short(c):
+        """✅ الخطوة 6: السعر فوق EMA50"""
+        if not check_ema50_above(c["df_entry"]):
+            return False, "ema50_above"
+        return True, "passed"
+
+    def step7_short(c):
+        """✅ الخطوة 7: RSI ≥ 65 و Stochastic ≤ 20 (عكسي)"""
+        if not check_rsi_overbought_short(c["df_entry"]):
+            return False, "rsi_stoch_short"
+        if not check_rsi_stoch_short(c["df_third"]):
+            return False, "rsi_stoch_short"
+        return True, "passed"
+
+    steps_short = [step1_short, step2_short, step3_short, step4_short, step5_short, step6_short, step7_short]
+
+    # ── تشغيل الخطوات ──
+    for step_num, step_fn in enumerate(steps_short, start=1):
+        if not candidates:
+            break
+
+        def run_one(c, fn=step_fn):
+            return c, *fn(c)
+
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            results = list(executor.map(run_one, candidates))
+
+        passed = []
+        now = datetime.now(timezone.utc)
+
+        with short_cascade_results_lock, short_cascade_stats_lock:
+            short_cascade_stats[step_num]["total"] = len(results)
+            for c, ok, reason in results:
+                key = (c["sym"], c["entry_min"], c["confirm_min"], c["third_min"])
+                short_cascade_results[step_num][key] = {
+                    "passed": ok, "reason": reason, "time": now
+                }
+                if ok:
+                    short_cascade_stats[step_num]["passed"] += 1
+                    passed.append(c)
+
+        log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
+        step_survivors[step_num] = passed
+        candidates = passed
+
+    # ── حفظ نسخة مكتملة ──
+    global last_complete_short_survivors
+    with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
+        for i in range(1, 8):
+            last_complete_short_stats[i] = dict(short_cascade_stats[i])
+            last_complete_short_results[i] = dict(short_cascade_results[i])
+        last_complete_short_survivors = dict(step_survivors)
+
+    # ── إرسال الإشارات النهائية ──
+    log.info("🎉 الإشارات النهائية (SHORT): %d", len(candidates))
+    for c in candidates:
+        _fire_signal(
+            c["sym"], c["entry_min"], c["confirm_min"],
+            c["third_min"], c["df_entry"], signal_type="sell"
+        )
+
+
+def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry, signal_type="buy"):
     """Send the Telegram alert and record the signal."""
-    key = (symbol, entry_min, confirm_min, third_min)
+    key = (symbol, entry_min, confirm_min, third_min, signal_type)
     now = datetime.now(timezone.utc)
     with alerted_keys_lock:
         last_alert = alerted_keys.get(key)
@@ -811,35 +1084,42 @@ def _fire_signal(symbol, entry_min, confirm_min, third_min, df_entry):
         price = df_entry["close"].iloc[-1]
         candle_close = df_entry["ts"].iloc[-1] + pd.Timedelta(minutes=entry_min)
         entry_time = candle_close.strftime("%Y-%m-%d %H:%M UTC")
-        save_signal(symbol, price, entry_min, confirm_min, third_min)
+        save_signal(symbol, price, entry_min, confirm_min, third_min, signal_type)
+        
+        if signal_type == "buy":
+            icon = "🟢 شراء صعود"
+        else:
+            icon = "🔴 بيع نزول"
+        
         send_telegram(
-            f"🚨 <b>إشارة دخول:</b> {symbol}\n"
+            f"🚨 <b>إشارة دخول:</b> {icon}\n"
+            f"<b>{symbol}</b>\n"
             f"🕐 الفريم: {entry_min}m / {confirm_min}m / {third_min}m\n"
-            f"💰 سعر الدخول: <b>{price:.6g}</b>\n"
-            f"🕐 وقت الدخول: <b>{entry_time}</b>"
+            f"💰 السعر: <b>{price:.6g}</b>\n"
+            f"🕐 الوقت: <b>{entry_time}</b>"
         )
     except Exception as exc:
         log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
 
 
 def cascade_watcher():
-    """Background thread: run cascade scan every 30 seconds with performance monitoring."""
+    """Background thread: run cascade scans every 30 seconds."""
     while True:
         time.sleep(30)
         if not fast_prefetch_done.is_set():
             continue
         try:
             start = time.time()
-            run_cascade_scan()
+            run_cascade_scan()  # LONG
+            run_short_cascade_scan()  # SHORT
             elapsed = time.time() - start
-            log.info("⏱ Cascade scan اكتمل في %.1f ثانية", elapsed)
+            log.info("⏱ Cascade scans (LONG + SHORT) اكتملوا في %.1f ثانية", elapsed)
             
-            # تأكد من وجود فاصل 30 ثانية فعلي بين الـ scans
             remaining = 30 - elapsed
             if remaining > 0:
                 time.sleep(remaining)
             else:
-                log.warning("⚠️ Cascade scan يأخذ أكثر من 30 ثانية (%.1f ث) — قد تحتاج لزيادة الفاصل", elapsed)
+                log.warning("⚠️ Cascade scans يأخذان أكثر من 30 ثانية (%.1f ث)", elapsed)
         except Exception as exc:
             log.error("Cascade scan error: %s", exc)
             time.sleep(10)
@@ -853,14 +1133,18 @@ def _cmd_status(chat_id):
     """Send bot status message."""
     with trades_lock:
         cnt = len(trades_history)
+        buy_cnt = sum(1 for t in trades_history if t.get("type") == "buy")
+        sell_cnt = sum(1 for t in trades_history if t.get("type") == "sell")
     with alerted_keys_lock:
         active = len(alerted_keys)
     with ohlcv_cache_lock:
         keys = len(ohlcv_cache)
     send_telegram(
-        f"🤖 البوت يعمل — Binance API\n"
+        f"🤖 البوت يعمل — Binance API (استراتيجية مزدوجة)\n"
         f"🕐 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
         f"📊 إجمالي الإشارات: {cnt}\n"
+        f"🟢 إشارات شراء: {buy_cnt}\n"
+        f"🔴 إشارات بيع: {sell_cnt}\n"
         f"🔑 تنبيهات نشطة: {active}\n"
         f"💾 الكاش: {keys} مفتاح\n"
         f"⚡ تحميل سريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
@@ -869,21 +1153,37 @@ def _cmd_status(chat_id):
     )
 
 
-def _cmd_cascade_diag(chat_id):
+def _cmd_cascade_diag(chat_id, signal_type="buy"):
     """Show detailed cascade diagnostic report."""
-    with last_complete_lock:
+    if signal_type == "buy":
+        lock = last_complete_lock
+        stats = last_complete_stats
+        results = last_complete_results
+        title = "🔍 <b>تقرير Cascade Pipeline — الشراء LONG (الـ 2600 فريم)</b>"
+    else:
+        lock = last_complete_short_lock
+        stats = last_complete_short_stats
+        results = last_complete_short_results
+        title = "🔍 <b>تقرير Cascade Pipeline — البيع SHORT (الـ 2600 فريم)</b>"
+
+    with lock:
         lines = [
-            "🔍 <b>تقرير Cascade Pipeline — الـ 2600 فريم</b>",
+            title,
             "━━━━━━━━━━━━━━━━━━━━━━",
         ]
 
         prev_total = 0
         for step_num in range(1, 8):
-            step_name = STEP_NAMES[step_num - 1]
-            step_label = STEP_LABELS[step_name]
-            stats = last_complete_stats[step_num]
-            total_t = stats["total"]
-            total_p = stats["passed"]
+            if signal_type == "buy":
+                step_name = STEP_NAMES[step_num - 1]
+                step_label = STEP_LABELS[step_name]
+            else:
+                step_name = SHORT_STEP_NAMES[step_num - 1]
+                step_label = SHORT_STEP_LABELS[step_name]
+            
+            stat = stats[step_num]
+            total_t = stat["total"]
+            total_p = stat["passed"]
             fail_count = total_t - total_p
             pct = int(total_p / total_t * 100) if total_t else 0
             bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
@@ -894,13 +1194,11 @@ def _cmd_cascade_diag(chat_id):
                 f"✅ نجح: <b>{total_p}</b> | ❌ فشل: <b>{fail_count}</b> "
                 f"| دخل: <b>{total_t}</b> ({pct}%)"
             )
-            prev_total = total_p  # الناجحون يصبحون input الخطوة التالية
+            prev_total = total_p
 
-
-        # آخر وقت فحص
         all_times = [
             v["time"]
-            for step_data in cascade_results.values()
+            for step_data in results.values()
             for v in step_data.values()
             if "time" in v
         ]
@@ -916,10 +1214,17 @@ def _cmd_cascade_diag(chat_id):
         send_telegram(msg, chat_id)
 
 
-def _cmd_show_step_survivors(chat_id, step_num=6):
+def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     """Show all symbols that passed a specific step."""
-    with last_complete_lock:
-        survivors = last_complete_survivors.get(step_num, [])
+    if signal_type == "buy":
+        lock = last_complete_lock
+        survivors_dict = last_complete_survivors
+    else:
+        lock = last_complete_short_lock
+        survivors_dict = last_complete_short_survivors
+
+    with lock:
+        survivors = survivors_dict.get(step_num, [])
     
     if not survivors:
         send_telegram(
@@ -929,8 +1234,9 @@ def _cmd_show_step_survivors(chat_id, step_num=6):
         )
         return
     
+    icon = "🟢" if signal_type == "buy" else "🔴"
     lines = [
-        f"✅ <b>الناجحون حتى الخطوة {step_num} ({len(survivors)} عملات)</b>",
+        f"{icon} <b>الناجحون حتى الخطوة {step_num} ({len(survivors)} عملات)</b>",
         "━" * 30
     ]
     
@@ -944,7 +1250,6 @@ def _cmd_show_step_survivors(chat_id, step_num=6):
     
     msg = "\n".join(lines)
     
-    # تقسيم للرسائل إذا كانت طويلة جداً
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
@@ -959,19 +1264,29 @@ def _dispatch_command(txt, chat_id):
         send_telegram(get_report("yesterday"), chat_id)
     elif txt in ("3", "/week"):
         send_telegram(get_report("week"), chat_id)
-    elif txt in ("/سبب", "/diag"):
-        _cmd_cascade_diag(chat_id)
+    elif txt in ("/سبب_شراء", "/diag_buy"):
+        _cmd_cascade_diag(chat_id, "buy")
+    elif txt in ("/سبب_بيع", "/diag_sell"):
+        _cmd_cascade_diag(chat_id, "sell")
     elif txt == "/survivors6":
-        _cmd_show_step_survivors(chat_id, step_num=6)
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
     elif txt == "/survivors7":
-        _cmd_show_step_survivors(chat_id, step_num=7)
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="buy")
+    elif txt == "/survivors6_sell":
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="sell")
+    elif txt == "/survivors7_sell":
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="sell")
     elif txt.startswith("/survivors"):
         parts = txt.split()
-        step_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 6
-        if 1 <= step_num <= 7:
-            _cmd_show_step_survivors(chat_id, step_num=step_num)
+        if "_sell" in txt:
+            step_num = int(parts[0].replace("/survivors", "").replace("_sell", "")) if parts[0].replace("/survivors", "").replace("_sell", "").isdigit() else 6
+            _cmd_show_step_survivors(chat_id, step_num=step_num, signal_type="sell")
         else:
-            send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 7", chat_id)
+            step_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 6
+            if 1 <= step_num <= 7:
+                _cmd_show_step_survivors(chat_id, step_num=step_num, signal_type="buy")
+            else:
+                send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 7", chat_id)
     elif txt.startswith("/check5"):
         parts = txt.split()
         symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
@@ -986,10 +1301,12 @@ def _dispatch_command(txt, chat_id):
             "1️⃣ <code>1</code> — إشارات اليوم\n"
             "2️⃣ <code>2</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> — آخر 7 أيام\n"
-            "🔍 <code>/سبب</code> — تقرير Cascade (جميع الخطوات)\n"
-            "🎯 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"
-            "🎯 <code>/survivors7</code> — الناجحون حتى الخطوة 7 (الإشارات)\n"
-            "🎯 <code>/survivors N</code> — الناجحون حتى الخطوة N\n"
+            "🟢 <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
+            "🔴 <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
+            "🟢 <code>/survivors6</code> — الناجحون حتى 6 (شراء)\n"
+            "🟢 <code>/survivors7</code> — الناجحون حتى 7 (شراء)\n"
+            "🔴 <code>/survivors6_sell</code> — الناجحون حتى 6 (بيع)\n"
+            "🔴 <code>/survivors7_sell</code> — الناجحون حتى 7 (بيع)\n"
             "📊 <code>/status</code> — حالة البوت\n"
             "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
@@ -1197,6 +1514,8 @@ def main():
     threading.Thread(target=cache_updater_1m, daemon=True).start()
     threading.Thread(target=cache_updater_60m, daemon=True).start()
     threading.Thread(target=cascade_watcher, daemon=True).start()
+
+    send_telegram("🚀 <b>البوت انطلق — استراتيجية مزدوجة (شراء + بيع)</b>")
 
     while True:
         try:
