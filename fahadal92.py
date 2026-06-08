@@ -1111,10 +1111,10 @@ def cascade_watcher():
         try:
             start = time.time()
             with ThreadPoolExecutor(max_workers=2) as ex:
-            f1 = ex.submit(run_cascade_scan)
-            f2 = ex.submit(run_short_cascade_scan)
-            f1.result()
-            f2.result()
+                f1 = ex.submit(run_cascade_scan)
+                f2 = ex.submit(run_short_cascade_scan)
+                f1.result()
+                f2.result()
             elapsed = time.time() - start
             log.info("⏱ Cascade scans (LONG + SHORT) اكتملوا في %.1f ثانية", elapsed)
             
