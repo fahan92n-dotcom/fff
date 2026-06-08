@@ -496,33 +496,27 @@ def check_macd_green(df):
 # ------------------------------------------
 
 def calc_donchian_trend(df, length=20):
-    """Calculate the Donchian channel trend direction."""
     if len(df) < length + 2:
         return []
-    hh = df["high"].rolling(length).max().shift(1)
-    ll = df["low"].rolling(length).min().shift(1)
+    
+    hh = df["high"].rolling(length).max()
+    ll = df["low"].rolling(length).min()
+    
     trend = [0] * len(df)
     for i in range(1, len(df)):
-        if pd.isna(hh.iloc[i]) or pd.isna(ll.iloc[i]):
-            trend[i] = trend[i - 1]
+        if pd.isna(hh.iloc[i-1]) or pd.isna(ll.iloc[i-1]):
+            trend[i] = trend[i-1]
             continue
-        if df["close"].iloc[i] > hh.iloc[i]:
+        if df["close"].iloc[i] > hh.iloc[i-1]:
             trend[i] = 1
-        elif df["close"].iloc[i] < ll.iloc[i]:
+        elif df["close"].iloc[i] < ll.iloc[i-1]:
             trend[i] = -1
         else:
-            trend[i] = trend[i - 1]
+            trend[i] = trend[i-1]
     return trend
 
 
 def calc_donchian_trend_ribbon_correct(df, length=20):
-    """
-    Donchian Trend Ribbon - حساب صحيح:
-    ✅ main trend بـ length الأساسي (20)
-    ✅ 10 طبقات: 20, 19, 18, ..., 11
-    ✅ أخضر: كل الـ 10 طبقات صاعدة
-    ✅ أحمر: كل الـ 10 طبقات هابطة
-    """
     if len(df) < length + 2:
         return 0, False
 
@@ -532,15 +526,16 @@ def calc_donchian_trend_ribbon_correct(df, length=20):
 
     current_main = main_trend[-1]
 
-    layers = []
-    for offset in range(10):
-        layer_len = length - offset
+    layers = [current_main]  # ابدأ مع الـ main trend
+    
+    for offset in range(1, 10):  # ابدأ من 1، وليس 0
+        layer_len = length - offset  # 19, 18, ..., 11
         layer_trends = calc_donchian_trend(df, length=layer_len)
         if not layer_trends:
             return 0, False
         layers.append(layer_trends[-1])
 
-    if len(layers) < 10:
+    if len(layers) < 10:  # 10 layers المطلوبة
         return 0, False
 
     all_consistent = all(t == current_main for t in layers)
@@ -548,7 +543,6 @@ def calc_donchian_trend_ribbon_correct(df, length=20):
 
 
 def check_donchian_trend_ribbon(df, direction="green"):
-    """فحص Donchian Trend Ribbon بشكل صحيح"""
     if len(df) < 35:
         return False
 
