@@ -597,6 +597,17 @@ def check_smi_overbought(df, threshold=40):
     smi, _ = calc_smi(df["high"], df["low"], df["close"])
     return bool(smi.iloc[-1] >= threshold)
 
+def check_ema50_above_since_overbought(df, smi_threshold=40):
+   """Return True if any candle since SMI first became overbought was above EMA50."""
+   if len(df) < WARMUP_SMI:
+       return False
+   smi, _ = calc_smi(df["high"], df["low"], df["close"])
+   ema = df["close"].ewm(span=50, adjust=False).mean()
+   overbought_mask = smi >= smi_threshold
+   if not overbought_mask.any():
+       return False
+   first_idx = overbought_mask.idxmax()
+   return bool((df["close"].loc[first_idx:] > ema.loc[first_idx:]).any())
 
 def calc_rsi_tv(close, period=14):
     """Calculate RSI using Wilder's smoothing method."""
