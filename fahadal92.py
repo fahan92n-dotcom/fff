@@ -546,7 +546,7 @@ def check_donchian_trend_ribbon(df, direction="green"):
     if len(df) < 35:
         return False
 
-    trend, _ = calc_donchian_tren...
+    trend, _ = calc_donchian_trend_ribbon_correct(df, length=20)
     
 
     if direction == "green":
