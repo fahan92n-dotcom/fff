@@ -682,7 +682,7 @@ def check_rsi_stoch(df, lookback=20, max_gap=5):
 
     for sc in stoch_crosses:
         for rc in rsi_crosses:
-            if 1 <= abs(sc - rc) <= max_gap:
+            if abs(sc - rc) <= max_gap:
                 return True
 
     return False
@@ -712,7 +712,7 @@ def check_rsi_stoch_short(df, lookback=20, max_gap=5):
 
     for sc in stoch_crosses:
         for rc in rsi_crosses:
-            if 1 <= abs(sc - rc) <= max_gap:
+            if abs(sc - rc) <= max_gap:
                 return True
 
     return False
