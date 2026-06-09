@@ -832,7 +832,7 @@ def run_cascade_scan():
 
     def step3(c):
         """✅ الخطوة 3: Donchian Ribbon (الفريم الأساسي) أخضر"""
-        if not check_donchian_trend_ribbon(c["df_base"], "green"):
+        if not check_ema50_below_since_oversold(c["df_base"]):
             return False, "donchian_base"
         return True, "passed"
 
