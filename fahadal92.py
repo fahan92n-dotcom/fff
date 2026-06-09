@@ -1088,10 +1088,19 @@ def run_short_cascade_scan():
 
 
 def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signal_type="buy"):
-    """Send the Telegram alert and record the signal."""
     key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
     now = datetime.now(timezone.utc)
+
     with alerted_keys_lock:
+        keys_to_delete = [
+            k for k in alerted_keys
+            if k[0] == symbol
+            and k[4] == signal_type
+            and k[1] < base_frame
+        ]
+        for k in keys_to_delete:
+            del alerted_keys[k]
+
         last_alert = alerted_keys.get(key)
         if last_alert and now - last_alert < timedelta(hours=ALERT_EXPIRY_HOURS):
             return
@@ -1099,14 +1108,24 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signa
 
     try:
         price = df_base["close"].iloc[-1]
+        smi_series, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
+        smi_value = float(smi_series.iloc[-1])
         candle_close = df_base["ts"].iloc[-1] + pd.Timedelta(minutes=base_frame)
         entry_time = candle_close.strftime("%Y-%m-%d %H:%M UTC")
         save_signal(symbol, price, base_frame, confirm_frame, triple_frame, signal_type)
-        
-        if signal_type == "buy":
-            icon = "🟢 شراء صعود"
-        else:
-            icon = "🔴 بيع نزول"
+
+        icon = "🟢 شراء صعود" if signal_type == "buy" else "🔴 بيع نزول"
+
+        send_telegram(
+            f"🚨 <b>إشارة دخول:</b> {icon}\n"
+            f"<b>{symbol}</b>\n"
+            f"🕐 الفريم: {base_frame}m (أساسي) / {confirm_frame}m (تأكيد) / {triple_frame}m (تثليث)\n"
+            f"💰 السعر: <b>{price:.6g}</b>\n"
+            f"📊 SMI: <b>{smi_value:.2f}</b>\n"
+            f"🕐 الوقت: <b>{entry_time}</b>"
+        )
+    except Exception as exc:
+        log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
         
         send_telegram(
             f"🚨 <b>إشارة دخول:</b> {icon}\n"
