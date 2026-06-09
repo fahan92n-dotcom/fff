@@ -1126,16 +1126,6 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signa
         )
     except Exception as exc:
         log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
-        
-        send_telegram(
-            f"🚨 <b>إشارة دخول:</b> {icon}\n"
-            f"<b>{symbol}</b>\n"
-            f"🕐 الفريم: {base_frame}m (أساسي) / {confirm_frame}m (تأكيد) / {triple_frame}m (تثليث)\n"
-            f"💰 السعر: <b>{price:.6g}</b>\n"
-            f"🕐 الوقت: <b>{entry_time}</b>"
-        )
-    except Exception as exc:
-        log.error("❌ خطأ في إرسال الإشارة %s: %s", symbol, exc)
 
 
 def cascade_watcher():
