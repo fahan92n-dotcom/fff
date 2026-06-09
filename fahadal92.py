@@ -606,8 +606,8 @@ def check_ema50_above_since_overbought(df, smi_threshold=40):
    overbought_mask = smi >= smi_threshold
    if not overbought_mask.any():
        return False
-last_idx = overbought_mask[::-1].idxmax()
-return bool((df["close"].loc[last_idx:] > ema.loc[last_idx:]).any())
+   last_idx = overbought_mask[::-1].idxmax()
+   return bool((df["close"].loc[last_idx:] > ema.loc[last_idx:]).any())
 
 def check_ema50_below_since_oversold(df, smi_threshold=-40):
     """Return True if any candle since SMI last became oversold was below EMA50."""
