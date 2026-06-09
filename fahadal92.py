@@ -1030,7 +1030,7 @@ def run_short_cascade_scan():
 
     def step6_short(c):
         """✅ الخطوة 6: السعر فوق EMA50 في الفريم الأساسي"""
-        if not check_ema50_above(c["df_base"]):
+        if not check_ema50_above_since_overbought(c["df_base"]):
             return False, "ema50_above"
         return True, "passed"
 
