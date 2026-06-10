@@ -869,7 +869,7 @@ def run_cascade_scan():
             return False, "donchian_triple"
         return True, "passed"
 
-    def check_rsi_stoch_short(df, lookback=5, max_gap=3):
+def check_rsi_stoch_short(df, lookback=5, max_gap=3):
     """Return True if RSI and Stochastic both crossed down recently"""
     if len(df) < WARMUP_RSI + lookback:
         return False
