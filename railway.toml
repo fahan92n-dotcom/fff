@@ -1,5 +1,7 @@
 [build]
 startCommand = "python fahadal92.py"
+nixpacksPythonVersion = "3.11"
+
 [deploy]
 healthcheckPath = "/"
 healthcheckTimeout = 300
