@@ -861,12 +861,11 @@ def run_cascade_scan():
         return True, "passed"
 
     def step8(c):
-        """✅ الخطوة 8: RSI و Stochastic تقاطع في فريم التثليث"""
-        if not check_rsi_touched_oversold(c["df_base"]):
-            return False, "rsi_stoch"
-        if not check_rsi_stoch(c["df_triple"]):
-            return False, "rsi_stoch"
-        return True, "passed"
+    if not check_rsi_touched_oversold(c["df_triple"]):
+        return False, "rsi_stoch"
+    if not check_rsi_stoch(c["df_triple"]):
+        return False, "rsi_stoch"
+    return True, "passed"
 
     steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 
@@ -1054,12 +1053,11 @@ def run_short_cascade_scan():
         return True, "passed"
 
     def step8_short(c):
-        """✅ الخطوة 8: RSI ≥ 65 و Stochastic ≤ 20 (عكسي) في فريم التثليث"""
-        if not check_rsi_overbought_short(c["df_base"]):
-            return False, "rsi_stoch_short"
-        if not check_rsi_stoch_short(c["df_triple"]):
-            return False, "rsi_stoch_short"
-        return True, "passed"
+    if not check_rsi_overbought_short(c["df_triple"]):
+        return False, "rsi_stoch_short"
+    if not check_rsi_stoch_short(c["df_triple"]):
+        return False, "rsi_stoch_short"
+    return True, "passed"
 
     steps_short = [step1_short, step2_short, step3_short, step4_short, step5_short, step6_short, step7_short, step8_short]
 
