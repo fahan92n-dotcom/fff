@@ -868,6 +868,15 @@ def run_cascade_scan():
         if not check_donchian_trend_ribbon(c["df_triple"], "red"):
             return False, "donchian_triple"
         return True, "passed"
+        
+    def step8(c):
+        if not check_rsi_touched_oversold(c["df_triple"]):
+            return False, "rsi_stoch"
+        if not check_rsi_stoch(c["df_triple"]):
+            return False, "rsi_stoch"
+        return True, "passed"
+
+    steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 
 def check_rsi_stoch_short(df, lookback=5, max_gap=3):
     """Return True if RSI and Stochastic both crossed down recently"""
