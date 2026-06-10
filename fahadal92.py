@@ -692,8 +692,8 @@ def check_rsi_stoch(df, lookback=5, max_gap=3):
     return False
 
 
-def check_rsi_stoch_short(df, lookback=20, max_gap=5):
-    """Return True if RSI and Stochastic both crossed down with max 5 candles between them."""
+def check_rsi_stoch_short(df, lookback=5, max_gap=3):
+    """Return True if RSI and Stochastic both crossed down recently"""
     if len(df) < WARMUP_RSI + lookback:
         return False
 
@@ -701,12 +701,16 @@ def check_rsi_stoch_short(df, lookback=20, max_gap=5):
     rsi_sig = rsi.rolling(14).mean()
     k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
 
+    # الشمعة الأخيرة لازم مغلقة تحت 80
+    if float(k.iloc[-1]) >= 80:
+        return False
+
     stoch_crosses = []
     rsi_crosses = []
 
     for i in range(-lookback, 0):
         try:
-            if float(k.iloc[i - 1]) > 80 >= float(k.iloc[i]):
+            if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
                 stoch_crosses.append(i)
             if float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1]) and \
                float(rsi.iloc[i]) <= float(rsi_sig.iloc[i]):
@@ -720,6 +724,7 @@ def check_rsi_stoch_short(df, lookback=20, max_gap=5):
                 return True
 
     return False
+
 
         
 # ------------------------------------------
