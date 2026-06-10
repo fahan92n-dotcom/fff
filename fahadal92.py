@@ -692,7 +692,7 @@ def check_rsi_stoch(df, lookback=5, max_gap=3):
     return False
 
 
-def check_rsi_stoch_short(df, lookback=5, max_gap=3):
+def check_rsi_stoch_short(df, lookback=5, max_gap=5):
     """Return True if RSI and Stochastic both crossed down recently"""
     if len(df) < WARMUP_RSI + lookback:
         return False
