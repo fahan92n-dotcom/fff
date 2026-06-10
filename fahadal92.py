@@ -861,11 +861,11 @@ def run_cascade_scan():
         return True, "passed"
 
     def step8(c):
-    if not check_rsi_touched_oversold(c["df_triple"]):
-        return False, "rsi_stoch"
-    if not check_rsi_stoch(c["df_triple"]):
-        return False, "rsi_stoch"
-    return True, "passed"
+        if not check_rsi_touched_oversold(c["df_triple"]):
+            return False, "rsi_stoch"
+        if not check_rsi_stoch(c["df_triple"]):
+            return False, "rsi_stoch"
+        return True, "passed"
 
     steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 
