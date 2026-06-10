@@ -869,14 +869,39 @@ def run_cascade_scan():
             return False, "donchian_triple"
         return True, "passed"
 
-    def step8(c):
-        if not check_rsi_touched_oversold(c["df_triple"]):
-            return False, "rsi_stoch"
-        if not check_rsi_stoch(c["df_triple"]):
-            return False, "rsi_stoch"
-        return True, "passed"
+    def check_rsi_stoch_short(df, lookback=5, max_gap=3):
+    """Return True if RSI and Stochastic both crossed down recently"""
+    if len(df) < WARMUP_RSI + lookback:
+        return False
 
-    steps = [step1, step2, step3, step4, step5, step6, step7, step8]
+    rsi = calc_rsi_tv(df["close"], period=14)
+    rsi_sig = rsi.rolling(14).mean()
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+
+    # الشمعة الأخيرة لازم مغلقة تحت 80
+    if float(k.iloc[-1]) >= 80:
+        return False
+
+    stoch_crosses = []
+    rsi_crosses = []
+
+    for i in range(-lookback, 0):
+        try:
+            if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
+                stoch_crosses.append(i)
+            if float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1]) and \
+               float(rsi.iloc[i]) <= float(rsi_sig.iloc[i]):
+                rsi_crosses.append(i)
+        except (ValueError, IndexError):
+            continue
+
+    for sc in stoch_crosses:
+        for rc in rsi_crosses:
+            if abs(sc - rc) <= max_gap:
+                return True
+
+    return False
+
 
     # ── تشغيل الخطوات ──
     for step_num, step_fn in enumerate(steps, start=1):
