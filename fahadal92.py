@@ -896,13 +896,13 @@ def step6(c):
 
 
     # تعريف الخطوات
-    def step7(c):
+def step7(c):
         """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
         if not check_donchian_trend_ribbon(c["df_triple"], "red"):
             return False, "donchian_triple"
         return True, "passed"
     
-    def step8(c):
+def step8(c):
         """الخطوة 8"""
         if not check_rsi_touched_oversold(c["df_triple"]):
             return False, "rsi_stoch"
