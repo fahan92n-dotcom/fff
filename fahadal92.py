@@ -767,7 +767,7 @@ def run_cascade_scan():
     - resample_cache آمن تماماً بدون race conditions
     """
     with symbols_cache_lock:
-    symbols = list(symbols_cache)
+        symbols = list(symbols_cache)
 
     if not symbols:
     return
