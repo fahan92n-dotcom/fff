@@ -804,6 +804,7 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signa
         step_survivors[step_num] = passed
         candidates = passed
 
+    global last_complete_short_survivors
     with last_complete_lock, cascade_stats_lock, cascade_results_lock:
         for i in range(1, 9):
             last_complete_stats[i] = dict(cascade_stats.get(i, {}))
