@@ -766,21 +766,21 @@ def run_cascade_scan():
     - يصفّر الإحصاء والنتائج في بداية كل دورة
     - resample_cache آمن تماماً بدون race conditions
     """
-    with symbols_cache_lock:
-        symbols = list(symbols_cache)
+with symbols_cache_lock:
+    symbols = list(symbols_cache)
 
-    if not symbols:
-        return
+if not symbols:
+    return
 
 def fetch_fresh(sym):
-        for tf in ["1m", "60m"]:
-            df = get_ohlcv(sym, tf, limit=10)
-            if not df.empty:
-                cache_merge(sym, tf, df)
+    for tf in ["1m", "60m"]:
+        df = get_ohlcv(sym, tf, limit=10)
+        if not df.empty:
+            cache_merge(sym, tf, df)
 
-    with ThreadPoolExecutor(max_workers=30) as executor:
-        executor.map(fetch_fresh, symbols)
-
+with ThreadPoolExecutor(max_workers=30) as executor:
+    executor.map(fetch_fresh, symbols)
+    
 
     # ── تصفير الإحصاء والنتائج في بداية كل دورة ──
 with cascade_stats_lock, cascade_results_lock:
