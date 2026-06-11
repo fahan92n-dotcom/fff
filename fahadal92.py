@@ -339,9 +339,18 @@ def cache_updater_60m():
 def resample_ohlcv(df, minutes):
     if df.empty:
         return pd.DataFrame()
-    return (df.copy().set_index("ts").resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
-            .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
-            .dropna().iloc[:-1].reset_index())
+    now = datetime.now(timezone.utc)
+    resampled = (df.copy().set_index("ts")
+                 .resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
+                 .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
+                 .dropna().reset_index())
+    if resampled.empty:
+        return resampled
+    # احذف فقط إذا الشمعة الأخيرة لم تُغلق بعد
+    last_candle_end = resampled["ts"].iloc[-1] + pd.Timedelta(minutes=minutes)
+    if now < last_candle_end:
+        resampled = resampled.iloc[:-1]
+    return resampled
 
 def resample_ohlcv_closed(df, minutes):
     if df.empty:
