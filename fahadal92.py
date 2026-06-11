@@ -945,12 +945,12 @@ for step_num, step_fn in enumerate(steps, start=1):
     candidates = passed
 
     # ── حفظ نسخة مكتملة ──
-global last_complete_survivors
+global last_complete_survivors  # السطر 948
 with last_complete_lock, cascade_stats_lock, cascade_results_lock:
     for i in range(1, 9):
         last_complete_stats[i] = dict(cascade_stats[i])
         last_complete_results[i] = dict(cascade_results[i])
-    last_complete_survivors = dict(step_survivors)  # حفظ الناجحين من جميع الخطوات
+    last_complete_survivors = dict(step_survivors)  # السطر 952 - هنا المشكلة!
     
     # ── إرسال الإشارات النهائية ──
     log.info("🎉 الإشارات النهائية (LONG): %d", len(candidates))
