@@ -1112,33 +1112,33 @@ def step8_short(c):
 steps_short = [step1_short, step2_short, step3_short, step4_short, step5_short, step6_short, step7_short, step8_short]
 
     # ── تشغيل الخطوات ──
-    for step_num, step_fn in enumerate(steps_short, start=1):
-        if not candidates:
-            break
+for step_num, step_fn in enumerate(steps_short, start=1):
+    if not candidates:
+        break
 
-        def run_one(c, fn=step_fn):
-            return c, *fn(c)
+    def run_one(c, fn=step_fn):
+        return c, *fn(c)
 
-        with ThreadPoolExecutor(max_workers=50) as executor:
-            results = list(executor.map(run_one, candidates))
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        results = list(executor.map(run_one, candidates))
 
-        passed = []
-        now = datetime.now(timezone.utc)
+    passed = []
+    now = datetime.now(timezone.utc)
 
-        with short_cascade_results_lock, short_cascade_stats_lock:
-            short_cascade_stats[step_num]["total"] = len(results)
-            for c, ok, reason in results:
-                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-                short_cascade_results[step_num][key] = {
-                    "passed": ok, "reason": reason, "time": now
-                }
-                if ok:
-                    short_cascade_stats[step_num]["passed"] += 1
-                    passed.append(c)
+    with short_cascade_results_lock, short_cascade_stats_lock:
+        short_cascade_stats[step_num]["total"] = len(results)
+        for c, ok, reason in results:
+            key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+            short_cascade_results[step_num][key] = {
+                "passed": ok, "reason": reason, "time": now
+            }
+            if ok:
+                short_cascade_stats[step_num]["passed"] += 1
+                passed.append(c)
 
-        log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
-        step_survivors[step_num] = passed
-        candidates = passed
+    log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
+    step_survivors[step_num] = passed
+    candidates = passed
 
     # ── حفظ نسخة مكتملة ──
     global last_complete_short_survivors
