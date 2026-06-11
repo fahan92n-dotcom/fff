@@ -1065,11 +1065,11 @@ def run_short_cascade_scan():
 
     def step8_short(c):
             """✅ الخطوة 8: RSI Short"""
-    if not check_rsi_overbought_short(c["df_triple"]):
-        return False, "rsi_stoch_short"
-    if not check_rsi_stoch_short(c["df_triple"]):
-        return False, "rsi_stoch_short"
-    return True, "passed"
+        if not check_rsi_overbought_short(c["df_triple"]):
+            return False, "rsi_stoch_short"
+        if not check_rsi_stoch_short(c["df_triple"]):
+            return False, "rsi_stoch_short"
+        return True, "passed"
 
     steps_short = [step1_short, step2_short, step3_short, step4_short, step5_short, step6_short, step7_short, step8_short]
 
