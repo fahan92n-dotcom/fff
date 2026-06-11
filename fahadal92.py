@@ -1153,17 +1153,17 @@ def run_short_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
                 return c, False, str(e)
 
-        for step_num, step_fn in enumerate(short_steps):
-    if not candidates:
-        log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
-        break
+for step_num, step_fn in enumerate(short_steps):
+   def run_one(c, fn=step_fn):
+       try:
+           return c, *fn(c)
+       except Exception as e:
+           log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
+           return c, False, str(e)
 
-    def run_one(c, fn=step_fn):
-        try:
-            return c, *fn(c)
-        except Exception as e:
-            log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
-            return c, False, str(e)
+   if not candidates:
+       log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
+       break
 
     try:
         with ThreadPoolExecutor(max_workers=50) as executor:
