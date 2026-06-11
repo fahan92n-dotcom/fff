@@ -539,7 +539,7 @@ def check_confirm_rsi_not_overbought(df, lookback=30, threshold=70):
     rsi = calc_rsi_tv(df["close"], period=14)
     return not bool((rsi.iloc[-lookback:] >= threshold).any())
 
-def check_rsi_stoch(df, lookback=5, max_gap=3):
+def check_rsi_stoch(df, lookback=5, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
