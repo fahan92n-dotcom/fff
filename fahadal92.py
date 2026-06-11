@@ -629,22 +629,36 @@ def calc_donchian_trend(df, length=20):
             trend[i] = trend[i-1]
     return trend
 
+def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
+    n = len(close_arr)
+    if n < length + 2:
+        return 0
+    trend = 0
+    for i in range(length, n):
+        prev_hh = high_arr[i - length:i].max()
+        prev_ll = low_arr[i - length:i].min()
+        c = close_arr[i]
+        if c > prev_hh:
+            trend = 1
+        elif c < prev_ll:
+            trend = -1
+    return trend
+
 def calc_donchian_trend_ribbon_correct(df, length=20):
     if len(df) < length + 2:
         return 0, False
-    main_trend = calc_donchian_trend(df, length=length)
-    if not main_trend:
-        return 0, False
-    current_main = main_trend[-1]
-    layers = [current_main]
-    for offset in range(1, 10):
+    close = df["close"].values
+    high = df["high"].values
+    low = df["low"].values
+    layers = []
+    for offset in range(10):
         layer_len = length - offset
-        layer_trends = calc_donchian_trend(df, length=layer_len)
-        if not layer_trends:
-            return 0, False
-        layers.append(layer_trends[-1])
-    if len(layers) < 10:
-        return 0, False
+        if layer_len < 2:
+            layers.append(0)
+            continue
+        t = calc_donchian_trend_vectorized(close, high, low, layer_len)
+        layers.append(t)
+    current_main = layers[0]
     all_consistent = all(t == current_main for t in layers)
     return current_main, all_consistent
 
