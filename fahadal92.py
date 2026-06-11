@@ -1154,51 +1154,58 @@ def run_short_cascade_scan():
                 return c, False, str(e)
 
         try:
-            with ThreadPoolExecutor(max_workers=50) as executor:
-                futures = [executor.submit(run_one, candidate) for candidate in candidates]
-            results = []
-                for future in concurrent.futures.as_completed(futures, timeout=120):
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        futures = [executor.submit(run_one, candidate) for candidate in candidates]
+        results = []
+
+        for future in concurrent.futures.as_completed(futures, timeout=120):
             try:
-                result = future.result(timeout=120)
-                        results.append(result)
-                    except concurrent.futures.TimeoutError:
-                        log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
-                    except Exception as e:
-                        log.error("❌ خطأ: %s", e)
+                result = future.result()
+                results.append(result)
+            except concurrent.futures.TimeoutError:
+                log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
+            except Exception as e:
+                log.error("❌ خطأ: %s", e)
 
-        except Exception as e:
-            log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
-            break
+except Exception as e:
+    log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
+    break
 
-        passed = []
-        now = datetime.now(timezone.utc)
-        short_cascade_stats[step_num] = {"total": 0, "passed": 0}
-        short_cascade_results[step_num] = {}
+passed = []
+now = datetime.now(timezone.utc)
+short_cascade_stats[step_num] = {"total": 0, "passed": 0}
+short_cascade_results[step_num] = {}
 
-        with short_cascade_results_lock, short_cascade_stats_lock:
-            short_cascade_stats[step_num]["total"] = len(results)
-            for c, ok, reason in results:
-                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-                short_cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
-                if ok:
-                    short_cascade_stats[step_num]["passed"] += 1
-                    passed.append(c)
+with short_cascade_results_lock, short_cascade_stats_lock:
+    short_cascade_stats[step_num]["total"] = len(results)
+    for c, ok, reason in results:
+        key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+        short_cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
+        if ok:
+            short_cascade_stats[step_num]["passed"] += 1
+            passed.append(c)
 
-        log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
-        short_step_survivors[step_num] = passed
-        candidates = passed
+log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
+short_step_survivors[step_num] = passed
+candidates = passed
 
-    with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
-        for i in range(1, 9):
-            last_complete_short_stats[i] = dict(short_cascade_stats.get(i, {}))
-            last_complete_short_results[i] = dict(short_cascade_results.get(i, {}))
-        last_complete_short_survivors = dict(short_step_survivors)
+with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
+    for i in range(1, 9):
+        last_complete_short_stats[i] = dict(short_cascade_stats.get(i, {}))
+        last_complete_short_results[i] = dict(short_cascade_results.get(i, {}))
+    last_complete_short_survivors = dict(short_step_survivors)
 
-    log.info("🎉 إشارات نهائية (SHORT): %d", len(candidates))
-    for c in candidates:
-        _fire_signal(c["sym"], c["base_frame"], c["confirm_frame"],
-                    c["triple_frame"], c["df_base"], signal_type="sell")
-
+log.info("🎉 إشارات نهائية (SHORT): %d", len(candidates))
+for c in candidates:
+    _fire_signal(
+        c["sym"],
+        c["base_frame"],
+        c["confirm_frame"],
+        c["triple_frame"],
+        c["df_base"],
+        signal_type="sell"
+    )
+    
 # ------------------------------------------
 # Telegram Commands
 # ------------------------------------------
