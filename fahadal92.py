@@ -907,14 +907,14 @@ def step8(c):
         return False, "rsi_stoch"
     return True, "passed"
 
-steps = [step1, step2, step3, step4, step5, step6, step7, step8]
+    steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 
 # ── تشغيل الخطوات ──
     for step_num, step_fn in enumerate(steps, start=1):
-    if not candidates:
-        break
+        if not candidates:
+            break
 
-    def run_one(c, fn=step_fn):
+        def run_one(c, fn=step_fn):
         """Closure آمن: fn مثبتة بـ default argument"""
         try:
             return c, *fn(c)
@@ -922,8 +922,8 @@ steps = [step1, step2, step3, step4, step5, step6, step7, step8]
             log.error("❌ خطأ في معالجة المرشح في الخطوة %d: %s", step_num, e)
             return c, False, str(e)
 
-    try:
-        with ThreadPoolExecutor(max_workers=50) as executor:
+        try:
+            with ThreadPoolExecutor(max_workers=50) as executor:
             # استخدام map مع timeout صحيح
             futures = [executor.submit(run_one, candidate) for candidate in candidates]
             results = []
