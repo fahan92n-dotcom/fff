@@ -915,12 +915,12 @@ def step8(c):
             break
 
         def run_one(c, fn=step_fn):
-        """Closure آمن: fn مثبتة بـ default argument"""
-        try:
-            return c, *fn(c)
-        except Exception as e:
-            log.error("❌ خطأ في معالجة المرشح في الخطوة %d: %s", step_num, e)
-            return c, False, str(e)
+            """Closure آمن: fn مثبتة بـ default argument"""
+            try:
+                return c, *fn(c)
+            except Exception as e:
+                log.error("❌ خطأ في معالجة المرشح في الخطوة %d: %s", step_num, e)
+                return c, False, str(e)
 
         try:
             with ThreadPoolExecutor(max_workers=50) as executor:
