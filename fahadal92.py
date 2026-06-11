@@ -783,7 +783,7 @@ def fetch_fresh(sym):
 
 
     # ── تصفير الإحصاء والنتائج في بداية كل دورة ──
-    with cascade_stats_lock, cascade_results_lock:
+with cascade_stats_lock, cascade_results_lock:
         for i in range(1, 9):
             cascade_stats[i]["total"] = 0
             cascade_stats[i]["passed"] = 0
