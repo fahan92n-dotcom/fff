@@ -656,6 +656,33 @@ def check_rsi_overbought_short(df, lookback=10, threshold=65):
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool((rsi.iloc[-lookback:] >= threshold).any())
+    
+    def check_rsi_not_oversold_recently(df, lookback=50, threshold=30):
+    if len(df) < WARMUP_RSI + lookback:
+        return True
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return not bool((rsi.iloc[-lookback:] <= threshold).any())
+
+
+def check_rsi_not_overbought_recently(df, lookback=50, threshold=70):
+    if len(df) < WARMUP_RSI + lookback:
+        return True
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return not bool((rsi.iloc[-lookback:] >= threshold).any())
+
+
+def check_confirm_rsi_not_oversold(df, lookback=30, threshold=30):
+    if len(df) < WARMUP_RSI + lookback:
+        return True
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return not bool((rsi.iloc[-lookback:] <= threshold).any())
+
+
+def check_confirm_rsi_not_overbought(df, lookback=30, threshold=70):
+    if len(df) < WARMUP_RSI + lookback:
+        return True
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return not bool((rsi.iloc[-lookback:] >= threshold).any())
 
 
 def check_rsi_stoch(df, lookback=5, max_gap=3):
@@ -857,9 +884,13 @@ def run_cascade_scan():
             return False, "macd_confirm"
         return True, "passed"
 
-    def step6(c):
-        """✅ الخطوة 6: السعر تحت EMA50 في الفريم الأساسي"""
+        def step6(c):
+        """✅ الخطوة 6: السعر تحت EMA50 + فلاتر RSI"""
         if not check_ema50_below(c["df_base"]):
+            return False, "ema50"
+        if not check_rsi_not_oversold_recently(c["df_triple"], lookback=50, threshold=30):
+            return False, "ema50"
+        if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
             return False, "ema50"
         return True, "passed"
 
