@@ -1029,8 +1029,8 @@ def run_cascade_scan():
                 futures = [executor.submit(run_one, candidate) for candidate in candidates]
                 results = []
                 for future in concurrent.futures.as_completed(futures, timeout=120):
-            try:
-                result = future.result(timeout=120)
+                    try:
+                        result = future.result(timeout=120)
                         results.append(result)
                     except concurrent.futures.TimeoutError:
                         log.warning("⚠️  timeout في الخطوة %d (LONG)", step_num)
