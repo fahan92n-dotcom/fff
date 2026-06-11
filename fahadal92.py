@@ -976,8 +976,8 @@ for step_num, step_fn in enumerate(steps, start=1):
         # ✅ تحديث المرشحين للخطوة التالية
         candidates = passed
     
-    log.info("✅ انتهت معالجة الخطوات - النتائج النهائية: %s", step_survivors)
-    return step_survivors, cascade_results, cascade_stats
+log.info("✅ انتهت معالجة الخطوات - النتائج النهائية: %s", step_survivors)
+return step_survivors, cascade_results, cascade_stats
 
 
 # استدعاء الدالة
