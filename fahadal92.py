@@ -1143,10 +1143,10 @@ def run_short_cascade_scan():
         try:
             with ThreadPoolExecutor(max_workers=50) as executor:
                 futures = [executor.submit(run_one, candidate) for candidate in candidates]
-                results = []
-                for future in concurrent.futures.as_completed(futures, timeout=30):
-                    try:
-                        result = future.result(timeout=30)
+            results = []
+                for future in concurrent.futures.as_completed(futures, timeout=120):
+            try:
+                result = future.result(timeout=120)
                         results.append(result)
                     except concurrent.futures.TimeoutError:
                         log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
