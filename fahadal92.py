@@ -710,23 +710,7 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signa
     msg = f"{icon} <b>{signal_type.upper()}</b> | {symbol}\nFrames: {base_frame}m / {confirm_frame}m / {triple_frame}m\nPrice: {price:.4g}"
     send_telegram(msg)
 
-def run_cascade_scan():
-    with symbols_cache_lock:
-        symbols = list(symbols_cache)
-    if not symbols:
-        return
 
-    def fetch_fresh(sym):
-        for tf in ["1m", "60m"]:
-            df = get_ohlcv(sym, tf, limit=10)
-            if not df.empty:
-                cache_merge(sym, tf, df)
-
-    with ThreadPoolExecutor(max_workers=30) as executor:
-        executor.map(fetch_fresh, symbols)
-
-    with cascade_stats_lock, cascade_results_lock:
-        for i in range(1, 9):
             cascade_stats[i]["total"] = 0
             cascade_stats[i]["passed"] = 0
             cascade_results[i].clear()
@@ -837,14 +821,6 @@ def run_short_cascade_scan():
     if not symbols:
         return
 
-    def fetch_fresh(sym):
-        for tf in ["1m", "60m"]:
-            df = get_ohlcv(sym, tf, limit=10)
-            if not df.empty:
-                cache_merge(sym, tf, df)
-
-    with ThreadPoolExecutor(max_workers=30) as executor:
-        executor.map(fetch_fresh, symbols)
 
     with short_cascade_stats_lock, short_cascade_results_lock:
         for i in range(1, 9):
