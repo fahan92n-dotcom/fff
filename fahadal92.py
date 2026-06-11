@@ -1188,7 +1188,10 @@ def cascade_watcher():
                 t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
                 t1.start(); t2.start()
                 t1.join(); t2.join()
-            time.sleep(60)
+            now = datetime.now(timezone.utc)
+            seconds = now.second + now.microsecond / 1_000_000
+            wait = 60 - seconds + 0.5
+            time.sleep(wait)
         except Exception as e:
             log.error("❌ خطأ في cascade_watcher: %s", e)
             time.sleep(5)
