@@ -950,8 +950,8 @@ with last_complete_lock, cascade_stats_lock, cascade_results_lock:
     for i in range(1, 9):
         last_complete_stats[i] = dict(cascade_stats[i])
         last_complete_results[i] = dict(cascade_results[i])
-    last_complete_survivors = dict(step_survivors)حفظ الناجحين من جميع الخطوات
-
+    last_complete_survivors = dict(step_survivors)  # حفظ الناجحين من جميع الخطوات
+    
     # ── إرسال الإشارات النهائية ──
     log.info("🎉 الإشارات النهائية (LONG): %d", len(candidates))
     for c in candidates:
