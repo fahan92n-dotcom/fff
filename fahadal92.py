@@ -842,7 +842,105 @@ def get_resampled(raw_df, sym, tf, minutes):
             })
 
     log.info("🔄 Cascade Scan (LONG): %d مرشح (resample cache: %d)", len(candidates), len(resample_cache))
+    
+    # ── تهيئة المتغيرات العامة ──
+candidates = []  # ✅ تهيئة المرشحين الأوليين
+step_survivors = {}  # ✅ تهيئة المتغير
+cascade_stats = {}  # ✅ تهيئة الإحصائيات
+cascade_results = {}  # ✅ تهيئة النتائج
+last_complete_stats = {}  # ✅ تهيئة آخر إحصائيات مكتملة
+last_complete_results = {}  # ✅ تهيئة آخر نتائج مكتملة
+last_complete_survivors = {}  # ✅ تهيئة آخر ناجحين
 
+# ── الأقفال (Locks) للآمان في المعالجة المتوازية ──
+cascade_results_lock = threading.Lock()
+cascade_stats_lock = threading.Lock()
+last_complete_lock = threading.Lock()
+
+# يجب ملء candidates بالبيانات الأولية
+# candidates = get_initial_candidates()  # أو أي دالة تجلب البيانات
+
+steps = [step1, step2, step3, step4, step5, step6, step7, step8]
+
+# ── تشغيل الخطوات ──
+for step_num, step_fn in enumerate(steps, start=1):
+    if not candidates:
+        log.info("⏸️  انقطعت المعالجة في الخطوة %d - لا توجد مرشحين متبقيين", step_num)
+        break
+    
+    def run_one(c, fn=step_fn):
+        """Closure آمن: fn مثبتة بـ default argument"""
+        try:
+            return c, *fn(c)
+        except Exception as e:
+            log.error("❌ خطأ في معالجة المرشح في الخطوة %d: %s", step_num, e)
+            return c, False, str(e)
+    
+    try:
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            futures = [executor.submit(run_one, candidate) for candidate in candidates]
+            results = []
+            
+            for future in concurrent.futures.as_completed(futures, timeout=30):
+                try:
+                    result = future.result(timeout=30)
+                    results.append(result)
+                except concurrent.futures.TimeoutError:
+                    log.warning("⚠️  انتهت مهمة بسبب timeout في الخطوة %d", step_num)
+                except Exception as e:
+                    log.error("❌ خطأ في المعالجة: %s", e)
+    
+    except concurrent.futures.TimeoutError:
+        log.error("❌ انتهت مهلة الخطوة %d بسبب timeout", step_num)
+        break
+    except Exception as e:
+        log.error("❌ خطأ في المعالجة المتوازية للخطوة %d: %s", step_num, e)
+        break
+    
+    # معالجة النتائج
+    passed = []
+    now = datetime.now(timezone.utc)
+    
+    # تهيئة الإحصائيات للخطوة
+    cascade_stats[step_num] = {"total": 0, "passed": 0}
+    cascade_results[step_num] = {}
+    
+    with cascade_results_lock, cascade_stats_lock:
+        cascade_stats[step_num]["total"] = len(results)
+        
+        for c, ok, reason in results:
+            key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+            cascade_results[step_num][key] = {
+                "passed": ok,
+                "reason": reason,
+                "time": now
+            }
+            
+            if ok:
+                cascade_stats[step_num]["passed"] += 1
+                passed.append(c)
+    
+    log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+    step_survivors[step_num] = passed
+    
+    # ✅ تحديث المرشحين للخطوة التالية
+    candidates = passed
+
+# ── حفظ نسخة مكتملة ──
+with last_complete_lock, cascade_stats_lock, cascade_results_lock:
+    for i in range(1, 9):
+        last_complete_stats[i] = dict(cascade_stats.get(i, {}))  # ✅ نسخة آمنة
+        last_complete_results[i] = dict(cascade_results.get(i, {}))  # ✅ معالجة آمنة
+    last_complete_survivors = dict(step_survivors)  # ✅ نسخة آمنة
+
+# ── إرسال الإشارات النهائية ──
+log.info("🎉 الإشارات النهائية (LONG): %d", len(candidates))
+for c in candidates:
+    _fire_signal(
+        c["sym"], c["base_frame"], c["confirm_frame"],
+        c["triple_frame"], c["df_base"], signal_type="buy"
+    )
+    
     # ── تعريف فحوصات كل خطوة (آمنة تماماً، بدون كتابة) ──
 def step1(c):
         """✅ الخطوة 1: تشبع بيعي SMI في الفريم الأساسي"""
