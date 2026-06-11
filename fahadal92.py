@@ -1153,41 +1153,57 @@ def run_short_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
                 return c, False, str(e)
 
+        for step_num, step_fn in enumerate(short_steps):
+    if not candidates:
+        log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
+        break
+
+    def run_one(c, fn=step_fn):
         try:
-    with ThreadPoolExecutor(max_workers=50) as executor:
-        futures = [executor.submit(run_one, candidate) for candidate in candidates]
-        results = []
+            return c, *fn(c)
+        except Exception as e:
+            log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
+            return c, False, str(e)
 
-        for future in concurrent.futures.as_completed(futures, timeout=120):
-            try:
-                result = future.result()
-                results.append(result)
-            except concurrent.futures.TimeoutError:
-                log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
-            except Exception as e:
-                log.error("❌ خطأ: %s", e)
+    try:
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            futures = [executor.submit(run_one, candidate) for candidate in candidates]
+            results = []
 
-except Exception as e:
-    log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
-    break
+            for future in concurrent.futures.as_completed(futures, timeout=120):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except concurrent.futures.TimeoutError:
+                    log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
+                except Exception as e:
+                    log.error("❌ خطأ: %s", e)
 
-passed = []
-now = datetime.now(timezone.utc)
-short_cascade_stats[step_num] = {"total": 0, "passed": 0}
-short_cascade_results[step_num] = {}
+    except Exception as e:
+        log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
+        break
 
-with short_cascade_results_lock, short_cascade_stats_lock:
-    short_cascade_stats[step_num]["total"] = len(results)
-    for c, ok, reason in results:
-        key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-        short_cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
-        if ok:
-            short_cascade_stats[step_num]["passed"] += 1
-            passed.append(c)
+    passed = []
+    now = datetime.now(timezone.utc)
+    short_cascade_stats[step_num] = {"total": 0, "passed": 0}
+    short_cascade_results[step_num] = {}
 
-log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
-short_step_survivors[step_num] = passed
-candidates = passed
+    if results:
+        with short_cascade_results_lock, short_cascade_stats_lock:
+            short_cascade_stats[step_num]["total"] = len(results)
+            for c, ok, reason in results:
+                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                short_cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
+                if ok:
+                    short_cascade_stats[step_num]["passed"] += 1
+                    passed.append(c)
+
+        log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
+    else:
+        log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
+
+    short_step_survivors[step_num] = passed
+    candidates = passed
 
 with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
     for i in range(1, 9):
