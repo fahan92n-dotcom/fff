@@ -895,51 +895,54 @@ def step6(c):
         return True, "passed"
 
 def step7(c):
-        """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
-        if not check_donchian_trend_ribbon(c["df_triple"], "red"):
-            return False, "donchian_triple"
-        return True, "passed"
-        
+    """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
+    if not check_donchian_trend_ribbon(c["df_triple"], "red"):
+        return False, "donchian_triple"
+    return True, "passed"
+    
 def step8(c):
-        if not check_rsi_touched_oversold(c["df_triple"]):
-            return False, "rsi_stoch"
-        if not check_rsi_stoch(c["df_triple"]):
-            return False, "rsi_stoch"
-        return True, "passed"
+    if not check_rsi_touched_oversold(c["df_triple"]):
+        return False, "rsi_stoch"
+    if not check_rsi_stoch(c["df_triple"]):
+        return False, "rsi_stoch"
+    return True, "passed"
 
-    steps = [step1, step2, step3, step4, step5, step6, step7, step8]
-
+steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 
 
     # ── تشغيل الخطوات ──
-    for step_num, step_fn in enumerate(steps, start=1):
-        if not candidates:
-            break
+for step_num, step_fn in enumerate(steps, start=1):
+    if not candidates:
+        break
 
-        def run_one(c, fn=step_fn):
-            """Closure آمن: fn مثبتة بـ default argument"""
-            return c, *fn(c)
+    def run_one(c, fn=step_fn):
+        """Closure آمن: fn مثبتة بـ default argument"""
+        return c, *fn(c)
 
+    try:
         with ThreadPoolExecutor(max_workers=50) as executor:
-            results = list(executor.map(run_one, candidates))
+            results = list(executor.map(run_one, candidates, timeout=30))
+    except Exception as e:
+        log.error("❌ خطأ في المعالجة المتوازية للخطوة %d: %s", step_num, e)
+        break
 
-        passed = []
-        now = datetime.now(timezone.utc)
+    passed = []
+    now = datetime.now(timezone.utc)
 
-        with cascade_results_lock, cascade_stats_lock:
-            cascade_stats[step_num]["total"] = len(results)
-            for c, ok, reason in results:
-                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-                cascade_results[step_num][key] = {
-                    "passed": ok, "reason": reason, "time": now
-                }
-                if ok:
-                    cascade_stats[step_num]["passed"] += 1
-                    passed.append(c)
+    with cascade_results_lock, cascade_stats_lock:
+        cascade_stats[step_num]["total"] = len(results)
+        for c, ok, reason in results:
+            key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+            cascade_results[step_num][key] = {
+                "passed": ok, "reason": reason, "time": now
+            }
+            if ok:
+                cascade_stats[step_num]["passed"] += 1
+                passed.append(c)
 
-        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
-        step_survivors[step_num] = passed  # ← حفظ الناجحين من هذه الخطوة
-        candidates = passed
+    log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+    step_survivors[step_num] = passed
+    candidates = passed
 
     # ── حفظ نسخة مكتملة ──
     global last_complete_survivors
