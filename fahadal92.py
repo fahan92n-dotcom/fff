@@ -894,47 +894,8 @@ def step6(c):
             return False, "ema50"
         return True, "passed"
 
-def run_cascade_steps():
-    """تشغيل جميع خطوات التصفية على المرشحين"""
-    
-    # ✅ تعريف candidates من البيانات الأولية
-    candidates = initialize_candidates()  # دالة لجلب المرشحين الأوليين
-    
-    if not candidates:
-        log.warning("⚠️  لا توجد مرشحين للمعالجة")
-        return
-    
-    step_survivors = {}
-    cascade_results = {}
-    cascade_stats = {}
-    cascade_results_lock = threading.Lock()
-    cascade_stats_lock = threading.Lock()
-    
+
     # تعريف الخطوات
-    def step1(c):
-        """الخطوة 1"""
-        return True, "passed"
-    
-    def step2(c):
-        """الخطوة 2"""
-        return True, "passed"
-    
-    def step3(c):
-        """الخطوة 3"""
-        return True, "passed"
-    
-    def step4(c):
-        """الخطوة 4"""
-        return True, "passed"
-    
-    def step5(c):
-        """الخطوة 5"""
-        return True, "passed"
-    
-    def step6(c):
-        """الخطوة 6"""
-        return True, "passed"
-    
     def step7(c):
         """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
         if not check_donchian_trend_ribbon(c["df_triple"], "red"):
