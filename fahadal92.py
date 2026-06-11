@@ -1046,70 +1046,70 @@ def run_short_cascade_scan():
 
     # ── تعريف فحوصات كل خطوة (عكس الـ LONG) ──
 def step1_short(c):
-        """✅ الخطوة 1: تشبع شرائي SMI ≥ +40 في الفريم الأساسي"""
-        if not check_smi_overbought(c["df_base"], threshold=40):
-            return False, "smi_overbought"
-        
-        df_next = c["df_next_tf"]
-        if df_next is not None and not df_next.empty and check_smi_overbought(df_next):
+    """✅ الخطوة 1: تشبع شرائي SMI ≥ +40 في الفريم الأساسي"""
+    if not check_smi_overbought(c["df_base"], threshold=40):
+        return False, "smi_overbought"
+    
+    df_next = c["df_next_tf"]
+    if df_next is not None and not df_next.empty and check_smi_overbought(df_next):
+        return False, "active_skip"
+    
+    if c["base_frame"] == 240:
+        df_300 = resample_ohlcv(c["raw_base"], 300)
+        if not df_300.empty and check_smi_overbought(df_300):
             return False, "active_skip"
-        
-        if c["base_frame"] == 240:
-            df_300 = resample_ohlcv(c["raw_base"], 300)
-            if not df_300.empty and check_smi_overbought(df_300):
-                return False, "active_skip"
-        
-        return True, "passed"
+    
+    return True, "passed"
 
 def step2_short(c):
-        """✅ الخطوة 2: MACD أخضر في الفريم الأساسي"""
-        if not check_macd_green(c["df_base"]):
-            return False, "macd_green"
-        return True, "passed"
+    """✅ الخطوة 2: MACD أخضر في الفريم الأساسي"""
+    if not check_macd_green(c["df_base"]):
+        return False, "macd_green"
+    return True, "passed"
 
 def step3_short(c):
-        """✅ الخطوة 3: Donchian Ribbon (الفريم الأساسي) أحمر (هابط)"""
-        if not check_donchian_trend_ribbon(c["df_base"], "red"):
-            return False, "donchian_base_red"
-        return True, "passed"
+    """✅ الخطوة 3: Donchian Ribbon (الفريم الأساسي) أحمر (هابط)"""
+    if not check_donchian_trend_ribbon(c["df_base"], "red"):
+        return False, "donchian_base_red"
+    return True, "passed"
 
 def step4_short(c):
-        """✅ الخطوة 4: Donchian Ribbon (فريم التأكيد) أحمر"""
-        if not check_donchian_trend_ribbon(c["df_confirm"], "red"):
-            return False, "donchian_confirm_red"
-        return True, "passed"
+    """✅ الخطوة 4: Donchian Ribbon (فريم التأكيد) أحمر"""
+    if not check_donchian_trend_ribbon(c["df_confirm"], "red"):
+        return False, "donchian_confirm_red"
+    return True, "passed"
 
 def step5_short(c):
-        """✅ الخطوة 5: MACD Confirm (فريم التأكيد) أحمر"""
-        if not check_macd_red(c["df_confirm"]):
-            return False, "macd_confirm_red"
-        return True, "passed"
+    """✅ الخطوة 5: MACD Confirm (فريم التأكيد) أحمر"""
+    if not check_macd_red(c["df_confirm"]):
+        return False, "macd_confirm_red"
+    return True, "passed"
 
 def step6_short(c):
-        """✅ الخطوة 6: السعر فوق EMA50 + فلاتر RSI"""
-        if not check_ema50_above_since_overbought(c["df_base"]):
-            return False, "ema50_above"
-        if not check_rsi_not_overbought_recently(c["df_triple"], lookback=50, threshold=70):
-            return False, "ema50_above"
-        if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
-            return False, "ema50_above"
-        return True, "passed"
+    """✅ الخطوة 6: السعر فوق EMA50 + فلاتر RSI"""
+    if not check_ema50_above_since_overbought(c["df_base"]):
+        return False, "ema50_above"
+    if not check_rsi_not_overbought_recently(c["df_triple"], lookback=50, threshold=70):
+        return False, "ema50_above"
+    if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
+        return False, "ema50_above"
+    return True, "passed"
 
 def step7_short(c):
-        """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أخضر (صاعد)"""
-        if not check_donchian_trend_ribbon(c["df_triple"], "green"):
-            return False, "donchian_triple_green"
-        return True, "passed"
+    """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أخضر (صاعد)"""
+    if not check_donchian_trend_ribbon(c["df_triple"], "green"):
+        return False, "donchian_triple_green"
+    return True, "passed"
 
 def step8_short(c):
-        
-        if not check_rsi_overbought_short(c["df_triple"]):
-            return False, "rsi_stoch_short"
-        if not check_rsi_stoch_short(c["df_triple"]):
-            return False, "rsi_stoch_short"
-        return True, "passed"
+    if not check_rsi_overbought_short(c["df_triple"]):
+        return False, "rsi_stoch_short"
+    if not check_rsi_stoch_short(c["df_triple"]):
+        return False, "rsi_stoch_short"
+    return True, "passed"
 
-    steps_short = [step1_short, step2_short, step3_short, step4_short, step5_short, step6_short, step7_short, step8_short]
+# ← بدون مسافات! في المستوى الأعلى
+steps_short = [step1_short, step2_short, step3_short, step4_short, step5_short, step6_short, step7_short, step8_short]
 
     # ── تشغيل الخطوات ──
     for step_num, step_fn in enumerate(steps_short, start=1):
