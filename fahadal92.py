@@ -789,16 +789,16 @@ with cascade_stats_lock, cascade_results_lock:
             cascade_stats[i]["passed"] = 0
             cascade_results[i].clear()  # ← تنظيف البيانات القديمة
 
-    # ── Cache للـ resample (يتم حسابها مرة واحدة فقط) ──
-    resample_cache = {}  # {(sym, tf, minutes): DataFrame}
-    step_survivors = {}  # ← المتغير المحلي لتخزين الناجحين من كل خطوة
+# ── Cache للـ resample (يتم حسابها مرة واحدة فقط) ──
+resample_cache = {}  # {(sym, tf, minutes): DataFrame}
+step_survivors = {}  # ← المتغير المحلي لتخزين الناجحين من كل خطوة
 
 def get_resampled(raw_df, sym, tf, minutes):
-        """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
-        key = (sym, tf, minutes)
-        if key not in resample_cache:
-            resample_cache[key] = resample_ohlcv(raw_df, minutes)
-        return resample_cache[key]
+    """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
+    key = (sym, tf, minutes)
+    if key not in resample_cache:
+        resample_cache[key] = resample_ohlcv(raw_df, minutes)
+    return resample_cache[key]
 
     # ── بناء الـ candidates مع جميع DataFrames محسوبة مسبقاً ──
     # هذا يتم في single thread، بدون أي race conditions
