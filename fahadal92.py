@@ -770,7 +770,7 @@ def run_cascade_scan():
         symbols = list(symbols_cache)
 
     if not symbols:
-    return
+        return
 
 def fetch_fresh(sym):
     for tf in ["1m", "60m"]:
