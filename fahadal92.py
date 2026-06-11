@@ -581,7 +581,7 @@ def resample_ohlcv(df, minutes):
 def resample_ohlcv_closed(df, minutes):
     if df.empty:
         return pd.DataFrame()
-    return (df.copy().set_index("ts").resample(f"{minutes}min", closed="left", label="left", origin=EPOCH)
+    return (df.copy().set_index("ts").resample(f"{minutes}min", closed="left", label="left", origin=datetime(1970, 1, 1, tzinfo=timezone.utc))
             .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
             .dropna().reset_index())
 
