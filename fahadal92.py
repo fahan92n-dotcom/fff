@@ -779,7 +779,7 @@ def fetch_fresh(sym):
             cache_merge(sym, tf, df)
 
     with ThreadPoolExecutor(max_workers=30) as executor:
-    executor.map(fetch_fresh, symbols)
+        executor.map(fetch_fresh, symbols)
     
 
     # ── تصفير الإحصاء والنتائج في بداية كل دورة ──
