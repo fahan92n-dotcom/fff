@@ -769,7 +769,7 @@ def run_cascade_scan():
     with symbols_cache_lock:
     symbols = list(symbols_cache)
 
-if not symbols:
+    if not symbols:
     return
 
 def fetch_fresh(sym):
@@ -778,20 +778,20 @@ def fetch_fresh(sym):
         if not df.empty:
             cache_merge(sym, tf, df)
 
-with ThreadPoolExecutor(max_workers=30) as executor:
+    with ThreadPoolExecutor(max_workers=30) as executor:
     executor.map(fetch_fresh, symbols)
     
 
     # ── تصفير الإحصاء والنتائج في بداية كل دورة ──
-with cascade_stats_lock, cascade_results_lock:
+    with cascade_stats_lock, cascade_results_lock:
         for i in range(1, 9):
             cascade_stats[i]["total"] = 0
             cascade_stats[i]["passed"] = 0
             cascade_results[i].clear()  # ← تنظيف البيانات القديمة
 
 # ── Cache للـ resample (يتم حسابها مرة واحدة فقط) ──
-resample_cache = {}  # {(sym, tf, minutes): DataFrame}
-step_survivors = {}  # ← المتغير المحلي لتخزين الناجحين من كل خطوة
+    resample_cache = {}  # {(sym, tf, minutes): DataFrame}
+    step_survivors = {}  # ← المتغير المحلي لتخزين الناجحين من كل خطوة
 
 def get_resampled(raw_df, sym, tf, minutes):
     """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
