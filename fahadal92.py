@@ -1154,19 +1154,19 @@ def run_short_cascade_scan():
                 return c, False, str(e)
 
 for step_num, step_fn in enumerate(short_steps):
-   def run_one(c, fn=step_fn):
-       try:
-           return c, *fn(c)
-       except Exception as e:
-           log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
-           return c, False, str(e)
+    def run_one(c, fn=step_fn):
+        try:
+            return c, *fn(c)
+        except Exception as e:
+            log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
+            return c, False, str(e)
 
-   if not candidates:
-       log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
-       break
+    if not candidates:
+        log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
+        break
 
-   try:
-       with ThreadPoolExecutor(max_workers=50) as executor:
+    try:
+        with ThreadPoolExecutor(max_workers=50) as executor:
             futures = [executor.submit(run_one, candidate) for candidate in candidates]
             results = []
 
@@ -1175,7 +1175,7 @@ for step_num, step_fn in enumerate(short_steps):
                     result = future.result()
                     results.append(result)
                 except concurrent.futures.TimeoutError:
-                    log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
+                    log.warning("⚠️ timeout في الخطوة %d (SHORT)", step_num)
                 except Exception as e:
                     log.error("❌ خطأ: %s", e)
 
@@ -1187,6 +1187,7 @@ for step_num, step_fn in enumerate(short_steps):
     now = datetime.now(timezone.utc)
     short_cascade_stats[step_num] = {"total": 0, "passed": 0}
     short_cascade_results[step_num] = {}
+
 
     if results:
         with short_cascade_results_lock, short_cascade_stats_lock:
