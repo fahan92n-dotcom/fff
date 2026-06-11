@@ -1025,46 +1025,57 @@ def run_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
                 return c, False, str(e)
 
-try:
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        futures = [executor.submit(run_one, candidate) for candidate in candidates]
-        results = []
+for step_num, step_fn in enumerate(long_steps):
+    if not candidates:
+        log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
+        break
 
-        for future in concurrent.futures.as_completed(futures, timeout=120):
-            try:
-                result = future.result()
-                results.append(result)
-            except concurrent.futures.TimeoutError:
-                log.warning("⚠️  timeout في الخطوة %d (LONG)", step_num)
-            except Exception as e:
-                log.error("❌ خطأ: %s", e)
+    def run_one(c, fn=step_fn):
+        try:
+            return c, *fn(c)
+        except Exception as e:
+            log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
+            return c, False, str(e)
 
-except Exception as e:
-    log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
-    break
+    try:
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(run_one, candidate) for candidate in candidates]
+            results = []
 
-passed = []
-now = datetime.now(timezone.utc)
-cascade_stats[step_num] = {"total": 0, "passed": 0}
-cascade_results[step_num] = {}
+            for future in concurrent.futures.as_completed(futures, timeout=120):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except concurrent.futures.TimeoutError:
+                    log.warning("⚠️  timeout في الخطوة %d (LONG)", step_num)
+                except Exception as e:
+                    log.error("❌ خطأ: %s", e)
 
-if results:
-    with cascade_results_lock, cascade_stats_lock:
-        cascade_stats[step_num]["total"] = len(results)
-        for c, ok, reason in results:
-            key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-            cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
-            if ok:
-                cascade_stats[step_num]["passed"] += 1
-                passed.append(c)
+    except Exception as e:
+        log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
+        break
 
-    log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
-else:
-    log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
+    passed = []
+    now = datetime.now(timezone.utc)
+    cascade_stats[step_num] = {"total": 0, "passed": 0}
+    cascade_results[step_num] = {}
 
-step_survivors[step_num] = passed
-candidates = passed
+    if results:
+        with cascade_results_lock, cascade_stats_lock:
+            cascade_stats[step_num]["total"] = len(results)
+            for c, ok, reason in results:
+                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
+                if ok:
+                    cascade_stats[step_num]["passed"] += 1
+                    passed.append(c)
 
+        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+    else:
+        log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
+
+    step_survivors[step_num] = passed
+    candidates = passed
 
 with last_complete_lock, cascade_stats_lock, cascade_results_lock:
     for i in range(1, 9):
@@ -1072,6 +1083,17 @@ with last_complete_lock, cascade_stats_lock, cascade_results_lock:
         last_complete_results[i] = dict(cascade_results.get(i, {}))
     last_complete_survivors = dict(step_survivors)
 
+log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
+for c in candidates:
+    _fire_signal(
+        c["sym"],
+        c["base_frame"],
+        c["confirm_frame"],
+        c["triple_frame"],
+        c["df_base"],
+        signal_type="buy"
+    )
+    
 log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
 for c in candidates:
     _fire_signal(
