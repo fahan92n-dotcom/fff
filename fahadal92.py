@@ -766,7 +766,7 @@ def run_cascade_scan():
     - يصفّر الإحصاء والنتائج في بداية كل دورة
     - resample_cache آمن تماماً بدون race conditions
     """
-with symbols_cache_lock:
+    with symbols_cache_lock:
     symbols = list(symbols_cache)
 
 if not symbols:
