@@ -772,7 +772,7 @@ def run_cascade_scan():
     if not symbols:
         return
 
-    def fetch_fresh(sym):
+def fetch_fresh(sym):
         for tf in ["1m", "60m"]:
             df = get_ohlcv(sym, tf, limit=10)
             if not df.empty:
@@ -793,7 +793,7 @@ def run_cascade_scan():
     resample_cache = {}  # {(sym, tf, minutes): DataFrame}
     step_survivors = {}  # ← المتغير المحلي لتخزين الناجحين من كل خطوة
 
-    def get_resampled(raw_df, sym, tf, minutes):
+def get_resampled(raw_df, sym, tf, minutes):
         """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
         key = (sym, tf, minutes)
         if key not in resample_cache:
@@ -844,7 +844,7 @@ def run_cascade_scan():
     log.info("🔄 Cascade Scan (LONG): %d مرشح (resample cache: %d)", len(candidates), len(resample_cache))
 
     # ── تعريف فحوصات كل خطوة (آمنة تماماً، بدون كتابة) ──
-    def step1(c):
+def step1(c):
         """✅ الخطوة 1: تشبع بيعي SMI في الفريم الأساسي"""
         if not check_smi_oversold(c["df_base"]):
             return False, "smi_oversold"
@@ -860,31 +860,31 @@ def run_cascade_scan():
         
         return True, "passed"
 
-    def step2(c):
+def step2(c):
         """✅ الخطوة 2: MACD أحمر في الفريم الأساسي"""
         if not check_macd_red(c["df_base"]):
             return False, "macd_red"
         return True, "passed"
 
-    def step3(c):
+def step3(c):
         """✅ الخطوة 3: Donchian Ribbon (الفريم الأساسي) أخضر"""
         if not check_donchian_trend_ribbon(c["df_base"], "green"):
             return False, "donchian_base"
         return True, "passed"
 
-    def step4(c):
+def step4(c):
         """✅ ظالخطوة 4: Donchian Ribbon (فريم التأكيد) أخضر"""
         if not check_donchian_trend_ribbon(c["df_confirm"], "green"):
             return False, "donchian_confirm"
         return True, "passed"
 
-    def step5(c):
+def step5(c):
         """✅ الخطوة 5: MACD Confirm (فريم التأكيد) أخضر"""
         if not check_macd_green(c["df_confirm"]):
             return False, "macd_confirm"
         return True, "passed"
 
-        def step6(c):
+def step6(c):
         """✅ الخطوة 6: السعر تحت EMA50 + فلاتر RSI"""
         if not check_ema50_below(c["df_base"]):
             return False, "ema50"
@@ -894,13 +894,13 @@ def run_cascade_scan():
             return False, "ema50"
         return True, "passed"
 
-    def step7(c):
+def step7(c):
         """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
         if not check_donchian_trend_ribbon(c["df_triple"], "red"):
             return False, "donchian_triple"
         return True, "passed"
         
-    def step8(c):
+def step8(c):
         if not check_rsi_touched_oversold(c["df_triple"]):
             return False, "rsi_stoch"
         if not check_rsi_stoch(c["df_triple"]):
@@ -1042,7 +1042,7 @@ def run_short_cascade_scan():
     log.info("🔄 Cascade Scan (SHORT): %d مرشح (resample cache: %d)", len(candidates), len(resample_cache))
 
     # ── تعريف فحوصات كل خطوة (عكس الـ LONG) ──
-    def step1_short(c):
+def step1_short(c):
         """✅ الخطوة 1: تشبع شرائي SMI ≥ +40 في الفريم الأساسي"""
         if not check_smi_overbought(c["df_base"], threshold=40):
             return False, "smi_overbought"
@@ -1058,31 +1058,31 @@ def run_short_cascade_scan():
         
         return True, "passed"
 
-    def step2_short(c):
+def step2_short(c):
         """✅ الخطوة 2: MACD أخضر في الفريم الأساسي"""
         if not check_macd_green(c["df_base"]):
             return False, "macd_green"
         return True, "passed"
 
-    def step3_short(c):
+def step3_short(c):
         """✅ الخطوة 3: Donchian Ribbon (الفريم الأساسي) أحمر (هابط)"""
         if not check_donchian_trend_ribbon(c["df_base"], "red"):
             return False, "donchian_base_red"
         return True, "passed"
 
-    def step4_short(c):
+def step4_short(c):
         """✅ الخطوة 4: Donchian Ribbon (فريم التأكيد) أحمر"""
         if not check_donchian_trend_ribbon(c["df_confirm"], "red"):
             return False, "donchian_confirm_red"
         return True, "passed"
 
-    def step5_short(c):
+def step5_short(c):
         """✅ الخطوة 5: MACD Confirm (فريم التأكيد) أحمر"""
         if not check_macd_red(c["df_confirm"]):
             return False, "macd_confirm_red"
         return True, "passed"
 
-        def step6_short(c):
+def step6_short(c):
         """✅ الخطوة 6: السعر فوق EMA50 + فلاتر RSI"""
         if not check_ema50_above_since_overbought(c["df_base"]):
             return False, "ema50_above"
@@ -1092,13 +1092,13 @@ def run_short_cascade_scan():
             return False, "ema50_above"
         return True, "passed"
 
-    def step7_short(c):
+def step7_short(c):
         """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أخضر (صاعد)"""
         if not check_donchian_trend_ribbon(c["df_triple"], "green"):
             return False, "donchian_triple_green"
         return True, "passed"
 
-    def step8_short(c):
+def step8_short(c):
         
         if not check_rsi_overbought_short(c["df_triple"]):
             return False, "rsi_stoch_short"
