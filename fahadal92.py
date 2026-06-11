@@ -910,10 +910,10 @@ def step8(c):
             return False, "rsi_stoch"
         return True, "passed"
     
-    steps = [step1, step2, step3, step4, step5, step6, step7, step8]
+steps = [step1, step2, step3, step4, step5, step6, step7, step8]
     
     # ── تشغيل الخطوات ──
-    for step_num, step_fn in enumerate(steps, start=1):
+for step_num, step_fn in enumerate(steps, start=1):
         if not candidates:
             log.info("⏸️  انقطعت المعالجة في الخطوة %d - لا توجد مرشحين متبقيين", step_num)
             break
