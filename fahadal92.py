@@ -1348,6 +1348,8 @@ def _dispatch_command(txt, chat_id):
         _cmd_cascade_diag(chat_id, "buy")
     elif txt in ("/سبب_بيع", "/diag_sell"):
         _cmd_cascade_diag(chat_id, "sell")
+    elif txt in ("/diag_failures", "/أسباب_الفشل"):
+        handle_diag_command(chat_id)
     elif txt == "/survivors6":
         _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
     elif txt == "/survivors7":
