@@ -902,7 +902,7 @@ def step7(c):
             return False, "donchian_triple"
         return True, "passed"
     
-def step8(c):
+defdef step8(c):
     """الخطوة 8"""
     if not check_rsi_touched_oversold(c["df_triple"]):
         return False, "rsi_stoch"
@@ -911,6 +911,11 @@ def step8(c):
     return True, "passed"
 
 steps = [step1, step2, step3, step4, step5, step6, step7, step8]
+
+# ── تهيئة المرشحين الأوليين ──
+candidates = []  # ✅ تهيئة المتغير
+# يجب ملء candidates بالبيانات الأولية، مثلاً:
+# candidates = get_initial_candidates()  # أو أي دالة تجلب البيانات الأولية
 
 # ── تشغيل الخطوات ──
 for step_num, step_fn in enumerate(steps, start=1):
@@ -925,6 +930,71 @@ for step_num, step_fn in enumerate(steps, start=1):
         except Exception as e:
             log.error("❌ خطأ في معالجة المرشح في الخطوة %d: %s", step_num, e)
             return c, False, str(e)
+    
+    try:
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            futures = [executor.submit(run_one, candidate) for candidate in candidates]
+            results = []
+            
+            for future in concurrent.futures.as_completed(futures, timeout=30):
+                try:
+                    result = future.result(timeout=30)
+                    results.append(result)
+                except concurrent.futures.TimeoutError:
+                    log.warning("⚠️  انتهت مهمة بسبب timeout في الخطوة %d", step_num)
+                except Exception as e:
+                    log.error("❌ خطأ في المعالجة: %s", e)
+    
+    except concurrent.futures.TimeoutError:
+        log.error("❌ انتهت مهلة الخطوة %d بسبب timeout", step_num)
+        break
+    except Exception as e:
+        log.error("❌ خطأ في المعالجة المتوازية للخطوة %d: %s", step_num, e)
+        break
+    
+    # معالجة النتائج
+    passed = []
+    now = datetime.now(timezone.utc)
+    
+    # تهيئة الإحصائيات للخطوة
+    cascade_stats[step_num] = {"total": 0, "passed": 0}
+    cascade_results[step_num] = {}
+    
+    with cascade_results_lock, cascade_stats_lock:
+        cascade_stats[step_num]["total"] = len(results)
+        
+        for c, ok, reason in results:
+            key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+            cascade_results[step_num][key] = {
+                "passed": ok,
+                "reason": reason,
+                "time": now
+            }
+            
+            if ok:
+                cascade_stats[step_num]["passed"] += 1
+                passed.append(c)
+    
+    log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+    step_survivors[step_num] = passed
+    
+    # ✅ تحديث المرشحين للخطوة التالية
+    candidates = passed
+
+# ── حفظ نسخة مكتملة ──
+with last_complete_lock, cascade_stats_lock, cascade_results_lock:
+    for i in range(1, 9):
+        last_complete_stats[i] = dict(cascade_stats[i])  # ✅ نسخة آمنة
+        last_complete_results[i] = dict(cascade_results[i])
+    last_complete_survivors = dict(step_survivors)  # ✅ نسخة آمنة
+
+# ── إرسال الإشارات النهائية ──
+log.info("🎉 الإشارات النهائية (LONG): %d", len(candidates))
+for c in candidates:
+    _fire_signal(
+        c["sym"], c["base_frame"], c["confirm_frame"],
+        c["triple_frame"], c["df_base"], signal_type="buy"
+    )
     
     try:
         with ThreadPoolExecutor(max_workers=50) as executor:
