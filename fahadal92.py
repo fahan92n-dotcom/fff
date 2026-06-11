@@ -885,17 +885,18 @@ def step5(c):
         return True, "passed"
 
 def step6(c):
-        """✅ الخطوة 6: السعر تحت EMA50 + فلاتر RSI"""
-        if not check_ema50_below(c["df_base"]):
-            return False, "ema50"
-        if not check_rsi_not_oversold_recently(c["df_triple"], lookback=50, threshold=30):
-            return False, "ema50"
-        if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
-            return False, "ema50"
-        return True, "passed"
+    """✅ الخطوة 6: السعر تحت EMA50 + فلاتر RSI"""
+    if not check_ema50_below(c["df_base"]):
+        return False, "ema50"
+    if not check_rsi_not_oversold_recently(c["df_triple"], lookback=50, threshold=30):
+        return False, "ema50"
+    if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
+        return False, "ema50"
+    return True, "passed"
 
 
-    # تعريف الخطواتdef step7(c):
+# تعريف الخطوات
+def step7(c):
     """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
     if not check_donchian_trend_ribbon(c["df_triple"], "red"):
         return False, "donchian_triple"
