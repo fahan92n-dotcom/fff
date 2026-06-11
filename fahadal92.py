@@ -942,6 +942,8 @@ def short_step8(c):
 short_steps = [short_step1, short_step2, short_step3, short_step4,
                short_step5, short_step6, short_step7, short_step8]
 
+long_steps = steps
+
 def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signal_type="buy"):
     if df_base.empty:
         return
@@ -1025,17 +1027,6 @@ def run_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
                 return c, False, str(e)
 
-for step_num, step_fn in enumerate(long_steps):
-    if not candidates:
-        log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
-        break
-
-    def run_one(c, fn=step_fn):
-        try:
-            return c, *fn(c)
-        except Exception as e:
-            log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
-            return c, False, str(e)
 
     try:
         with ThreadPoolExecutor(max_workers=20) as executor:
