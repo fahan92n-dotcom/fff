@@ -1276,7 +1276,7 @@ def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
-dedef _dispatch_command(txt, chat_id):
+def _dispatch_command(txt, chat_id):
     """Route a Telegram command to its handler."""
     if txt == "/status":
         _cmd_status(chat_id)
