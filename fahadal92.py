@@ -490,7 +490,6 @@ def check_macd_green(df):
         return False
     return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
-
 # ------------------------------------------
 # Donchian Trend Ribbon
 # ------------------------------------------
@@ -548,7 +547,6 @@ def check_donchian_trend_ribbon(df, direction="green"):
 
     trend, _ = calc_donchian_trend_ribbon_correct(df, length=20)
     
-
     if direction == "green":
         return trend == 1
     return trend == -1
@@ -597,17 +595,19 @@ def check_smi_overbought(df, threshold=40):
     smi, _ = calc_smi(df["high"], df["low"], df["close"])
     return bool(smi.iloc[-1] >= threshold)
 
+
 def check_ema50_above_since_overbought(df, smi_threshold=40):
-   """Return True if any candle since SMI first became overbought was above EMA50."""
-   if len(df) < WARMUP_SMI:
-       return False
-   smi, _ = calc_smi(df["high"], df["low"], df["close"])
-   ema = df["close"].ewm(span=50, adjust=False).mean()
-   overbought_mask = smi >= smi_threshold
-   if not overbought_mask.any():
-       return False
-   last_idx = overbought_mask[::-1].idxmax()
-   return bool((df["close"].loc[last_idx:] > ema.loc[last_idx:]).any())
+    """Return True if any candle since SMI first became overbought was above EMA50."""
+    if len(df) < WARMUP_SMI:
+        return False
+    smi, _ = calc_smi(df["high"], df["low"], df["close"])
+    ema = df["close"].ewm(span=50, adjust=False).mean()
+    overbought_mask = smi >= smi_threshold
+    if not overbought_mask.any():
+        return False
+    last_idx = overbought_mask[::-1].idxmax()
+    return bool((df["close"].loc[last_idx:] > ema.loc[last_idx:]).any())
+
 
 def check_ema50_below_since_oversold(df, smi_threshold=-40):
     """Return True if any candle since SMI last became oversold was below EMA50."""
@@ -656,7 +656,8 @@ def check_rsi_overbought_short(df, lookback=10, threshold=65):
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool((rsi.iloc[-lookback:] >= threshold).any())
-    
+
+
 def check_rsi_not_oversold_recently(df, lookback=50, threshold=30):
     if len(df) < WARMUP_RSI + lookback:
         return True
@@ -753,10 +754,98 @@ def check_rsi_stoch_short(df, lookback=5, max_gap=5):
     return False
 
 
-        
 # ------------------------------------------
 # CASCADE PIPELINE - LONG (BUY)
 # ------------------------------------------
+
+def step1(c):
+    """✅ الخطوة 1: تشبع بيعي SMI في الفريم الأساسي"""
+    if not check_smi_oversold(c["df_base"]):
+        return False, "smi_oversold"
+    
+    df_next = c["df_next_tf"]
+    if df_next is not None and not df_next.empty and check_smi_oversold(df_next):
+        return False, "active_skip"
+    
+    if c["base_frame"] == 240:
+        df_300 = resample_ohlcv(c["raw_base"], 300)
+        if not df_300.empty and check_smi_oversold(df_300):
+            return False, "active_skip"
+    
+    return True, "passed"
+
+
+def step2(c):
+    """✅ الخطوة 2: MACD أحمر في الفريم الأساسي"""
+    if not check_macd_red(c["df_base"]):
+        return False, "macd_red"
+    return True, "passed"
+
+
+def step3(c):
+    """✅ الخطوة 3: Donchian Ribbon (الفريم الأساسي) أخضر"""
+    if not check_donchian_trend_ribbon(c["df_base"], "green"):
+        return False, "donchian_base"
+    return True, "passed"
+
+
+def step4(c):
+    """✅ الخطوة 4: Donchian Ribbon (فريم التأكيد) أخضر"""
+    if not check_donchian_trend_ribbon(c["df_confirm"], "green"):
+        return False, "donchian_confirm"
+    return True, "passed"
+
+
+def step5(c):
+    """✅ الخطوة 5: MACD Confirm (فريم التأكيد) أخضر"""
+    if not check_macd_green(c["df_confirm"]):
+        return False, "macd_confirm"
+    return True, "passed"
+
+
+def step6(c):
+    """✅ الخطوة 6: السعر تحت EMA50 + فلاتر RSI"""
+    if not check_ema50_below(c["df_base"]):
+        return False, "ema50"
+    if not check_rsi_not_oversold_recently(c["df_triple"], lookback=50, threshold=30):
+        return False, "ema50"
+    if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
+        return False, "ema50"
+    return True, "passed"
+
+
+def step7(c):
+    """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
+    if not check_donchian_trend_ribbon(c["df_triple"], "red"):
+        return False, "donchian_triple"
+    return True, "passed"
+
+
+def step8(c):
+    """الخطوة 8"""
+    if not check_rsi_touched_oversold(c["df_triple"]):
+        return False, "rsi_stoch"
+    if not check_rsi_stoch(c["df_triple"]):
+        return False, "rsi_stoch"
+    return True, "passed"
+
+
+steps = [step1, step2, step3, step4, step5, step6, step7, step8]
+
+# ── تهيئة المتغيرات العامة ──
+candidates = []
+step_survivors = {}
+cascade_stats = {i: {"total": 0, "passed": 0} for i in range(1, 9)}
+cascade_results = {i: {} for i in range(1, 9)}
+last_complete_stats = {i: {"total": 0, "passed": 0} for i in range(1, 9)}
+last_complete_results = {i: {} for i in range(1, 9)}
+last_complete_survivors = {}
+
+# ── الأقفال (Locks) للآمان في المعالجة المتوازية ──
+cascade_results_lock = threading.Lock()
+cascade_stats_lock = threading.Lock()
+last_complete_lock = threading.Lock()
+
 
 def run_cascade_scan():
     """
@@ -764,44 +853,44 @@ def run_cascade_scan():
     - يحسب الـ DataFrames مرة واحدة فقط ويخزنها
     - جميع الحسابات تتم قبل التشغيل المتوازي (thread-safe بالكامل)
     - يصفّر الإحصاء والنتائج في بداية كل دورة
-    - resample_cache آمن تماماً بدون race conditions
     """
+    global candidates, step_survivors
+    
     with symbols_cache_lock:
         symbols = list(symbols_cache)
 
     if not symbols:
         return
 
-def fetch_fresh(sym):
-    for tf in ["1m", "60m"]:
-        df = get_ohlcv(sym, tf, limit=10)
-        if not df.empty:
-            cache_merge(sym, tf, df)
+    # ── جلب بيانات طازة ──
+    def fetch_fresh(sym):
+        for tf in ["1m", "60m"]:
+            df = get_ohlcv(sym, tf, limit=10)
+            if not df.empty:
+                cache_merge(sym, tf, df)
 
     with ThreadPoolExecutor(max_workers=30) as executor:
         executor.map(fetch_fresh, symbols)
-    
 
     # ── تصفير الإحصاء والنتائج في بداية كل دورة ──
     with cascade_stats_lock, cascade_results_lock:
         for i in range(1, 9):
             cascade_stats[i]["total"] = 0
             cascade_stats[i]["passed"] = 0
-            cascade_results[i].clear()  # ← تنظيف البيانات القديمة
+            cascade_results[i].clear()
 
-# ── Cache للـ resample (يتم حسابها مرة واحدة فقط) ──
-    resample_cache = {}  # {(sym, tf, minutes): DataFrame}
-    step_survivors = {}  # ← المتغير المحلي لتخزين الناجحين من كل خطوة
+    # ── Cache للـ resample ──
+    resample_cache = {}
+    step_survivors = {}
 
-def get_resampled(raw_df, sym, tf, minutes):
-    """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
-    key = (sym, tf, minutes)
-    if key not in resample_cache:
-        resample_cache[key] = resample_ohlcv(raw_df, minutes)
-    return resample_cache[key]
+    def get_resampled(raw_df, sym, tf, minutes):
+        """احصل على DataFrame المعاد عينته، مع التخزين المؤقت"""
+        key = (sym, tf, minutes)
+        if key not in resample_cache:
+            resample_cache[key] = resample_ohlcv(raw_df, minutes)
+        return resample_cache[key]
 
-    # ── بناء الـ candidates مع جميع DataFrames محسوبة مسبقاً ──
-    # هذا يتم في single thread، بدون أي race conditions
+    # ── بناء الـ candidates ──
     candidates = []
     for sym in symbols:
         raw_ec_1m = get_cached(sym, "1m")
@@ -823,7 +912,6 @@ def get_resampled(raw_df, sym, tf, minutes):
             if len(df_base) < MIN_CANDLES:
                 continue
 
-            # احسب next_tf مسبقاً وضعه في الـ candidate
             next_tf = NEXT_TF.get(base_frame)
             df_next_tf = get_resampled(raw_base, sym, base_api, next_tf) if next_tf else None
 
@@ -837,178 +925,88 @@ def get_resampled(raw_df, sym, tf, minutes):
                 "df_base": df_base,
                 "df_confirm": df_confirm,
                 "df_triple": df_triple,
-                "df_next_tf": df_next_tf,  # ← جاهز مسبقاً، لا توجد كتابة في threads
+                "df_next_tf": df_next_tf,
                 "raw_base": raw_base,
             })
 
     log.info("🔄 Cascade Scan (LONG): %d مرشح (resample cache: %d)", len(candidates), len(resample_cache))
-    
-    # ── تهيئة المتغيرات العامة ──
-candidates = []  # ✅ تهيئة المرشحين الأوليين
-step_survivors = {}  # ✅ تهيئة المتغير
-cascade_stats = {}  # ✅ تهيئة الإحصائيات
-cascade_results = {}  # ✅ تهيئة النتائج
-last_complete_stats = {}  # ✅ تهيئة آخر إحصائيات مكتملة
-last_complete_results = {}  # ✅ تهيئة آخر نتائج مكتملة
-last_complete_survivors = {}  # ✅ تهيئة آخر ناجحين
 
-# ── الأقفال (Locks) للآمان في المعالجة المتوازية ──
-cascade_results_lock = threading.Lock()
-cascade_stats_lock = threading.Lock()
-last_complete_lock = threading.Lock()
+    # ── تشغيل الخطوات ──
+    for step_num, step_fn in enumerate(steps, start=1):
+        if not candidates:
+            log.info("⏸️  انقطعت المعالجة في الخطوة %d - لا توجد مرشحين متبقيين", step_num)
+            break
 
-# يجب ملء candidates بالبيانات الأولية
-# candidates = get_initial_candidates()  # أو أي دالة تجلب البيانات
+        def run_one(c, fn=step_fn):
+            """Closure آمن: fn مثبتة بـ default argument"""
+            try:
+                return c, *fn(c)
+            except Exception as e:
+                log.error("❌ خطأ في معالجة المرشح في الخطوة %d: %s", step_num, e)
+                return c, False, str(e)
 
-steps = [step1, step2, step3, step4, step5, step6, step7, step8]
-
-# ── تشغيل الخطوات ──
-for step_num, step_fn in enumerate(steps, start=1):
-    if not candidates:
-        log.info("⏸️  انقطعت المعالجة في الخطوة %d - لا توجد مرشحين متبقيين", step_num)
-        break
-    
-    def run_one(c, fn=step_fn):
-        """Closure آمن: fn مثبتة بـ default argument"""
         try:
-            return c, *fn(c)
+            with ThreadPoolExecutor(max_workers=50) as executor:
+                futures = [executor.submit(run_one, candidate) for candidate in candidates]
+                results = []
+
+                for future in concurrent.futures.as_completed(futures, timeout=30):
+                    try:
+                        result = future.result(timeout=30)
+                        results.append(result)
+                    except concurrent.futures.TimeoutError:
+                        log.warning("⚠️  انتهت مهمة بسبب timeout في الخطوة %d", step_num)
+                    except Exception as e:
+                        log.error("❌ خطأ في المعالجة: %s", e)
+
+        except concurrent.futures.TimeoutError:
+            log.error("❌ انتهت مهلة الخطوة %d بسبب timeout", step_num)
+            break
         except Exception as e:
-            log.error("❌ خطأ في معالجة المرشح في الخطوة %d: %s", step_num, e)
-            return c, False, str(e)
-    
-    try:
-        with ThreadPoolExecutor(max_workers=50) as executor:
-            futures = [executor.submit(run_one, candidate) for candidate in candidates]
-            results = []
-            
-            for future in concurrent.futures.as_completed(futures, timeout=30):
-                try:
-                    result = future.result(timeout=30)
-                    results.append(result)
-                except concurrent.futures.TimeoutError:
-                    log.warning("⚠️  انتهت مهمة بسبب timeout في الخطوة %d", step_num)
-                except Exception as e:
-                    log.error("❌ خطأ في المعالجة: %s", e)
-    
-    except concurrent.futures.TimeoutError:
-        log.error("❌ انتهت مهلة الخطوة %d بسبب timeout", step_num)
-        break
-    except Exception as e:
-        log.error("❌ خطأ في المعالجة المتوازية للخطوة %d: %s", step_num, e)
-        break
-    
-    # معالجة النتائج
-    passed = []
-    now = datetime.now(timezone.utc)
-    
-    # تهيئة الإحصائيات للخطوة
-    cascade_stats[step_num] = {"total": 0, "passed": 0}
-    cascade_results[step_num] = {}
-    
-    with cascade_results_lock, cascade_stats_lock:
-        cascade_stats[step_num]["total"] = len(results)
-        
-        for c, ok, reason in results:
-            key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-            cascade_results[step_num][key] = {
-                "passed": ok,
-                "reason": reason,
-                "time": now
-            }
-            
-            if ok:
-                cascade_stats[step_num]["passed"] += 1
-                passed.append(c)
-    
-    log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
-    step_survivors[step_num] = passed
-    
-    # ✅ تحديث المرشحين للخطوة التالية
-    candidates = passed
+            log.error("❌ خطأ في المعالجة المتوازية للخطوة %d: %s", step_num, e)
+            break
 
-# ── حفظ نسخة مكتملة ──
-with last_complete_lock, cascade_stats_lock, cascade_results_lock:
-    for i in range(1, 9):
-        last_complete_stats[i] = dict(cascade_stats.get(i, {}))  # ✅ نسخة آمنة
-        last_complete_results[i] = dict(cascade_results.get(i, {}))  # ✅ معالجة آمنة
-    last_complete_survivors = dict(step_survivors)  # ✅ نسخة آمنة
+        # معالجة النتائج
+        passed = []
+        now = datetime.now(timezone.utc)
 
-# ── إرسال الإشارات النهائية ──
-log.info("🎉 الإشارات النهائية (LONG): %d", len(candidates))
-for c in candidates:
-    _fire_signal(
-        c["sym"], c["base_frame"], c["confirm_frame"],
-        c["triple_frame"], c["df_base"], signal_type="buy"
-    )
-    
-    # ── تعريف فحوصات كل خطوة (آمنة تماماً، بدون كتابة) ──
-def step1(c):
-        """✅ الخطوة 1: تشبع بيعي SMI في الفريم الأساسي"""
-        if not check_smi_oversold(c["df_base"]):
-            return False, "smi_oversold"
-        
-        df_next = c["df_next_tf"]
-        if df_next is not None and not df_next.empty and check_smi_oversold(df_next):
-            return False, "active_skip"
-        
-        if c["base_frame"] == 240:
-            df_300 = resample_ohlcv(c["raw_base"], 300)
-            if not df_300.empty and check_smi_oversold(df_300):
-                return False, "active_skip"
-        
-        return True, "passed"
+        cascade_stats[step_num] = {"total": 0, "passed": 0}
+        cascade_results[step_num] = {}
 
-def step2(c):
-        """✅ الخطوة 2: MACD أحمر في الفريم الأساسي"""
-        if not check_macd_red(c["df_base"]):
-            return False, "macd_red"
-        return True, "passed"
+        with cascade_results_lock, cascade_stats_lock:
+            cascade_stats[step_num]["total"] = len(results)
 
-def step3(c):
-        """✅ الخطوة 3: Donchian Ribbon (الفريم الأساسي) أخضر"""
-        if not check_donchian_trend_ribbon(c["df_base"], "green"):
-            return False, "donchian_base"
-        return True, "passed"
+            for c, ok, reason in results:
+                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                cascade_results[step_num][key] = {
+                    "passed": ok,
+                    "reason": reason,
+                    "time": now
+                }
 
-def step4(c):
-        """✅ ظالخطوة 4: Donchian Ribbon (فريم التأكيد) أخضر"""
-        if not check_donchian_trend_ribbon(c["df_confirm"], "green"):
-            return False, "donchian_confirm"
-        return True, "passed"
+                if ok:
+                    cascade_stats[step_num]["passed"] += 1
+                    passed.append(c)
 
-def step5(c):
-        """✅ الخطوة 5: MACD Confirm (فريم التأكيد) أخضر"""
-        if not check_macd_green(c["df_confirm"]):
-            return False, "macd_confirm"
-        return True, "passed"
+        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+        step_survivors[step_num] = passed
 
-def step6(c):
-    """✅ الخطوة 6: السعر تحت EMA50 + فلاتر RSI"""
-    if not check_ema50_below(c["df_base"]):
-        return False, "ema50"
-    if not check_rsi_not_oversold_recently(c["df_triple"], lookback=50, threshold=30):
-        return False, "ema50"
-    if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
-        return False, "ema50"
-    return True, "passed"
+        candidates = passed
 
+    # ── حفظ نسخة مكتملة ──
+    with last_complete_lock, cascade_stats_lock, cascade_results_lock:
+        for i in range(1, 9):
+            last_complete_stats[i] = dict(cascade_stats.get(i, {}))
+            last_complete_results[i] = dict(cascade_results.get(i, {}))
+        last_complete_survivors = dict(step_survivors)
 
-# تعريف الخطوات
-def step7(c):
-    """✅ الخطوة 7: Donchian Ribbon (فريم التثليث) أحمر (هابط)"""
-    if not check_donchian_trend_ribbon(c["df_triple"], "red"):
-        return False, "donchian_triple"
-    return True, "passed"
-
-def step8(c):
-    """الخطوة 8"""
-    if not check_rsi_touched_oversold(c["df_triple"]):
-        return False, "rsi_stoch"
-    if not check_rsi_stoch(c["df_triple"]):
-        return False, "rsi_stoch"
-    return True, "passed"
-
-steps = [step1, step2, step3, step4, step5, step6, step7, step8]
+    # ── إرسال الإشارات النهائية ──
+    log.info("🎉 الإشارات النهائية (LONG): %d", len(candidates))
+    for c in candidates:
+        _fire_signal(
+            c["sym"], c["base_frame"], c["confirm_frame"],
+            c["triple_frame"], c["df_base"], signal_type="buy"
+        )
 
 # ── تهيئة المرشحين الأوليين ──
 candidates = []  # ✅ تهيئة المتغير
