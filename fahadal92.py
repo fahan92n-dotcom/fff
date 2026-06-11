@@ -1165,8 +1165,8 @@ for step_num, step_fn in enumerate(short_steps):
        log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
        break
 
-    try:
-        with ThreadPoolExecutor(max_workers=50) as executor:
+   try:
+       with ThreadPoolExecutor(max_workers=50) as executor:
             futures = [executor.submit(run_one, candidate) for candidate in candidates]
             results = []
 
