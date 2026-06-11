@@ -1082,9 +1082,13 @@ def run_short_cascade_scan():
             return False, "macd_confirm_red"
         return True, "passed"
 
-    def step6_short(c):
-        """✅ الخطوة 6: السعر فوق EMA50 في الفريم الأساسي"""
+        def step6_short(c):
+        """✅ الخطوة 6: السعر فوق EMA50 + فلاتر RSI"""
         if not check_ema50_above_since_overbought(c["df_base"]):
+            return False, "ema50_above"
+        if not check_rsi_not_overbought_recently(c["df_triple"], lookback=50, threshold=70):
+            return False, "ema50_above"
+        if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
             return False, "ema50_above"
         return True, "passed"
 
