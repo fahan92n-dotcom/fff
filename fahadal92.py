@@ -1180,8 +1180,21 @@ def cascade_watcher():
     while True:
         try:
             if fast_prefetch_done.is_set():
-                run_cascade_scan()
-                run_short_cascade_scan()
+                # ✅ fetch مرة واحدة للاثنين
+                with symbols_cache_lock:
+                    syms = list(symbols_cache)
+                def fetch_fresh(sym):
+                    for tf in ["1m", "60m"]:
+                        df = get_ohlcv(sym, tf, limit=10)
+                        if not df.empty:
+                            cache_merge(sym, tf, df)
+                with ThreadPoolExecutor(max_workers=30) as executor:
+                    executor.map(fetch_fresh, syms)
+                # ✅ LONG و SHORT معاً
+                t1 = threading.Thread(target=run_cascade_scan, daemon=True)
+                t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
+                t1.start(); t2.start()
+                t1.join(); t2.join()
             time.sleep(60)
         except Exception as e:
             log.error("❌ خطأ في cascade_watcher: %s", e)
