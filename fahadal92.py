@@ -1160,7 +1160,6 @@ for step_num, step_fn in enumerate(steps_short, start=1):
     candidates = passed
 
 # ── حفظ نسخة مكتملة ──
-global last_complete_short_survivors
 with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
     for i in range(1, 9):
         last_complete_short_stats[i] = dict(short_cascade_stats[i])
