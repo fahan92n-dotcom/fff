@@ -657,7 +657,7 @@ def check_rsi_overbought_short(df, lookback=10, threshold=65):
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool((rsi.iloc[-lookback:] >= threshold).any())
     
-    def check_rsi_not_oversold_recently(df, lookback=50, threshold=30):
+def check_rsi_not_oversold_recently(df, lookback=50, threshold=30):
     if len(df) < WARMUP_RSI + lookback:
         return True
     rsi = calc_rsi_tv(df["close"], period=14)
