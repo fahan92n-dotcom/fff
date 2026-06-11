@@ -688,6 +688,13 @@ short_steps = [short_step1, short_step2, short_step3, short_step4,
 def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signal_type="buy"):
     if df_base.empty:
         return
+    key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
+    now = datetime.now(timezone.utc)
+    with alerted_keys_lock:
+        last = alerted_keys.get(key)
+        if last and now - last < timedelta(hours=ALERT_EXPIRY_HOURS):
+            return
+        alerted_keys[key] = now
     price = df_base["close"].iloc[-1]
     save_signal(symbol, price, base_frame, confirm_frame, triple_frame, signal_type=signal_type)
     icon = "🟢" if signal_type == "buy" else "🔴"
