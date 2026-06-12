@@ -420,6 +420,98 @@ def handle_diag_command(chat_id):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
         
+def get_top_hard_filters(signal_type="buy", top_n=3, max_pass_pct=10.0):
+    """
+    يرجع أكثر N فلاتر قسوة (نسبة نجاح < max_pass_pct%)
+    مرتبة من الأصعب للأخف
+    """
+    if signal_type == "buy":
+        lock = last_complete_lock
+        stats = last_complete_stats
+        step_names = STEP_NAMES
+        step_labels = STEP_LABELS
+    else:
+        lock = last_complete_short_lock
+        stats = last_complete_short_stats
+        step_names = SHORT_STEP_NAMES
+        step_labels = SHORT_STEP_LABELS
+
+    hard_filters = []
+
+    with lock:
+        for step_num in range(1, 9):
+            stat = stats.get(step_num, {})
+            total = stat.get("total", 0)
+            passed = stat.get("passed", 0)
+
+            if total == 0:
+                continue  # لا بيانات بعد
+
+            pass_pct = (passed / total) * 100
+
+            if pass_pct <= max_pass_pct:
+                name = step_names[step_num - 1]
+                label = step_labels[name]
+                hard_filters.append({
+                    "step_num": step_num,
+                    "label": label,
+                    "total": total,
+                    "passed": passed,
+                    "failed": total - passed,
+                    "pass_pct": pass_pct,
+                })
+
+    # ترتيب من الأصعب (أقل نسبة نجاح) للأخف
+    hard_filters.sort(key=lambda x: x["pass_pct"])
+
+    return hard_filters[:top_n]
+
+
+def handle_hard_filters_command(chat_id, signal_type="buy"):
+    """معالج أمر /hard_filters أو /hard_filters_sell"""
+
+    if not fast_prefetch_done.is_set():
+        send_telegram("⏳ البوت لم يكمل التحميل بعد، انتظر قليلاً.", chat_id)
+        return
+
+    icon_type = "🟢 LONG (شراء)" if signal_type == "buy" else "🔴 SHORT (بيع)"
+    filters = get_top_hard_filters(signal_type=signal_type, top_n=3, max_pass_pct=10.0)
+
+    if not filters:
+        send_telegram(
+            f"✅ <b>{icon_type}</b>\n"
+            f"لا توجد فلاتر بنسبة نجاح أقل من 10% — الكود يعمل بشكل طبيعي.",
+            chat_id
+        )
+        return
+
+    lines = [
+        f"⚠️ <b>أكثر الفلاتر قسوة — {icon_type}</b>",
+        f"<i>(نسبة النجاح أقل من 10%)</i>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        ""
+    ]
+
+    medals = ["🥇", "🥈", "🥉"]
+
+    for i, f in enumerate(filters):
+        pass_pct = f["pass_pct"]
+        fail_pct = 100 - pass_pct
+        bar_pass = "█" * int(pass_pct / 10) + "░" * (10 - int(pass_pct / 10))
+
+        lines.append(
+            f"{medals[i]} <b>خطوة #{f['step_num']}: {f['label']}</b>\n"
+            f"  {bar_pass}\n"
+            f"  ✅ نجح: <b>{f['passed']}</b> ({pass_pct:.1f}%)\n"
+            f"  ❌ فشل: <b>{f['failed']}</b> ({fail_pct:.1f}%)\n"
+            f"  📥 دخل: <b>{f['total']}</b>\n"
+        )
+
+    msg = "\n".join(lines)
+
+    for i in range(0, len(msg), 4000):
+        send_telegram(msg[i:i + 4000], chat_id)
+        
         
 # ------------------------------------------
 # Binance OHLCV
