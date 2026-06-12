@@ -1390,68 +1390,8 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             return
 
         now = datetime.now(timezone.utc)
-
         df5_full = resample_ohlcv_closed(df_raw, 5)
 
-        if df5_full.empty:
-            send_telegram("❌ فشل إعادة العينة", chat_id)
-            return
-
-        last_candle_end = df5_full["ts"].iloc[-1] + timedelta(minutes=5)
-        if now < last_candle_end:
-            df5 = df5_full.iloc[:-1]
-        else:
-            df5 = df5_full
-
-        if len(df5) < MIN_CANDLES:
-            send_telegram(f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})", chat_id)
-            return
-
-        price = df5["close"].iloc[-1]
-
-        candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
-        fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-
-        rsi_series = calc_rsi_tv(df5["close"], period=14)
-        rsi_val = round(float(rsi_series.iloc[-1]), 2)
-
-        k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
-        stoch_k = round(float(k_series.iloc[-1]), 2)
-        stoch_d = round(float(d_series.iloc[-1]), 2)
-
-        macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
-        macd_hist_val = round(float(histogram.iloc[-1]), 4)
-        macd_line_val = round(float(macd_line.iloc[-1]), 4)
-        signal_line_val = round(float(signal_line.iloc[-1]), 4)
-        macd_color = "🟢" if macd_hist_val > 0 else "🔴"
-
-        smi_series, smi_sig_series = calc_smi(df5["high"], df5["low"], df5["close"])
-        smi_val = round(float(smi_series.iloc[-1]), 2)
-        smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
-
-        don_trend = calc_donchian_trend(df5)
-        if don_trend:
-            don_val = don_trend[-1]
-            don_color = "🟢 أخضر (صاعد)" if don_val == 1 else ("🔴 أحمر (هابط)" if don_val == -1 else "⚪ محايد")
-        else:
-            don_color = "⚪ محايد"
-
-
-def handle_check5(chat_id, symbol="BTCUSDT"):
-    send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
-    try:
-        fresh = get_ohlcv(symbol, "1m", limit=100)
-        if not fresh.empty:
-            cache_merge(symbol, "1m", fresh)
-
-        df_raw = get_cached(symbol, "1m")
-        if df_raw.empty:
-            send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
-            return
-
-        now = datetime.now(timezone.utc)
-        df5_full = resample_ohlcv_closed(df_raw, 5)
-        
         if df5_full.empty:
             send_telegram("❌ فشل إعادة العينة", chat_id)
             return
@@ -1522,58 +1462,6 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
     except Exception as e:
         log.error(f"check5 error: {e}")
         send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
-        
-def _dispatch_command(txt, chat_id):
-    if txt == "/status":
-        _cmd_status(chat_id)
-    elif txt in ("1", "/today"):
-        send_telegram(get_report("today"), chat_id)
-    elif txt in ("2", "/yesterday"):
-        send_telegram(get_report("yesterday"), chat_id)
-    elif txt in ("3", "/week"):
-        send_telegram(get_report("week"), chat_id)
-    elif txt in ("/سبب_شراء", "/diag_buy"):
-        _cmd_cascade_diag(chat_id, "buy")
-    elif txt in ("/سبب_بيع", "/diag_sell"):
-        _cmd_cascade_diag(chat_id, "sell")
-    elif txt in ("/diag_failures", "/أسباب_الفشل"):
-        handle_diag_command(chat_id)
-    elif txt == "/survivors6":
-        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
-    elif txt == "/survivors7":
-        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="buy")
-    elif txt == "/survivors8":
-        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="buy")
-    elif txt == "/survivors6_sell":
-        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="sell")
-    elif txt == "/survivors7_sell":
-        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="sell")
-    elif txt == "/survivors8_sell":
-        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="sell")
-    elif txt.startswith("/check5"):
-        parts = txt.split()
-        symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
-        if not symbol.endswith("USDT"):
-            symbol += "USDT"
-        threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
-    elif txt == "/help":
-        send_telegram(
-            "📋 <b>الأوامر المتاحة:</b>\n"
-            "1️⃣ <code>1</code> — إشارات اليوم\n"
-            "2️⃣ <code>2</code> — إشارات أمس\n"
-            "3️⃣ <code>3</code> — آخر 7 أيام\n"
-            "🟢 <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
-            "🔴 <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
-            "🟢 <code>/survivors6</code> — الناجحون حتى 6 (شراء)\n"
-            "🟢 <code>/survivors7</code> — الناجحون حتى 7 (شراء)\n"
-            "🟢 <code>/survivors8</code> — الناجحون حتى 8 (شراء)\n"
-            "🔴 <code>/survivors6_sell</code> — الناجحون حتى 6 (بيع)\n"
-            "🔴 <code>/survivors7_sell</code> — الناجحون حتى 7 (بيع)\n"
-            "🔴 <code>/survivors8_sell</code> — الناجحون حتى 8 (بيع)\n"
-            "📊 <code>/status</code> — حالة البوت\n"
-            "📋 <code>/help</code> — قائمة الأوامر",
-            chat_id,
-         )
 
 def _dispatch_command(txt, chat_id):
     if txt == "/status":
@@ -1627,12 +1515,12 @@ def _dispatch_command(txt, chat_id):
             "🔴 <code>/survivors7_sell</code> — الناجحون حتى 7 (بيع)\n"
             "🔴 <code>/survivors8_sell</code> — الناجحون حتى 8 (بيع)\n"
             "📊 <code>/status</code> — حالة البوت\n"
-            "📋 <code>/help</code> — قائمة الأوامر"
             "<code>/hard_filters</code> — أصعب 3 فلاتر في الشراء (نجاح < 10%)\n"
             "<code>/hard_filters_sell</code> — أصعب 3 فلاتر في البيع (نجاح < 10%)\n"
+            "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
         )
-        
+
 def poll_telegram_commands():
     last_id = 0
     while True:
@@ -1668,8 +1556,10 @@ def cascade_watcher():
                 # ✅ LONG و SHORT معاً
                 t1 = threading.Thread(target=run_cascade_scan, daemon=True)
                 t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
-                t1.start(); t2.start()
-                t1.join(); t2.join()
+                t1.start()
+                t2.start()
+                t1.join()
+                t2.join()
             now = datetime.now(timezone.utc)
             seconds = now.second + now.microsecond / 1_000_000
             wait = 60 - seconds + 0.5
