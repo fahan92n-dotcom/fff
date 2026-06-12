@@ -914,12 +914,13 @@ def check_rsi_stoch_short(df, lookback=5, max_gap=5):
 def step1(c):
     if not check_smi_oversold(c["df_base"]):
         return False, "smi_oversold"
-    df_next = c["df_next_tf"]
-    if df_next is not None and not df_next.empty and check_smi_oversold(df_next):
-        return False, "active_skip"
-    if c["base_frame"] == 240:
-        df_300 = resample_ohlcv(c["raw_base"], 300)
-        if not df_300.empty and check_smi_oversold(df_300):
+    base_frame = c["base_frame"]
+    raw_base = c["raw_base"]
+    for tf in TIMEFRAME_CHAIN:
+        if tf <= base_frame:
+            continue
+        df_higher = resample_ohlcv(raw_base, tf)
+        if not df_higher.empty and check_smi_oversold(df_higher):
             return False, "active_skip"
     return True, "passed"
 
