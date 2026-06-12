@@ -1435,8 +1435,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             don_color = "🟢 أخضر (صاعد)" if don_val == 1 else ("🔴 أحمر (هابط)" if don_val == -1 else "⚪ محايد")
         else:
             don_color = "⚪ محايد"
-except Exception as e:
-        don_color = "⚪ محايد"
+
 
 rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
 stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
