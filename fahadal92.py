@@ -978,12 +978,13 @@ steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 def short_step1(c):
     if not check_smi_overbought(c["df_base"], threshold=40):
         return False, "smi_overbought"
-    df_next = c["df_next_tf"]
-    if df_next is not None and not df_next.empty and check_smi_overbought(df_next):
-        return False, "active_skip"
-    if c["base_frame"] == 240:
-        df_300 = resample_ohlcv(c["raw_base"], 300)
-        if not df_300.empty and check_smi_overbought(df_300):
+    base_frame = c["base_frame"]
+    raw_base = c["raw_base"]
+    for tf in TIMEFRAME_CHAIN:
+        if tf <= base_frame:
+            continue
+        df_higher = resample_ohlcv(raw_base, tf)
+        if not df_higher.empty and check_smi_overbought(df_higher, threshold=40):
             return False, "active_skip"
     return True, "passed"
 
