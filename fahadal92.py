@@ -1430,39 +1430,91 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
 
         don_trend = calc_donchian_trend(df5)
-        if don_trend:
-            don_val = don_trend[-1]
-            don_color = "🟢 أخضر (صاعد)" if don_val == 1 else ("🔴 أحمر (هابط)" if don_val == -1 else "⚪ محايد")
-        else:
-            don_color = "⚪ محايد"
+if don_trend:
+    don_val = don_trend[-1]
+    don_color = "🟢 أخضر (صاعد)" if don_val == 1 else ("🔴 أحمر (هابط)" if don_val == -1 else "⚪ محايد")
+else:
+    don_color = "⚪ محايد"
 
-        rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
-        stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
-        smi_zone = "🔴 تشبع بيعي" if smi_val <= -40 else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
+rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
+stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
+smi_zone = "🔴 تشبع بيعي" if smi_val <= -40 else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
 
+send_telegram(
+    f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+    f"🕯️ الشمعة المغلقة: <b>{candle_ts}</b>\n"
+    f"🕐 وقت الجلب: {fetch_ts}\n"
+    f"━━━━━━━━━━━━━━━━\n"
+    f"💰 السعر: <b>{price:.2f}$</b>\n"
+    f"━━━━━━━━━━━━━━━━\n"
+    f"🎀 Donchian Ribbon (20): {don_color}\n"
+    f"━━━━━━━━━━━━━━━━\n"
+    f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"
+    f"━━━━━━━━━━━━━━━━\n"
+    f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\nStoch D(3): <b>{stoch_d}</b>\n"
+    f"━━━━━━━━━━━━━━━━\n"
+    f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\nMACD Line: <b>{macd_line_val}</b>\nSignal Line: <b>{signal_line_val}</b>\n"
+    f"━━━━━━━━━━━━━━━━\n"
+    f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\nSignal: <b>{smi_sig}</b>\n"
+    f"━━━━━━━━━━━━━━━━\n"
+    f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
+    chat_id,
+)
+except Exception as e:
+    log.error(f"check5 error: {e}")
+    send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
+
+def _dispatch_command(txt, chat_id):
+    if txt == "/status":
+        _cmd_status(chat_id)
+    elif txt in ("1", "/today"):
+        send_telegram(get_report("today"), chat_id)
+    elif txt in ("2", "/yesterday"):
+        send_telegram(get_report("yesterday"), chat_id)
+    elif txt in ("3", "/week"):
+        send_telegram(get_report("week"), chat_id)
+    elif txt in ("/سبب_شراء", "/diag_buy"):
+        _cmd_cascade_diag(chat_id, "buy")
+    elif txt in ("/سبب_بيع", "/diag_sell"):
+        _cmd_cascade_diag(chat_id, "sell")
+    elif txt in ("/diag_failures", "/أسباب_الفشل"):
+        handle_diag_command(chat_id)
+    elif txt == "/survivors6":
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
+    elif txt == "/survivors7":
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="buy")
+    elif txt == "/survivors8":
+        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="buy")
+    elif txt == "/survivors6_sell":
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="sell")
+    elif txt == "/survivors7_sell":
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="sell")
+    elif txt == "/survivors8_sell":
+        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="sell")
+    elif txt.startswith("/check5"):
+        parts = txt.split()
+        symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        if not symbol.endswith("USDT"):
+            symbol += "USDT"
+        threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
+    elif txt == "/help":
         send_telegram(
-            f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
-            f"🕯️ الشمعة المغلقة: <b>{candle_ts}</b>\n"
-            f"🕐 وقت الجلب: {fetch_ts}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"💰 السعر: <b>{price:.2f}$</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"🎀 Donchian Ribbon (20): {don_color}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\nStoch D(3): <b>{stoch_d}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\nMACD Line: <b>{macd_line_val}</b>\nSignal Line: <b>{signal_line_val}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\nSignal: <b>{smi_sig}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
+            "📋 <b>الأوامر المتاحة:</b>\n"
+            "1️⃣ <code>1</code> — إشارات اليوم\n"
+            "2️⃣ <code>2</code> — إشارات أمس\n"
+            "3️⃣ <code>3</code> — آخر 7 أيام\n"
+            "🟢 <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
+            "🔴 <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
+            "🟢 <code>/survivors6</code> — الناجحون حتى 6 (شراء)\n"
+            "🟢 <code>/survivors7</code> — الناجحون حتى 7 (شراء)\n"
+            "🟢 <code>/survivors8</code> — الناجحون حتى 8 (شراء)\n"
+            "🔴 <code>/survivors6_sell</code> — الناجحون حتى 6 (بيع)\n"
+            "🔴 <code>/survivors7_sell</code> — الناجحون حتى 7 (بيع)\n"
+            "🔴 <code>/survivors8_sell</code> — الناجحون حتى 8 (بيع)\n"
+            "📊 <code>/status</code> — حالة البوت\n"
+            "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
-        )
-    except Exception as e:
-        log.error(f"check5 error: {e}")
-        send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
+         )
 
 def _dispatch_command(txt, chat_id):
     if txt == "/status":
