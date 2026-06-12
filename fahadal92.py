@@ -915,17 +915,17 @@ def short_step5(c):
     return True, "passed"
 
 def short_step6(c):
-   if not check_ema50_above(c["df_base"]):
-       return False, "ema50_above"
-   if not check_rsi_not_overbought_recently(c["df_triple"], lookback=50, threshold=70):
-       return False, "ema50_above"
-   if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
-       return False, "ema50_above"
-   if not check_entry_rsi_clean_sell(c["df_triple"], lookback=50, threshold=70):
-       return False, "ema50_above"
-   if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
-       return False, "ema50_above"
-   return True, "passed"
+    if not check_ema50_above(c["df_base"]):
+        return False, "ema50_above"
+    if not check_rsi_not_overbought_recently(c["df_triple"], lookback=50, threshold=70):
+        return False, "ema50_above"
+    if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
+        return False, "ema50_above"
+    if not check_entry_rsi_clean_sell(c["df_triple"], lookback=50, threshold=70):
+        return False, "ema50_above"
+    if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
+        return False, "ema50_above"
+    return True, "passed"
 
 def short_step7(c):
     if not check_donchian_trend_ribbon(c["df_triple"], "green"):
@@ -959,6 +959,7 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signa
     icon = "🟢" if signal_type == "buy" else "🔴"
     msg = f"{icon} <b>{signal_type.upper()}</b> | {symbol}\nFrames: {base_frame}m / {confirm_frame}m / {triple_frame}m\nPrice: {price:.4g}"
     send_telegram(msg)
+
 def run_cascade_scan():
     global last_complete_short_survivors
     with symbols_cache_lock:
@@ -968,7 +969,6 @@ def run_cascade_scan():
 
     with cascade_stats_lock, cascade_results_lock:
         for i in range(1, 9):
-
             cascade_stats[i]["total"] = 0
             cascade_stats[i]["passed"] = 0
             cascade_results[i].clear()
@@ -1027,82 +1027,68 @@ def run_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
                 return c, False, str(e)
 
+        try:
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                futures = [executor.submit(run_one, candidate) for candidate in candidates]
+                results = []
 
-    try:
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            futures = [executor.submit(run_one, candidate) for candidate in candidates]
-            results = []
+                for future in concurrent.futures.as_completed(futures, timeout=120):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except concurrent.futures.TimeoutError:
+                        log.warning("⚠️  timeout في الخطوة %d (LONG)", step_num)
+                    except Exception as e:
+                        log.error("❌ خطأ: %s", e)
 
-            for future in concurrent.futures.as_completed(futures, timeout=120):
-                try:
-                    result = future.result()
-                    results.append(result)
-                except concurrent.futures.TimeoutError:
-                    log.warning("⚠️  timeout في الخطوة %d (LONG)", step_num)
-                except Exception as e:
-                    log.error("❌ خطأ: %s", e)
+        except Exception as e:
+            log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
+            break
 
-    except Exception as e:
-        log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
-        break
+        passed = []
+        now = datetime.now(timezone.utc)
+        cascade_stats[step_num] = {"total": 0, "passed": 0}
+        cascade_results[step_num] = {}
 
-    passed = []
-    now = datetime.now(timezone.utc)
-    cascade_stats[step_num] = {"total": 0, "passed": 0}
-    cascade_results[step_num] = {}
+        if results:
+            with cascade_results_lock, cascade_stats_lock:
+                cascade_stats[step_num]["total"] = len(results)
+                for c, ok, reason in results:
+                    key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                    cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
+                    if ok:
+                        cascade_stats[step_num]["passed"] += 1
+                        passed.append(c)
 
-    if results:
-        with cascade_results_lock, cascade_stats_lock:
-            cascade_stats[step_num]["total"] = len(results)
-            for c, ok, reason in results:
-                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-                cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
-                if ok:
-                    cascade_stats[step_num]["passed"] += 1
-                    passed.append(c)
+            log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+        else:
+            log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
 
-        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
-    else:
-        log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
+        step_survivors[step_num] = passed
+        candidates = passed
 
-    step_survivors[step_num] = passed
-    candidates = passed
+    with last_complete_lock, cascade_stats_lock, cascade_results_lock:
+        for i in range(1, 9):
+            last_complete_stats[i] = dict(cascade_stats.get(i, {}))
+            last_complete_results[i] = dict(cascade_results.get(i, {}))
+        last_complete_survivors = dict(step_survivors)
 
-with last_complete_lock, cascade_stats_lock, cascade_results_lock:
-    for i in range(1, 9):
-        last_complete_stats[i] = dict(cascade_stats.get(i, {}))
-        last_complete_results[i] = dict(cascade_results.get(i, {}))
-    last_complete_survivors = dict(step_survivors)
-
-log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
-for c in candidates:
-    _fire_signal(
-        c["sym"],
-        c["base_frame"],
-        c["confirm_frame"],
-        c["triple_frame"],
-        c["df_base"],
-        signal_type="buy"
-    )
-    
-log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
-for c in candidates:
-    _fire_signal(
-        c["sym"],
-        c["base_frame"],
-        c["confirm_frame"],
-        c["triple_frame"],
-        c["df_base"],
-        signal_type="buy"
-    )
-
+    log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
+    for c in candidates:
+        _fire_signal(
+            c["sym"],
+            c["base_frame"],
+            c["confirm_frame"],
+            c["triple_frame"],
+            c["df_base"],
+            signal_type="buy"
+        )
 
 def run_short_cascade_scan():
     with symbols_cache_lock:
         symbols = list(symbols_cache)
     if not symbols:
         return
-
 
     with short_cascade_stats_lock, short_cascade_results_lock:
         for i in range(1, 9):
@@ -1153,7 +1139,7 @@ def run_short_cascade_scan():
     log.info("🔄 Cascade Scan (SHORT): %d مرشح", len(short_candidates))
 
     candidates = short_candidates
-    
+
     for step_num, step_fn in enumerate(short_steps, start=1):
         if not candidates:
             log.info("⏸️  انقطعت المعالجة في الخطوة %d (SHORT)", step_num)
@@ -1166,76 +1152,63 @@ def run_short_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
                 return c, False, str(e)
 
-for step_num, step_fn in enumerate(short_steps):
-    def run_one(c, fn=step_fn):
         try:
-            return c, *fn(c)
+            with ThreadPoolExecutor(max_workers=50) as executor:
+                futures = [executor.submit(run_one, candidate) for candidate in candidates]
+                results = []
+
+                for future in concurrent.futures.as_completed(futures, timeout=120):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except concurrent.futures.TimeoutError:
+                        log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
+                    except Exception as e:
+                        log.error("❌ خطأ: %s", e)
+
         except Exception as e:
-            log.error("❌ خطأ في الخطوة %d: %s", step_num, e)
-            return c, False, str(e)
+            log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
+            break
 
-    if not candidates:
-        log.info("📍 لا توجد مرشحين في الخطوة %d", step_num)
-        break
+        passed = []
+        now = datetime.now(timezone.utc)
+        short_cascade_stats[step_num] = {"total": 0, "passed": 0}
+        short_cascade_results[step_num] = {}
 
-    try:
-        with ThreadPoolExecutor(max_workers=50) as executor:
-            futures = [executor.submit(run_one, candidate) for candidate in candidates]
-            results = []
+        if results:
+            with short_cascade_results_lock, short_cascade_stats_lock:
+                short_cascade_stats[step_num]["total"] = len(results)
+                for c, ok, reason in results:
+                    key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                    short_cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
+                    if ok:
+                        short_cascade_stats[step_num]["passed"] += 1
+                        passed.append(c)
 
-            for future in concurrent.futures.as_completed(futures, timeout=120):
-                try:
-                    result = future.result()
-                    results.append(result)
-                except concurrent.futures.TimeoutError:
-                    log.warning("⚠️ timeout في الخطوة %d (SHORT)", step_num)
-                except Exception as e:
-                    log.error("❌ خطأ: %s", e)
+            log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
+        else:
+            log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
 
-    except Exception as e:
-        log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
-        break
+        short_step_survivors[step_num] = passed
+        candidates = passed
 
-    passed = []
-    now = datetime.now(timezone.utc)
-    short_cascade_stats[step_num] = {"total": 0, "passed": 0}
-    short_cascade_results[step_num] = {}
+    with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
+        for i in range(1, 9):
+            last_complete_short_stats[i] = dict(short_cascade_stats.get(i, {}))
+            last_complete_short_results[i] = dict(short_cascade_results.get(i, {}))
+        last_complete_short_survivors = dict(short_step_survivors)
 
+    log.info("🎉 إشارات نهائية (SHORT): %d", len(candidates))
+    for c in candidates:
+        _fire_signal(
+            c["sym"],
+            c["base_frame"],
+            c["confirm_frame"],
+            c["triple_frame"],
+            c["df_base"],
+            signal_type="sell"
+        )
 
-    if results:
-        with short_cascade_results_lock, short_cascade_stats_lock:
-            short_cascade_stats[step_num]["total"] = len(results)
-            for c, ok, reason in results:
-                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-                short_cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
-                if ok:
-                    short_cascade_stats[step_num]["passed"] += 1
-                    passed.append(c)
-
-        log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
-    else:
-        log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
-
-    short_step_survivors[step_num] = passed
-    candidates = passed
-
-with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
-    for i in range(1, 9):
-        last_complete_short_stats[i] = dict(short_cascade_stats.get(i, {}))
-        last_complete_short_results[i] = dict(short_cascade_results.get(i, {}))
-    last_complete_short_survivors = dict(short_step_survivors)
-
-log.info("🎉 إشارات نهائية (SHORT): %d", len(candidates))
-for c in candidates:
-    _fire_signal(
-        c["sym"],
-        c["base_frame"],
-        c["confirm_frame"],
-        c["triple_frame"],
-        c["df_base"],
-        signal_type="sell"
-    )
-    
 # ------------------------------------------
 # Telegram Commands
 # ------------------------------------------
@@ -1258,7 +1231,7 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
         for step_num in range(1, 9):
             step_name = STEP_NAMES[step_num - 1] if signal_type == "buy" else SHORT_STEP_NAMES[step_num - 1]
             step_label = STEP_LABELS[step_name] if signal_type == "buy" else SHORT_STEP_LABELS[step_name]
-            
+
             stat = stats[step_num]
             total_t = stat["total"]
             total_p = stat["passed"]
@@ -1283,19 +1256,19 @@ def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
 
     with lock:
         survivors = survivors_dict.get(step_num, [])
-    
+
     if not survivors:
         send_telegram(f"⚠️ لا توجد عملات نجحت حتى الخطوة {step_num}", chat_id)
         return
-    
+
     icon = "🟢" if signal_type == "buy" else "🔴"
     lines = [f"{icon} <b>الناجحون حتى الخطوة {step_num} ({len(survivors)} عملات)</b>", "━" * 30]
-    
+
     for c in survivors:
         lines.append(f"• <b>{c['sym']}</b>\n├─ فريم أساسي: {c['base_frame']}m\n├─ فريم تأكيد: {c['confirm_frame']}m\n└─ فريم تثليث: {c['triple_frame']}m")
-    
+
     msg = "\n".join(lines)
-    
+
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
@@ -1304,7 +1277,7 @@ def _cmd_status(chat_id):
         cache_size = len(ohlcv_cache)
     with trades_lock:
         signals_count = len(trades_history)
-    
+
     msg = (f"<b>📊 حالة البوت</b>\n"
            f"🔄 الكاش: {cache_size} مفتاح\n"
            f"📈 الإشارات: {signals_count}\n"
@@ -1318,32 +1291,32 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         fresh = get_ohlcv(symbol, "1m", limit=100)
         if not fresh.empty:
             cache_merge(symbol, "1m", fresh)
-        
+
         df_raw = get_cached(symbol, "1m")
         if df_raw.empty:
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
             return
 
         now = datetime.now(timezone.utc)
-        
+
         df5_full = resample_ohlcv_closed(df_raw, 5)
-        
+
         if df5_full.empty:
             send_telegram("❌ فشل إعادة العينة", chat_id)
             return
-        
+
         last_candle_end = df5_full["ts"].iloc[-1] + timedelta(minutes=5)
         if now < last_candle_end:
             df5 = df5_full.iloc[:-1]
         else:
             df5 = df5_full
-        
+
         if len(df5) < MIN_CANDLES:
             send_telegram(f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})", chat_id)
             return
-            
+
         price = df5["close"].iloc[-1]
-        
+
         candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
         fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
@@ -1450,7 +1423,7 @@ def _dispatch_command(txt, chat_id):
             "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
         )
-
+        
 def poll_telegram_commands():
     last_id = 0
     while True:
