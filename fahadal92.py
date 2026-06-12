@@ -1517,6 +1517,8 @@ def _dispatch_command(txt, chat_id):
             "🔴 <code>/survivors8_sell</code> — الناجحون حتى 8 (بيع)\n"
             "📊 <code>/status</code> — حالة البوت\n"
             "📋 <code>/help</code> — قائمة الأوامر",
+            "<code>/hard_filters</code> — أصعب 3 فلاتر في الشراء (نجاح < 10%)\n"
+            "<code>/hard_filters_sell</code> — أصعب 3 فلاتر في البيع (نجاح < 10%)\n"
             chat_id,
         )
         
