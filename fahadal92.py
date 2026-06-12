@@ -1497,6 +1497,10 @@ def _dispatch_command(txt, chat_id):
         if not symbol.endswith("USDT"):
             symbol += "USDT"
         threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
+    elif txt in ("/hard_filters", "/فلاتر_صعبة"):
+    handle_hard_filters_command(chat_id, signal_type="buy")
+    elif txt in ("/hard_filters_sell", "/فلاتر_صعبة_بيع"):
+    handle_hard_filters_command(chat_id, signal_type="sell")
     elif txt == "/help":
         send_telegram(
             "📋 <b>الأوامر المتاحة:</b>\n"
