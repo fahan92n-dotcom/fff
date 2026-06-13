@@ -1569,10 +1569,7 @@ def cascade_watcher():
                 t2.start()
                 t1.join()
                 t2.join()
-            now = datetime.now(timezone.utc)
-            seconds = now.second + now.microsecond / 1_000_000
-            wait = 60 - seconds + 1
-            time.sleep(wait)
+            time.sleep(next_candle_close())
         except Exception as e:
             log.error("❌ خطأ في cascade_watcher: %s", e)
             time.sleep(5)
