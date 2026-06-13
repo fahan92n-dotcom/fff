@@ -1509,6 +1509,22 @@ def _dispatch_command(txt, chat_id):
         handle_hard_filters_command(chat_id, signal_type="buy")
     elif txt in ("/hard_filters_sell", "/فلاتر_صعبة_بيع"):
         handle_hard_filters_command(chat_id, signal_type="sell")
+    elif txt in ("/hard_filters_sell", "/فلاتر_صعبة_بيع"):
+        handle_hard_filters_command(chat_id, signal_type="sell")
+
+
+    elif txt == "/scan_now":
+        if not fast_prefetch_done.is_set():
+        send_telegram("⏳ التحميل لم يكتمل بعد، انتظر.", chat_id)
+    else:
+        send_telegram("🔄 جاري تشغيل المسح الفوري...", chat_id)
+        def do_scan():
+            run_cascade_scan()
+            run_short_cascade_scan()
+            send_telegram("✅ المسح الفوري اكتمل — جرّب /سبب_شراء الآن", chat_id)
+        threading.Thread(target=do_scan, daemon=True).start(
+
+
     elif txt == "/help":
         send_telegram(
             "📋 <b>الأوامر المتاحة:</b>\n"
