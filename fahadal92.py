@@ -1068,8 +1068,10 @@ def run_cascade_scan():
     with symbols_cache_lock:
         symbols = list(symbols_cache)
     if not symbols:
+        log.warning("⚠️ لا توجد symbols في الكاش")
         return
 
+    log.info("🔢 عدد الـ symbols: %d", len(symbols))
 
     # ✅ تأكد الكاش فيه بيانات كافية
     with ohlcv_cache_lock:
@@ -1077,6 +1079,8 @@ def run_cascade_scan():
     if cache_size < len(symbols) * 1.5:
         log.info("⏳ الكاش غير كافٍ بعد (%d مفتاح)، تخطي المسح", cache_size)
         return
+
+    log.info("✅ الكاش كافٍ (%d مفتاح)", cache_size)
 
     with cascade_stats_lock, cascade_results_lock:
         for i in range(1, 9):
@@ -1114,7 +1118,6 @@ def run_cascade_scan():
             if len(df_base) < MIN_CANDLES:
                 continue
 
-
             candidates.append({
                 "sym": sym, "base_api": base_api, "triple_api": triple_api,
                 "base_frame": base_frame, "confirm_frame": confirm_frame, "triple_frame": triple_frame,
@@ -1123,12 +1126,18 @@ def run_cascade_scan():
                 "get_resampled": get_resampled,
             })
 
-    log.info("🔄 Cascade Scan (LONG): %d مرشح", len(candidates))
+    log.info("🔄 Cascade Scan (LONG): %d مرشح قبل الخطوات", len(candidates))
 
     for step_num, step_fn in enumerate(steps, start=1):
+        candidates_before = len(candidates)
+        
         if not candidates:
             log.info("⏸️  انقطعت المعالجة في الخطوة %d (LONG)", step_num)
             break
+        
+        candidates = step_fn(candidates)
+        
+        log.info("📊 Step %d: %d → %d (نجح %d)", step_num, candidates_before, len(candidates), len(candidates))
 
         def run_one(c, fn=step_fn):
             try:
