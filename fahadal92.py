@@ -1066,7 +1066,6 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signa
     send_telegram(msg)
 
 def run_cascade_scan():
-    global last_complete_short_survivors
     with symbols_cache_lock:
         symbols = list(symbols_cache)
     if not symbols:
