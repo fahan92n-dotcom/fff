@@ -1047,6 +1047,119 @@ short_steps = [short_step1, short_step2, short_step3, short_step4,
                short_step5, short_step6, short_step7, short_step8]
 
 long_steps = steps
+
+def run_cascade_scan():
+    with symbols_cache_lock:
+        symbols = list(symbols_cache)
+    if not symbols:
+        log.warning("⚠️ لا توجد symbols في الكاش")
+        return
+
+    with ohlcv_cache_lock:
+        cache_size = len(ohlcv_cache)
+    if cache_size < len(symbols) * 1.2:
+        log.info("⏳ الكاش غير كافٍ بعد (%d مفتاح)، تخطي المسح", cache_size)
+        return
+
+    log.info("✅ الكاش كافٍ (%d مفتاح)", cache_size)
+
+    with cascade_stats_lock, cascade_results_lock:
+        for i in range(1, 9):
+            cascade_stats[i]["total"] = 0
+            cascade_stats[i]["passed"] = 0
+            cascade_results[i].clear()
+
+    resample_cache = {}
+    step_survivors = {}
+
+    def get_resampled(raw_df, sym, tf, minutes):
+        key = (sym, tf, minutes)
+        if key not in resample_cache:
+            resample_cache[key] = resample_ohlcv(raw_df, minutes)
+        return resample_cache[key]
+
+    candidates = []
+    for sym in symbols:
+        raw_ec_1m = get_cached(sym, "1m")
+        raw_ec_60m = get_cached(sym, "60m")
+
+        for base_frame, confirm_frame, triple_frame, base_api, triple_api in TRIPLING_PAIRS:
+            raw_base = raw_ec_1m if base_api == "1m" else raw_ec_60m
+            raw_triple = raw_ec_1m if triple_api == "1m" else raw_ec_60m
+
+            if raw_base.empty or raw_triple.empty:
+                continue
+
+            df_base = get_resampled(raw_base, sym, base_api, base_frame)
+            df_confirm = get_resampled(raw_base, sym, base_api, confirm_frame)
+            df_triple = get_resampled(raw_triple, sym, triple_api, triple_frame)
+
+            if df_base.empty or df_confirm.empty or df_triple.empty:
+                continue
+            if len(df_base) < MIN_CANDLES:
+                continue
+
+            candidates.append({
+                "sym": sym, "base_api": base_api, "triple_api": triple_api,
+                "base_frame": base_frame, "confirm_frame": confirm_frame, "triple_frame": triple_frame,
+                "df_base": df_base, "df_confirm": df_confirm, "df_triple": df_triple,
+                "raw_base": raw_base,
+                "get_resampled": get_resampled,
+            })
+
+    log.info("🔄 Cascade Scan (LONG): %d مرشح قبل الخطوات", len(candidates))
+
+    for step_num, step_fn in enumerate(steps, start=1):
+        if not candidates:
+            log.info("⏸️ انقطعت المعالجة في الخطوة %d (LONG)", step_num)
+            break
+
+        def run_one(c, fn=step_fn):
+            try:
+                return c, *fn(c)
+            except Exception as e:
+                log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
+                return c, False, str(e)
+
+        try:
+            with ThreadPoolExecutor(max_workers=20) as executor:
+                futures = [executor.submit(run_one, candidate) for candidate in candidates]
+                results = []
+                for future in concurrent.futures.as_completed(futures, timeout=120):
+                    try:
+                        results.append(future.result())
+                    except Exception as e:
+                        log.error("❌ خطأ: %s", e)
+        except Exception as e:
+            log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
+            break
+
+        passed = []
+        now = datetime.now(timezone.utc)
+        with cascade_results_lock, cascade_stats_lock:
+            cascade_stats[step_num]["total"] = len(results)
+            for c, ok, reason in results:
+                key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
+                if ok:
+                    cascade_stats[step_num]["passed"] += 1
+                    passed.append(c)
+
+        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+        step_survivors[step_num] = passed
+        candidates = passed
+
+    with last_complete_lock, cascade_stats_lock, cascade_results_lock:
+        for i in range(1, 9):
+            last_complete_stats[i] = dict(cascade_stats.get(i, {}))
+            last_complete_results[i] = dict(cascade_results.get(i, {}))
+        last_complete_survivors = dict(step_survivors)
+
+    log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
+    for c in candidates:
+        _fire_signal(c["sym"], c["base_frame"], c["confirm_frame"],
+                     c["triple_frame"], c["df_base"], signal_type="buy")
+
 def run_short_cascade_scan():
     with symbols_cache_lock:
         symbols = list(symbols_cache)
