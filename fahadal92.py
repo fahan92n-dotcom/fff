@@ -95,6 +95,9 @@ prefetch_done = threading.Event()
 
 _local = threading.local()
 
+first_scan_notified = False
+first_scan_lock = threading.Lock()
+
 # ------------------------------------------
 # Labels
 # ------------------------------------------
