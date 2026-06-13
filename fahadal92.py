@@ -1101,6 +1101,25 @@ def run_cascade_scan():
     for sym in symbols:
         raw_ec_1m = get_cached(sym, "1m")
         raw_ec_60m = get_cached(sym, "60m")
+        # ... باقي الكود ...
+
+    # ← أضف هنا بعد نهاية الـ for loop
+    loaded = set(k[0] for k in ohlcv_cache.keys())
+    missing = [s for s in symbols if s not in loaded]
+    log.info("❌ عملات ناقصة: %d — %s", len(missing), missing[:10])
+    log.info("🔄 Cascade Scan (LONG): %d مرشح قبل الخطوات", len(candidates))
+
+
+    def get_resampled(raw_df, sym, tf, minutes):
+        key = (sym, tf, minutes)
+        if key not in resample_cache:
+            resample_cache[key] = resample_ohlcv(raw_df, minutes)
+        return resample_cache[key]
+
+    candidates = []
+    for sym in symbols:
+        raw_ec_1m = get_cached(sym, "1m")
+        raw_ec_60m = get_cached(sym, "60m")
 
         for base_frame, confirm_frame, triple_frame, base_api, triple_api in TRIPLING_PAIRS:
             raw_base = raw_ec_1m if base_api == "1m" else raw_ec_60m
