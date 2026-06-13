@@ -989,9 +989,11 @@ steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 def short_step1(c):
     if not check_smi_overbought(c["df_base"], threshold=40):
         return False, "smi_overbought"
+    base_frame = c["base_frame"]
     for tf in TIMEFRAME_CHAIN:
         if tf <= base_frame:
             continue
+        df_higher = c["get_resampled"](c["raw_base"], c["sym"], c["base_api"], tf)
         if not df_higher.empty and check_smi_overbought(df_higher, threshold=40):
             return False, "active_skip"
     return True, "passed"
