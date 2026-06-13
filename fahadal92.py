@@ -1518,7 +1518,7 @@ def _dispatch_command(txt, chat_id):
             send_telegram("⏳ التحميل لم يكتمل بعد، انتظر.", chat_id)
             return
         else:
-        send_telegram("🔄 جاري تشغيل المسح الفوري...", chat_id)
+            send_telegram("🔄 جاري تشغيل المسح الفوري...", chat_id)
         def do_scan():
             run_cascade_scan()
             run_short_cascade_scan()
