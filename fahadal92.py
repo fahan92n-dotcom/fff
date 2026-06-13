@@ -1563,7 +1563,6 @@ def _dispatch_command(txt, chat_id):
         )
         send_telegram(msg, chat_id)
 
-       
 def poll_telegram_commands():
     last_id = 0
     while True:
