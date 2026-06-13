@@ -1234,6 +1234,7 @@ def run_short_cascade_scan():
                 "base_frame": base_frame, "confirm_frame": confirm_frame, "triple_frame": triple_frame,
                 "df_base": df_base, "df_confirm": df_confirm, "df_triple": df_triple,
                 "raw_base": raw_base,
+                "get_resampled": get_resampled,
             })
 
     log.info("🔄 Cascade Scan (SHORT): %d مرشح", len(short_candidates))
