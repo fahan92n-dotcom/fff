@@ -1515,8 +1515,9 @@ def _dispatch_command(txt, chat_id):
 
     elif txt == "/scan_now":
         if not fast_prefetch_done.is_set():
-        send_telegram("⏳ التحميل لم يكتمل بعد، انتظر.", chat_id)
-    else:
+            send_telegram("⏳ التحميل لم يكتمل بعد، انتظر.", chat_id)
+            return
+        else:
         send_telegram("🔄 جاري تشغيل المسح الفوري...", chat_id)
         def do_scan():
             run_cascade_scan()
