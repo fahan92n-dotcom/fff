@@ -1057,7 +1057,7 @@ def run_cascade_scan():
 
     with ohlcv_cache_lock:
         cache_size = len(ohlcv_cache)
-    if cache_size < len(symbols) * 1.2:
+    if cache_size < len(symbols) * 0.8:
         log.info("⏳ الكاش غير كافٍ بعد (%d مفتاح)، تخطي المسح", cache_size)
         return
 
