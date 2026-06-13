@@ -1597,6 +1597,10 @@ def cascade_watcher():
     while True:
         try:
             if fast_prefetch_done.is_set():
+                with ohlcv_cache_lock:
+                    if len(ohlcv_cache) < 100:  # تأكد الكاش فيه بيانات
+                        time.sleep(30)
+                        continue
                 # ✅ fetch مرة واحدة للاثنين
                 with symbols_cache_lock:
                     syms = list(symbols_cache)
