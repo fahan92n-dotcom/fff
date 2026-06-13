@@ -1515,21 +1515,40 @@ def _dispatch_command(txt, chat_id):
             "1️⃣ <code>1</code> — إشارات اليوم\n"
             "2️⃣ <code>2</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> — آخر 7 أيام\n"
-            "🟢 <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
-            "🔴 <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
-            "🟢 <code>/survivors6</code> — الناجحون حتى 6 (شراء)\n"
-            "🟢 <code>/survivors7</code> — الناجحون حتى 7 (شراء)\n"
-            "🟢 <code>/survivors8</code> — الناجحون حتى 8 (شراء)\n"
-            "🔴 <code>/survivors6_sell</code> — الناجحون حتى 6 (بيع)\n"
-            "🔴 <code>/survivors7_sell</code> — الناجحون حتى 7 (بيع)\n"
-            "🔴 <code>/survivors8_sell</code> — الناجحون حتى 8 (بيع)\n"
             "📊 <code>/status</code> — حالة البوت\n"
-            "<code>/hard_filters</code> — أصعب 3 فلاتر في الشراء (نجاح < 10%)\n"
-            "<code>/hard_filters_sell</code> — أصعب 3 فلاتر في البيع (نجاح < 10%)\n"
             "📋 <code>/help</code> — قائمة الأوامر",
             chat_id,
         )
+    elif txt == "/debug":
+        with ohlcv_cache_lock:
+            cache_keys = list(ohlcv_cache.keys())
+        with symbols_cache_lock:
+            syms = list(symbols_cache)
+        sample_sym = syms[0] if syms else None
+        sample_info = ""
+        if sample_sym:
+            raw_1m = get_cached(sample_sym, "1m")
+            raw_60m = get_cached(sample_sym, "60m")
+            df_base = resample_ohlcv(raw_1m, 9)
+            sample_info = (
+                f"\n📌 عينة: {sample_sym}"
+                f"\n1m candles: {len(raw_1m)}"
+                f"\n60m candles: {len(raw_60m)}"
+                f"\ndf_base (9m): {len(df_base)}"
+                f"\nMIN_CANDLES: {MIN_CANDLES}"
+                f"\nيمر؟ {'✅' if len(df_base) >= MIN_CANDLES else '❌'}"
+            )
+        msg = (
+            f"🔧 <b>Debug Info</b>\n"
+            f"عملات: {len(syms)}\n"
+            f"Cache keys: {len(cache_keys)}\n"
+            f"fast_prefetch: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
+            f"prefetch_done: {'✅' if prefetch_done.is_set() else '⏳'}"
+            f"{sample_info}"
+        )
+        send_telegram(msg, chat_id)
 
+       
 def poll_telegram_commands():
     last_id = 0
     while True:
