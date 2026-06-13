@@ -725,16 +725,27 @@ def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     n = len(close_arr)
     if n < length + 2:
         return 0
-    trend = 0
-    for i in range(length, n):
-        prev_hh = high_arr[i - length:i].max()
-        prev_ll = low_arr[i - length:i].min()
-        c = close_arr[i]
-        if c > prev_hh:
-            trend = 1
-        elif c < prev_ll:
-            trend = -1
-    return trend
+
+    high_s = pd.Series(high_arr)
+    low_s = pd.Series(low_arr)
+
+    prev_hh = high_s.rolling(length).max().shift(1).values
+    prev_ll = low_s.rolling(length).min().shift(1).values
+
+    close_arr = np.asarray(close_arr)
+
+    breakout_up = close_arr > prev_hh
+    breakout_down = close_arr < prev_ll
+
+    up_indices = np.where(breakout_up)[0]
+    down_indices = np.where(breakout_down)[0]
+
+    last_up = up_indices[-1] if len(up_indices) > 0 else -1
+    last_down = down_indices[-1] if len(down_indices) > 0 else -1
+
+    if last_up == -1 and last_down == -1:
+        return 0
+    return 1 if last_up > last_down else -1
 
 def calc_donchian_trend_ribbon_correct(df, length=20):
     if len(df) < length + 2:
