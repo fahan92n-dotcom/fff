@@ -994,7 +994,6 @@ def short_step1(c):
     for tf in TIMEFRAME_CHAIN:
         if tf <= base_frame:
             continue
-        df_higher = resample_ohlcv(raw_base, tf)
         if not df_higher.empty and check_smi_overbought(df_higher, threshold=40):
             return False, "active_skip"
     return True, "passed"
