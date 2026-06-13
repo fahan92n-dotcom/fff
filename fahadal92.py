@@ -1135,7 +1135,6 @@ def run_cascade_scan():
             log.info("⏸️  انقطعت المعالجة في الخطوة %d (LONG)", step_num)
             break
         
-        candidates = step_fn(candidates)
         
         log.info("📊 Step %d: %d → %d (نجح %d)", step_num, candidates_before, len(candidates), len(candidates))
 
