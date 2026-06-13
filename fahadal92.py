@@ -930,7 +930,7 @@ def step1(c):
     for tf in TIMEFRAME_CHAIN:
         if tf <= base_frame:
             continue
-        df_higher = resample_ohlcv(raw_base, tf)
+        df_higher = c["get_resampled"](c["raw_base"], c["sym"], c["base_api"], tf)
         if not df_higher.empty and check_smi_oversold(df_higher):
             return False, "active_skip"
     return True, "passed"
