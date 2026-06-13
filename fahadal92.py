@@ -1557,7 +1557,7 @@ def cascade_watcher():
                     syms = list(symbols_cache)
                 def fetch_fresh(sym):
                     for tf in ["1m", "60m"]:
-                        df = get_ohlcv(sym, tf, limit=10)
+                        df = get_ohlcv(sym, tf, limit=3)
                         if not df.empty:
                             cache_merge(sym, tf, df)
                 with ThreadPoolExecutor(max_workers=30) as executor:
