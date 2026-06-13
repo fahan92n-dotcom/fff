@@ -1548,6 +1548,17 @@ def poll_telegram_commands():
         except Exception:
             time.sleep(10)
 
+def next_candle_close():
+    now = datetime.now(timezone.utc)
+    total_seconds = now.minute * 60 + now.second
+    min_wait = 999999
+    for tf in TIMEFRAME_CHAIN:
+        tf_seconds = tf * 60
+        remaining = tf_seconds - (total_seconds % tf_seconds)
+        if remaining < min_wait:
+            min_wait = remaining
+    return min_wait + 1
+
 def cascade_watcher():
     while True:
         try:
