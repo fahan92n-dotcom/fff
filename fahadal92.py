@@ -1159,6 +1159,24 @@ def run_cascade_scan():
     for c in candidates:
         _fire_signal(c["sym"], c["base_frame"], c["confirm_frame"],
                      c["triple_frame"], c["df_base"], signal_type="buy")
+def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df_base, signal_type="buy"):
+    price = float(df_base["close"].iloc[-1])
+    alert_key = f"{symbol}_{base_frame}_{confirm_frame}_{triple_frame}_{signal_type}"
+    
+    with alerted_keys_lock:
+        if alert_key in alerted_keys:
+            return
+        alerted_keys[alert_key] = datetime.now(timezone.utc)
+    
+    save_signal(symbol, price, base_frame, confirm_frame, triple_frame, signal_type)
+    
+    icon = "🟢" if signal_type == "buy" else "🔴"
+    label = "LONG شراء" if signal_type == "buy" else "SHORT بيع"
+    msg = (f"{icon} <b>{label} — {symbol}</b>\n"
+           f"💰 السعر: {price:.4g}\n"
+           f"⏱ {base_frame}m / {confirm_frame}m / {triple_frame}m")
+    send_telegram(msg)
+                    
 
 def run_short_cascade_scan():
     with symbols_cache_lock:
