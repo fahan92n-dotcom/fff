@@ -1571,7 +1571,7 @@ def cascade_watcher():
                 t2.join()
             now = datetime.now(timezone.utc)
             seconds = now.second + now.microsecond / 1_000_000
-            wait = 60 - seconds + 0.5
+            wait = 60 - seconds + 1
             time.sleep(wait)
         except Exception as e:
             log.error("❌ خطأ في cascade_watcher: %s", e)
