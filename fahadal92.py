@@ -1230,8 +1230,6 @@ def run_short_cascade_scan():
             if len(df_base) < MIN_CANDLES:
                 continue
 
-            next_tf = NEXT_TF.get(base_frame)
-            df_next_tf = get_resampled(raw_base, sym, base_api, next_tf) if next_tf else None
 
             short_candidates.append({
                 "sym": sym, "base_api": base_api, "triple_api": triple_api,
