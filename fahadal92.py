@@ -1233,7 +1233,7 @@ def run_short_cascade_scan():
                 "sym": sym, "base_api": base_api, "triple_api": triple_api,
                 "base_frame": base_frame, "confirm_frame": confirm_frame, "triple_frame": triple_frame,
                 "df_base": df_base, "df_confirm": df_confirm, "df_triple": df_triple,
-                "df_next_tf": df_next_tf, "raw_base": raw_base,
+                "raw_base": raw_base,
             })
 
     log.info("🔄 Cascade Scan (SHORT): %d مرشح", len(short_candidates))
