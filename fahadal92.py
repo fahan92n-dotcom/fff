@@ -989,8 +989,6 @@ steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 def short_step1(c):
     if not check_smi_overbought(c["df_base"], threshold=40):
         return False, "smi_overbought"
-    base_frame = c["base_frame"]
-    raw_base = c["raw_base"]
     for tf in TIMEFRAME_CHAIN:
         if tf <= base_frame:
             continue
