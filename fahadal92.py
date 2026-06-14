@@ -79,6 +79,8 @@ last_complete_stats = {i: {"total": 0, "passed": 0} for i in range(1, 9)}
 last_complete_results = defaultdict(dict)
 last_complete_survivors = {}
 last_complete_lock = threading.Lock()
+last_complete_scan_time = {"buy": None, "sell": None}
+last_complete_scan_time_lock = threading.Lock()
 
 short_cascade_results = defaultdict(dict)
 short_cascade_results_lock = threading.Lock()
