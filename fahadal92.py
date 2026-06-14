@@ -1270,7 +1270,7 @@ def run_short_cascade_scan():
                         short_cascade_stats[step_num]["passed"] += 1
                         passed.append(c)
 
-                        log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
+            log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
         else:
             log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
 
