@@ -1146,23 +1146,23 @@ def run_cascade_scan():
             for c, ok, reason in results:
                 key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
                 cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
-                if ok:
+                                if ok:
                     cascade_stats[step_num]["passed"] += 1
                     passed.append(c)
 
-                log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
         step_survivors[step_num] = passed
         candidates = passed
 
-        if cascade_stats.get(1, {}).get("total", 0) > 0:
-            with last_complete_lock, cascade_stats_lock, cascade_results_lock:
-                for i in range(1, 9):
-                    last_complete_stats[i] = dict(cascade_stats.get(i, {}))
-                    last_complete_results[i] = dict(cascade_results.get(i, {}))
-                last_complete_survivors.clear()
-                last_complete_survivors.update(step_survivors)
-            with last_complete_scan_time_lock:
-                last_complete_scan_time["buy"] = datetime.now(timezone.utc)
+    if cascade_stats.get(1, {}).get("total", 0) > 0:
+        with last_complete_lock, cascade_stats_lock, cascade_results_lock:
+            for i in range(1, 9):
+                last_complete_stats[i] = dict(cascade_stats.get(i, {}))
+                last_complete_results[i] = dict(cascade_results.get(i, {}))
+            last_complete_survivors.clear()
+            last_complete_survivors.update(step_survivors)
+        with last_complete_scan_time_lock:
+            last_complete_scan_time["buy"] = datetime.now(timezone.utc)
 
     log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
     for c in candidates:
