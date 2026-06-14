@@ -1273,15 +1273,19 @@ def run_short_cascade_scan():
             log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
 
         short_step_survivors[step_num] = passed
-        candidates = passed
+candidates = passed
 
+if short_cascade_stats.get(1, {}).get("total", 0) > 0:
     with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
         for i in range(1, 9):
             last_complete_short_stats[i] = dict(short_cascade_stats.get(i, {}))
             last_complete_short_results[i] = dict(short_cascade_results.get(i, {}))
-        last_complete_short_survivors = dict(short_step_survivors)
+        last_complete_short_survivors.clear()
+        last_complete_short_survivors.update(short_step_survivors)
+    with last_complete_scan_time_lock:
+        last_complete_scan_time["sell"] = datetime.now(timezone.utc)
 
-    log.info("🎉 إشارات نهائية (SHORT): %d", len(candidates))
+log.info("🎉 إشارات نهائية (SHORT): %d", len(candidates))
     for c in candidates:
         _fire_signal(
             c["sym"],
