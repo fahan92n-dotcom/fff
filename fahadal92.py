@@ -1145,8 +1145,8 @@ def run_cascade_scan():
             cascade_stats[step_num]["total"] = len(results)
             for c, ok, reason in results:
                 key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
-                cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
-                                if ok:
+                                cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
+                if ok:
                     cascade_stats[step_num]["passed"] += 1
                     passed.append(c)
 
