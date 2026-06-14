@@ -1309,14 +1309,25 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
         stats = last_complete_stats
         results = last_complete_results
         title = "🔍 <b>تقرير Cascade Pipeline — الشراء LONG</b>"
+        scan_key = "buy"
     else:
         lock = last_complete_short_lock
         stats = last_complete_short_stats
         results = last_complete_short_results
         title = "🔍 <b>تقرير Cascade Pipeline — البيع SHORT</b>"
+        scan_key = "sell"
+
+    with last_complete_scan_time_lock:
+        last_time = last_complete_scan_time.get(scan_key)
+
+    if last_time:
+        age_min = int((datetime.now(timezone.utc) - last_time).total_seconds() / 60)
+        time_str = f"{last_time.strftime('%H:%M:%S UTC')} (منذ {age_min} دقيقة)"
+    else:
+        time_str = "⏳ لا توجد بيانات بعد — لم يكتمل أي سكان كامل"
 
     with lock:
-        lines = [title, "━━━━━━━━━━━━━━━━━━━━━━"]
+        lines = [title, f"🕐 آخر تحديث: {time_str}", "━━━━━━━━━━━━━━━━━━━━━━"]
 
         for step_num in range(1, 9):
             step_name = STEP_NAMES[step_num - 1] if signal_type == "buy" else SHORT_STEP_NAMES[step_num - 1]
