@@ -1687,13 +1687,24 @@ def cascade_watcher():
                             cache_merge(sym, tf, df)
                 with ThreadPoolExecutor(max_workers=30) as executor:
                     executor.map(fetch_fresh, syms)
-                # ✅ LONG و SHORT معاً
-                t1 = threading.Thread(target=run_cascade_scan, daemon=True)
-                t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
-                t1.start()
-                t2.start()
-                t1.join()
-                t2.join()
+                                # ⚡ فحص سريع (7-8) على المحفوظين من الخطوة 6 — كل دورة
+                qt1 = threading.Thread(target=run_quick_step78, args=("buy",), daemon=True)
+                qt2 = threading.Thread(target=run_quick_step78, args=("sell",), daemon=True)
+                qt1.start()
+                qt2.start()
+                qt1.join()
+                qt2.join()
+
+                # 🔄 سكان كامل (1-8) — كل 3 دورات فقط لتحديث القائمة المحفوظة
+                _quick_check_counter["n"] += 1
+                if _quick_check_counter["n"] >= 3:
+                    _quick_check_counter["n"] = 0
+                    t1 = threading.Thread(target=run_cascade_scan, daemon=True)
+                    t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
+                    t1.start()
+                    t2.start()
+                    t1.join()
+                    t2.join()
             time.sleep(next_candle_close())
         except Exception as e:
             log.error("❌ خطأ في cascade_watcher: %s", e)
