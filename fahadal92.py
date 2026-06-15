@@ -1771,3 +1771,80 @@ def cascade_watcher():
         except Exception as e:
             log.error("❌ خطأ في cascade_watcher: %s", e)
             time.sleep(5)
+
+def update_symbols_loop():
+    while True:
+        try:
+            resp = get_session().get(f"{BINANCE_BASE}/api/v3/ticker/24hr").json()
+            if isinstance(resp, list):
+                tickers = resp
+            elif isinstance(resp, dict):
+                tickers = resp.get("data", [])
+            else:
+                tickers = []
+
+            top = sorted([t for t in tickers if isinstance(t, dict) and t.get("symbol", "").endswith("USDT")],
+                        key=lambda x: float(x.get("quoteVolume", 0)), reverse=True)[:TOP_SYMBOLS_LIMIT]
+
+            with symbols_cache_lock:
+                symbols_cache[:] = [t["symbol"] for t in top]
+            log.info("✅ عملات: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
+            if not fast_prefetch_done.is_set():
+                threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()
+        except requests.RequestException as exc:
+            log.error("update_symbols_loop: %s", exc)
+        time.sleep(3600)
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, *_):
+        pass
+
+def main():
+    def handle_exception(exc_type, exc_value, exc_tb):
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        log.error("💥 خطأ غير متوقع أوقف البوت:\n%s", msg)
+        try:
+            send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")
+        except Exception:
+            pass
+
+    sys.excepthook = handle_exception
+
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log.info("✅ Health server شغّال على port %s", PORT)
+
+    delete_webhook()
+
+    threading.Thread(target=update_symbols_loop, daemon=True).start()
+    threading.Thread(target=poll_telegram_commands, daemon=True).start()
+    threading.Thread(target=cache_updater_1m, daemon=True).start()
+    threading.Thread(target=cache_updater_60m, daemon=True).start()
+    threading.Thread(target=cascade_watcher, daemon=True).start()
+    threading.Thread(target=quick_check_watcher, daemon=True).start()
+
+    send_telegram("🚀 <b>البوت انطلق — استراتيجية مزدوجة (شراء + بيع)</b>")
+
+    while True:
+        try:
+            time.sleep(300)
+            cleanup_alerted_keys()
+            with ohlcv_cache_lock:
+                cache_size = len(ohlcv_cache)
+            with trades_lock:
+                signals_count = len(trades_history)
+            log.info("💓 البوت يعمل | كاش: %s مفتاح | إشارات: %s | سريع: %s | كامل: %s",
+                    cache_size, signals_count, "✅" if fast_prefetch_done.is_set() else "⏳",
+                    "✅" if prefetch_done.is_set() else "⏳")
+        except Exception as exc:
+            log.error("❌ خطأ في main loop: %s\n%s", exc, traceback.format_exc())
+            time.sleep(10)
+
+if __name__ == "__main__":
+    main()
+    
