@@ -593,17 +593,6 @@ def get_cached(symbol, tf):
         df = ohlcv_cache.get((symbol, tf))
     return df.copy() if df is not None else pd.DataFrame()
 
-def check_entry_rsi_clean_buy(df, lookback=50, threshold=30):
-   if len(df) < WARMUP_RSI + lookback:
-       return True
-   rsi = calc_rsi_tv(df["close"], period=14)
-   return not bool((rsi.iloc[-lookback:] <= threshold).any())
-
-def check_entry_rsi_clean_sell(df, lookback=50, threshold=70):
-   if len(df) < WARMUP_RSI + lookback:
-       return True
-   rsi = calc_rsi_tv(df["close"], period=14)
-   return not bool((rsi.iloc[-lookback:] >= threshold).any())
 
 def prefetch_all(symbols):
     def fetch_sym_fast(sym):
