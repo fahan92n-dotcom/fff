@@ -99,6 +99,7 @@ _local = threading.local()
 
 first_scan_notified = False
 first_scan_lock = threading.Lock()
+cache_updated_event = threading.Event()
 
 # ------------------------------------------
 # Labels
