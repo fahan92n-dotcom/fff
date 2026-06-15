@@ -1646,8 +1646,7 @@ def run_quick_step78_short():
 def quick_check_watcher():
     """يفحص خطوة 7 و8 كل دقيقة على الناجحين من خطوة 6 فقط"""
     while True:
-        cache_updated_event.wait(timeout=15)
-        cache_updated_event.clear()
+        time.sleep(15)
         try:
             if fast_prefetch_done.is_set():
                 # جلب بيانات فريم التثليث فقط للعملات المعنية
