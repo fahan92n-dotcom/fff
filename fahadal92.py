@@ -1000,6 +1000,8 @@ def step1(c):
 def step2(c):
     if not check_macd_red(c["df_base"]):
         return False, "macd_red"
+    if not check_macd_line_long(c["df_base"]):
+        return False, "macd_red"
     return True, "passed"
 
 def step3(c):
