@@ -1061,6 +1061,8 @@ def short_step1(c):
 def short_step2(c):
     if not check_macd_green(c["df_base"]):
         return False, "macd_green"
+    if not check_macd_line_short(c["df_base"]):
+        return False, "macd_green"
     return True, "passed"
 
 def short_step3(c):
