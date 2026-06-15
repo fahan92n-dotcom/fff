@@ -1672,7 +1672,7 @@ def quick_check_watcher():
         except Exception as e:
             log.error("❌ خطأ في quick_check_watcher: %s", e)
 
-        time.sleep(60)
+        time.sleep(15)
 
 
 def poll_telegram_commands():
