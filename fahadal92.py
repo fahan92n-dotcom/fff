@@ -698,6 +698,36 @@ def check_macd_green(df):
     if len(df) < WARMUP_MACD:
         return False
     return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
+    
+def check_macd_line_long(df, pct=0.20):
+    if len(df) < WARMUP_MACD:
+        return False
+    macd_line, _, histogram = _calc_macd_full(df["close"])
+    current_macd = float(macd_line.iloc[-1])
+    current_hist = float(histogram.iloc[-1])
+    if current_hist < 0 and current_macd < current_hist:
+        return False
+    today_candles = 1440
+    macd_today = macd_line.iloc[-today_candles:]
+    max_today = float(macd_today[macd_today > 0].max()) if (macd_today > 0).any() else 0
+    if max_today > 0 and current_macd > max_today * pct:
+        return False
+    return True
+
+def check_macd_line_short(df, pct=0.20):
+    if len(df) < WARMUP_MACD:
+        return False
+    macd_line, _, histogram = _calc_macd_full(df["close"])
+    current_macd = float(macd_line.iloc[-1])
+    current_hist = float(histogram.iloc[-1])
+    if current_hist > 0 and current_macd > current_hist:
+        return False
+    today_candles = 1440
+    macd_today = macd_line.iloc[-today_candles:]
+    min_today = float(macd_today[macd_today < 0].min()) if (macd_today < 0).any() else 0
+    if min_today < 0 and current_macd < min_today * pct:
+        return False
+    return True
 
 def calc_donchian_trend(df, length=20):
     if len(df) < length + 2:
