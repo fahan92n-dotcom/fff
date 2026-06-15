@@ -1066,8 +1066,6 @@ def short_step6(c):
         return False, "ema50_above"
     if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
         return False, "ema50_above"
-    if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
-        return False, "ema50_above"
     return True, "passed"
 
 def short_step7(c):
