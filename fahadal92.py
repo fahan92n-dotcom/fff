@@ -1563,6 +1563,82 @@ def _dispatch_command(txt, chat_id):
             f"{sample_info}"
         )
         send_telegram(msg, chat_id)
+        
+# ------------------------------------------
+# QUICK CHECK - Steps 7-8 only on saved Step6 survivors
+# ------------------------------------------
+
+def run_quick_step78(signal_type="buy"):
+    if signal_type == "buy":
+        surv_lock = last_complete_lock
+        survivors_dict = last_complete_survivors
+        step7_fn, step8_fn = step7, step8
+    else:
+        surv_lock = last_complete_short_lock
+        survivors_dict = last_complete_short_survivors
+        step7_fn, step8_fn = short_step7, short_step8
+
+    with surv_lock:
+        candidates = list(survivors_dict.get(6, []))
+
+    if not candidates:
+        return
+
+    resample_cache = {}
+
+    def get_resampled(raw_df, sym, tf, minutes):
+        key = (sym, tf, minutes)
+        if key not in resample_cache:
+            resample_cache[key] = resample_ohlcv(raw_df, minutes)
+        return resample_cache[key]
+
+    # إعادة بناء df_triple بأحدث بيانات (raw_base قد يكون تحدّث)
+    refreshed = []
+    for c in candidates:
+        sym = c["sym"]
+        triple_api = c["triple_api"]
+        raw_triple = get_cached(sym, triple_api)
+        if raw_triple.empty:
+            continue
+        df_triple = get_resampled(raw_triple, sym, triple_api, c["triple_frame"])
+        if df_triple.empty or len(df_triple) < MIN_CANDLES:
+            continue
+        c2 = dict(c)
+        c2["df_triple"] = df_triple
+        c2["get_resampled"] = get_resampled
+        refreshed.append(c2)
+
+    if not refreshed:
+        return
+
+    def run_one(c):
+        try:
+            ok7, _ = step7_fn(c)
+            if not ok7:
+                return c, False
+            ok8, _ = step8_fn(c)
+            return c, ok8
+        except Exception as e:
+            log.error("❌ خطأ في quick_step78 (%s): %s", signal_type, e)
+            return c, False
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        results = list(executor.map(run_one, refreshed))
+
+    fired = 0
+    for c, ok in results:
+        if ok:
+            fired += 1
+            _fire_signal(c["sym"], c["base_frame"], c["confirm_frame"],
+                         c["triple_frame"], c["df_base"], signal_type=signal_type)
+
+    if fired:
+        log.info("⚡ Quick check (%s): %d إشارة من %d مرشح محفوظ", signal_type, fired, len(refreshed))
+
+
+def run_quick_step78_short():
+    run_quick_step78(signal_type="sell")
+
 
 def poll_telegram_commands():
     last_id = 0
