@@ -645,6 +645,7 @@ def cache_updater_1m():
             syms = list(symbols_cache)
         if syms:
             _update_batch(syms, "1m", limit=5)
+            cache_updated_event.set()
         time.sleep(55)
 
 def cache_updater_60m():
