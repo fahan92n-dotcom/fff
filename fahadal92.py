@@ -1640,6 +1640,41 @@ def run_quick_step78_short():
     run_quick_step78(signal_type="sell")
 
 
+# ⬇️ أضف هنا
+def quick_check_watcher():
+    """يفحص خطوة 7 و8 كل دقيقة على الناجحين من خطوة 6 فقط"""
+    while True:
+        try:
+            if fast_prefetch_done.is_set():
+                # جلب بيانات فريم التثليث فقط للعملات المعنية
+                with last_complete_lock:
+                    buy_survivors = list(last_complete_survivors.get(6, []))
+                with last_complete_short_lock:
+                    sell_survivors = list(last_complete_short_survivors.get(6, []))
+
+                triple_syms = set()
+                for c in buy_survivors + sell_survivors:
+                    triple_syms.add((c["sym"], c["triple_api"]))
+
+                def fetch_triple(item):
+                    sym, tf = item
+                    df = get_ohlcv(sym, tf, limit=3)
+                    if not df.empty:
+                        cache_merge(sym, tf, df)
+
+                if triple_syms:
+                    with ThreadPoolExecutor(max_workers=20) as executor:
+                        executor.map(fetch_triple, triple_syms)
+
+                run_quick_step78("buy")
+                run_quick_step78("sell")
+
+        except Exception as e:
+            log.error("❌ خطأ في quick_check_watcher: %s", e)
+
+        time.sleep(60)
+
+
 def poll_telegram_commands():
     last_id = 0
     while True:
