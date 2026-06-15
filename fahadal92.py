@@ -938,6 +938,28 @@ def check_rsi_closed_overbought(df, threshold=65):
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool(rsi.iloc[-1] >= threshold)
+    
+def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_type="buy"):
+    key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
+    now = datetime.now(timezone.utc)
+    with alerted_keys_lock:
+        last = alerted_keys.get(key)
+        if last and now - last < timedelta(hours=ALERT_EXPIRY_HOURS):
+            return
+        alerted_keys[key] = now
+
+    price = float(df["close"].iloc[-1])
+    save_signal(symbol, price, base_frame, confirm_frame, triple_frame, signal_type=signal_type)
+
+    icon = "🟢 شراء (LONG)" if signal_type == "buy" else "🔴 بيع (SHORT)"
+    send_telegram(
+        f"{icon}\n"
+        f"💱 العملة: <b>{symbol}</b>\n"
+        f"💰 السعر: <b>{price:.6g}</b>\n"
+        f"⏱️ الفريمات: {base_frame}m / {confirm_frame}m / {triple_frame}m\n"
+        f"🕐 الوقت: {now.strftime('%H:%M:%S UTC')}"
+    )
+
 
 # ------------------------------------------
 # CASCADE PIPELINE - LONG (BUY)
