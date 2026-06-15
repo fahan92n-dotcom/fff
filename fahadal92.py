@@ -1578,7 +1578,7 @@ def poll_telegram_commands():
                 txt = upd.get("message", {}).get("text", "").strip()
                 chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
                 if txt and chat_id:
-                    _dispatch_command(txt, chat_id)
+                    threading.Thread(target=_dispatch_command, args=(txt, chat_id), daemon=True).start()
         except Exception:
             time.sleep(10)
 
