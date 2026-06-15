@@ -1003,8 +1003,6 @@ def step6(c):
         return False, "ema50"
     if not check_rsi_closed_oversold(c["df_triple"], threshold=35):
         return False, "ema50"
-    if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=35):
-        return False, "ema50"
     if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
         return False, "ema50"
     return True, "passed"
