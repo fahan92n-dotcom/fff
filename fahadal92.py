@@ -977,7 +977,6 @@ def step5(c):
     return True, "passed"
 
 def step6(c):
-    def step6(c):
     if not check_ema50_below(c["df_base"]):
         return False, "ema50"
     if not check_rsi_closed_oversold(c["df_triple"], threshold=35):
