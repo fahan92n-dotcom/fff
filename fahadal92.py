@@ -813,7 +813,9 @@ def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1):
     diff = hh - ll
     rdiff = close - (hh + ll) / 2
     avgrel = rdiff.ewm(span=d, min_periods=d, adjust=False).mean()
+    avgrel = avgrel.ewm(span=d, min_periods=d, adjust=False).mean()
     avgdiff = diff.ewm(span=d, min_periods=d, adjust=False).mean()
+    avgdiff = avgdiff.ewm(span=d, min_periods=d, adjust=False).mean()
     smi_arr = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
     smi = pd.Series(smi_arr, index=close.index)
     if smooth > 1:
