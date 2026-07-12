@@ -101,6 +101,9 @@ first_scan_notified = False
 first_scan_lock = threading.Lock()
 cache_updated_event = threading.Event()
 
+_ribbon_cache = {}
+_ribbon_cache_lock = threading.Lock()
+
 # ------------------------------------------
 # Labels
 # ------------------------------------------
