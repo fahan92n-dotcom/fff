@@ -1787,28 +1787,33 @@ def cascade_watcher():
                 # ✅ fetch مرة واحدة للاثنين
                 with symbols_cache_lock:
                     syms = list(symbols_cache)
+                
                 def fetch_fresh(sym):
                     for tf in ["1m", "60m"]:
                         df = get_ohlcv(sym, tf, limit=3)
                         if not df.empty:
                             cache_merge(sym, tf, df)
+                
                 with ThreadPoolExecutor(max_workers=30) as executor:
                     executor.map(fetch_fresh, syms)
 
                 # 🔄 سكان كامل (1-8) — كل 3 دورات فقط لتحديث القائمة المحفوظة
                 _quick_check_counter["n"] += 1
-if _quick_check_counter["n"] >= 3:
-    _quick_check_counter["n"] = 0
-    t1 = threading.Thread(target=run_cascade_scan, daemon=True)
-    t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
-    with _ribbon_cache_lock:
-        _ribbon_cache.clear()
+                if _quick_check_counter["n"] >= 3:
+                    _quick_check_counter["n"] = 0
+                    t1 = threading.Thread(target=run_cascade_scan, daemon=True)
+                    t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
+                    t1.start()
+                    t2.start()
+                    t1.join()
+                    t2.join()
+                    with _ribbon_cache_lock:
+                        _ribbon_cache.clear()
 
-time.sleep(next_candle_close())
+            time.sleep(next_candle_close())
+        except Exception as e:
+            log.error("❌ خطأ في cascade_watcher: %s", e)
+            time.sleep(5)
 
 def update_symbols_loop():
     while True:
