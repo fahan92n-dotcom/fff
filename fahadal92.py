@@ -1588,9 +1588,11 @@ def _dispatch_command(txt, chat_id):
         else:
             send_telegram("🔄 جاري تشغيل المسح الفوري...", chat_id)
         def do_scan():
-            run_cascade_scan()
-            run_short_cascade_scan()
-            send_telegram("✅ المسح الفوري اكتمل — جرّب /سبب_شراء الآن", chat_id)
+    run_cascade_scan()
+    run_short_cascade_scan()
+    with _ribbon_cache_lock:
+        _ribbon_cache.clear()
+    send_telegram("✅ المسح الفوري اكتمل — جرّب /سبب_شراء الآن", chat_id)
         threading.Thread(target=do_scan, daemon=True).start()
         
     elif txt == "/help":
