@@ -586,7 +586,7 @@ def cache_merge(symbol, tf, new_df):
     with ohlcv_cache_lock:
         old = ohlcv_cache.get(key)
         if old is not None and not old.empty:
-            merged = pd.concat([old, new_df]).drop_duplicates(subset="ts").sort_values("ts")
+            merged = pd.concat([old, new_df]).drop_duplicates(subset="ts", keep="last").sort_values("ts")
             ohlcv_cache[key] = merged.tail(maxc).reset_index(drop=True)
         else:
             ohlcv_cache[key] = new_df.tail(maxc).reset_index(drop=True)
