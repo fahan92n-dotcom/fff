@@ -1020,14 +1020,14 @@ def step2(c):
         return False, "macd_red"
     return True, "passed"
 
-def step3(c):
-    if not check_donchian_trend_ribbon(c["df_base"], "green"):
-        return False, "donchian_base"
+def short_step3(c):
+    if not check_donchian_trend_ribbon(c["df_base"], "red", cache_key=(c["sym"], c["base_frame"])):
+        return False, "donchian_base_red"
     return True, "passed"
 
-def step4(c):
-    if not check_donchian_trend_ribbon(c["df_confirm"], "green"):
-        return False, "donchian_confirm"
+def short_step4(c):
+    if not check_donchian_trend_ribbon(c["df_confirm"], "red", cache_key=(c["sym"], c["confirm_frame"])):
+        return False, "donchian_confirm_red"
     return True, "passed"
 
 def step5(c):
