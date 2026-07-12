@@ -1515,7 +1515,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         ts = candle["timestamp"]
         
         # جلب البيانات الكاملة للمؤشرات
-        fresh = get_ohlcv(symbol, "5m", limit=100)
+        fresh = get_ohlcv(symbol, "5m", limit=2000)
         if not fresh.empty:
             cache_merge(symbol, "5m", fresh)
         
