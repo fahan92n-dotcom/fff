@@ -1082,12 +1082,12 @@ def short_step2(c):
     return True, "passed"
 
 def short_step3(c):
-    if not check_donchian_trend_ribbon(c["df_base"], "red"):
+    if not check_donchian_trend_ribbon(c["df_base"], "red", cache_key=(c["sym"], c["base_frame"])):
         return False, "donchian_base_red"
     return True, "passed"
 
 def short_step4(c):
-    if not check_donchian_trend_ribbon(c["df_confirm"], "red"):
+    if not check_donchian_trend_ribbon(c["df_confirm"], "red", cache_key=(c["sym"], c["confirm_frame"])):
         return False, "donchian_confirm_red"
     return True, "passed"
 
@@ -1106,7 +1106,7 @@ def short_step6(c):
     return True, "passed"
 
 def short_step7(c):
-    if not check_donchian_trend_ribbon(c["df_triple"], "green"):
+    if not check_donchian_trend_ribbon(c["df_triple"], "green", cache_key=(c["sym"], c["triple_frame"])):
         return False, "donchian_triple_green"
     return True, "passed"
 
