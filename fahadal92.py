@@ -1044,9 +1044,9 @@ def step6(c):
         return False, "ema50"
     return True, "passed"
 
-def step7(c):
-    if not check_donchian_trend_ribbon(c["df_triple"], "red"):
-        return False, "donchian_triple"
+def short_step7(c):
+    if not check_donchian_trend_ribbon(c["df_triple"], "green", cache_key=(c["sym"], c["triple_frame"])):
+        return False, "donchian_triple_green"
     return True, "passed"
 
 def step8(c):
