@@ -1581,7 +1581,7 @@ def _dispatch_command(txt, chat_id):
     elif txt in ("/hard_filters_sell", "/فلاتر_صعبة_بيع"):
         handle_hard_filters_command(chat_id, signal_type="sell")
 
-        elif txt == "/scan_now":
+    elif txt == "/scan_now":
         if not fast_prefetch_done.is_set():
             send_telegram("⏳ التحميل لم يكتمل بعد، انتظر.", chat_id)
             return
