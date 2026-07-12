@@ -1503,185 +1503,70 @@ def get_last_closed_candle(symbol, tf):
         return None
         
 def handle_check5(chat_id, symbol="BTCUSDT"):
-    send_telegram(f"🔄 جاري جلب بيانات {symbol} — فريم 5 دقايق...", chat_id)
+    send_telegram(f"🔄 جاري جلب آخر إغلاق لـ {symbol} — فريم 5 دقايق...", chat_id)
     try:
-        fresh = get_ohlcv(symbol, "1m", limit=100)
-        if not fresh.empty:
-            cache_merge(symbol, "1m", fresh)
-
-        df_raw = get_cached(symbol, "1m")
-        if df_raw.empty:
+        candle = get_last_closed_candle(symbol, "5m")
+        
+        if not candle:
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
             return
-
-        now = datetime.now(timezone.utc)
-        df5_full = resample_ohlcv_closed(df_raw, 5)
-
-        if df5_full.empty:
-            send_telegram("❌ فشل إعادة العينة", chat_id)
+        
+        price = candle["close"]
+        ts = candle["timestamp"]
+        
+        # جلب البيانات الكاملة للمؤشرات
+        fresh = get_ohlcv(symbol, "5m", limit=100)
+        if not fresh.empty:
+            cache_merge(symbol, "5m", fresh)
+        
+        df_raw = get_cached(symbol, "5m")
+        if df_raw.empty:
+            send_telegram("❌ فشل جلب البيانات من الكاش", chat_id)
             return
-
-        last_candle_end = df5_full["ts"].iloc[-1] + timedelta(minutes=5)
-        if now < last_candle_end:
-            df5 = df5_full.iloc[:-1]
+        
+        # حساب المؤشرات من البيانات الخام
+        if len(df_raw) >= 50:
+            rsi_series = calc_rsi_tv(df_raw["close"], period=14)
+            rsi_val = round(float(rsi_series.iloc[-1]), 2)
+            
+            k_series, d_series = calc_stoch_tv(df_raw["close"], df_raw["high"], df_raw["low"])
+            stoch_k = round(float(k_series.iloc[-1]), 2)
+            stoch_d = round(float(d_series.iloc[-1]), 2)
+            
+            macd_line, signal_line, histogram = _calc_macd_full(df_raw["close"])
+            macd_hist_val = round(float(histogram.iloc[-1]), 4)
+            macd_line_val = round(float(macd_line.iloc[-1]), 4)
+            signal_line_val = round(float(signal_line.iloc[-1]), 4)
+            macd_color = "🟢" if macd_hist_val > 0 else "🔴"
+            
+            smi_series, smi_sig_series, _ = calc_smi(df_raw["high"], df_raw["low"], df_raw["close"])
+            smi_val = round(float(smi_series.iloc[-1]), 2)
+            smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
+            
+            rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
+            stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
+            smi_zone = "🔴 تشبع بيعي" if smi_val <= -40 else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
+            
+            send_telegram(
+                f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+                f"🕯️ الشمعة المغلقة: {ts.strftime('%H:%M UTC (%Y-%m-%d)')}\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"💰 السعر: <b>${price:.2f}</b>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"
+                f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\nStoch D(3): <b>{stoch_d}</b>\n"
+                f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\nMACD Line: <b>{macd_line_val}</b>\nSignal: <b>{signal_line_val}</b>\n"
+                f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\nSignal: <b>{smi_sig}</b>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"📦 شموع الـ5m: {len(df_raw)}",
+                chat_id,
+            )
         else:
-            df5 = df5_full
-
-        if len(df5) < MIN_CANDLES:
-            send_telegram(f"⚠️ شموع غير كافية: {len(df5)} (المطلوب {MIN_CANDLES})", chat_id)
-            return
-
-        price = df5["close"].iloc[-1]
-        candle_start = df5["ts"].iloc[-1]
-        candle_end = candle_start + timedelta(minutes=5)
-        candle_ts = f"{candle_start.strftime('%H:%M')} → {candle_end.strftime('%H:%M')} UTC ({candle_start.strftime('%Y-%m-%d')})"
-        fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-
-        rsi_series = calc_rsi_tv(df5["close"], period=14)
-        rsi_val = round(float(rsi_series.iloc[-1]), 2)
-
-        k_series, d_series = calc_stoch_tv(df5["close"], df5["high"], df5["low"])
-        stoch_k = round(float(k_series.iloc[-1]), 2)
-        stoch_d = round(float(d_series.iloc[-1]), 2)
-
-        macd_line, signal_line, histogram = _calc_macd_full(df5["close"])
-        macd_hist_val = round(float(histogram.iloc[-1]), 4)
-        macd_line_val = round(float(macd_line.iloc[-1]), 4)
-        signal_line_val = round(float(signal_line.iloc[-1]), 4)
-        macd_color = "🟢" if macd_hist_val > 0 else "🔴"
-
-        smi_series, smi_sig_series, _ = calc_smi(df5["high"], df5["low"], df5["close"])
-        smi_val = round(float(smi_series.iloc[-1]), 2)
-        smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
-
-        don_trend = calc_donchian_trend(df5)
-        if don_trend:
-            don_val = don_trend[-1]
-            don_color = "🟢 أخضر (صاعد)" if don_val == 1 else ("🔴 أحمر (هابط)" if don_val == -1 else "⚪ محايد")
-        else:
-            don_color = "⚪ محايد"
-
-        rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
-        stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
-        smi_zone = "🔴 تشبع بيعي" if smi_val <= -40 else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
-
-        send_telegram(
-            f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
-            f"🕯️ الشمعة المغلقة: <b>{candle_ts}</b>\n"
-            f"🕐 وقت الجلب: {fetch_ts}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"💰 السعر: <b>{price:.2f}$</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"🎀 Donchian Ribbon (20): {don_color}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📈 RSI (14): <b>{rsi_val}</b> {rsi_zone}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\nStoch D(3): <b>{stoch_d}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"⚡ MACD Histogram: {macd_color} <b>{macd_hist_val}</b>\nMACD Line: <b>{macd_line_val}</b>\nSignal Line: <b>{signal_line_val}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\nSignal: <b>{smi_sig}</b>\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"📦 شموع الـ5m: {len(df5)} | بيانات الـ1m: {len(df_raw)}",
-            chat_id,
-        )
-
+            send_telegram(f"⚠️ شموع غير كافية للمؤشرات: {len(df_raw)} (المطلوب 50)", chat_id)
+        
     except Exception as e:
         log.error(f"check5 error: {e}")
-        send_telegram(f"❌ خطأ في /check5: {e}", chat_id)
-
-def _dispatch_command(txt, chat_id):
-    if txt == "/status":
-        _cmd_status(chat_id)
-    elif txt in ("1", "/today"):
-        send_telegram(get_report("today"), chat_id)
-    elif txt in ("2", "/yesterday"):
-        send_telegram(get_report("yesterday"), chat_id)
-    elif txt in ("3", "/week"):
-        send_telegram(get_report("week"), chat_id)
-    elif txt in ("/سبب_شراء", "/diag_buy"):
-        _cmd_cascade_diag(chat_id, "buy")
-    elif txt in ("/سبب_بيع", "/diag_sell"):
-        _cmd_cascade_diag(chat_id, "sell")
-    elif txt in ("/diag_failures", "/أسباب_الفشل"):
-        handle_diag_command(chat_id)
-    elif txt == "/survivors6":
-        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
-    elif txt == "/survivors7":
-        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="buy")
-    elif txt == "/survivors8":
-        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="buy")
-    elif txt == "/survivors6_sell":
-        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="sell")
-    elif txt == "/survivors7_sell":
-        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="sell")
-    elif txt == "/survivors8_sell":
-        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="sell")
-    elif txt.startswith("/check5"):
-        parts = txt.split()
-        symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
-        if not symbol.endswith("USDT"):
-            symbol += "USDT"
-        threading.Thread(target=handle_check5, args=(chat_id, symbol), daemon=True).start()
-    elif txt in ("/hard_filters", "/فلاتر_صعبة"):
-        handle_hard_filters_command(chat_id, signal_type="buy")
-    elif txt in ("/hard_filters_sell", "/فلاتر_صعبة_بيع"):
-        handle_hard_filters_command(chat_id, signal_type="sell")
-
-    elif txt == "/scan_now":
-        if not fast_prefetch_done.is_set():
-            send_telegram("⏳ التحميل لم يكتمل بعد، انتظر.", chat_id)
-            return
-        else:
-            send_telegram("🔄 جاري تشغيل المسح الفوري...", chat_id)
-
-        def do_scan():
-            run_cascade_scan()
-            run_short_cascade_scan()
-            with _ribbon_cache_lock:
-                _ribbon_cache.clear()
-            send_telegram("✅ المسح الفوري اكتمل — جرّب /سبب_شراء الآن", chat_id)
-
-        threading.Thread(target=do_scan, daemon=True).start()
-        
-    elif txt == "/help":
-        send_telegram(
-            "📋 <b>الأوامر المتاحة:</b>\n"
-            "1️⃣ <code>1</code> — إشارات اليوم\n"
-            "2️⃣ <code>2</code> — إشارات أمس\n"
-            "3️⃣ <code>3</code> — آخر 7 أيام\n"
-            "📊 <code>/status</code> — حالة البوت\n"
-            "📋 <code>/help</code> — قائمة الأوامر",
-            chat_id,
-        )
-    elif txt == "/debug":
-        with ohlcv_cache_lock:
-            cache_keys = list(ohlcv_cache.keys())
-        with symbols_cache_lock:
-            syms = list(symbols_cache)
-        sample_sym = syms[0] if syms else None
-        sample_info = ""
-        if sample_sym:
-            raw_1m = get_cached(sample_sym, "1m")
-            raw_60m = get_cached(sample_sym, "60m")
-            df_base = resample_ohlcv(raw_1m, 9)
-            sample_info = (
-                f"\n📌 عينة: {sample_sym}"
-                f"\n1m candles: {len(raw_1m)}"
-                f"\n60m candles: {len(raw_60m)}"
-                f"\ndf_base (9m): {len(df_base)}"
-                f"\nMIN_CANDLES: {MIN_CANDLES}"
-                f"\nيمر؟ {'✅' if len(df_base) >= MIN_CANDLES else '❌'}"
-            )
-        msg = (
-            f"🔧 <b>Debug Info</b>\n"
-            f"عملات: {len(syms)}\n"
-            f"Cache keys: {len(cache_keys)}\n"
-            f"fast_prefetch: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
-            f"prefetch_done: {'✅' if prefetch_done.is_set() else '⏳'}"
-            f"{sample_info}"
-        )
-        send_telegram(msg, chat_id)
+        send_telegram(f"❌ خطأ: {e}", chat_id)
         
 # ------------------------------------------
 # QUICK CHECK - Steps 7-8 only on saved Step6 survivors
