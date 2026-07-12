@@ -1695,9 +1695,9 @@ def poll_telegram_commands():
                 chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
                 if txt and chat_id:
                     threading.Thread(target=_dispatch_command, args=(txt, chat_id), daemon=True).start()
-                except Exception as e:
+        except Exception as e:
             log.error(f"poll_telegram_commands error: {e}")
-            time.sleep(10)
+        time.sleep(10)
 
 def next_candle_close():
     now = datetime.now(timezone.utc)
