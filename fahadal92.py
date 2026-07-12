@@ -794,10 +794,10 @@ def calc_donchian_trend_ribbon_correct(df, length=20):
 def check_donchian_trend_ribbon(df, direction="green"):
     if len(df) < 35:
         return False
-    trend, _ = calc_donchian_trend_ribbon_correct(df, length=20)
+    trend, all_consistent = calc_donchian_trend_ribbon_correct(df, length=20)
     if direction == "green":
-        return trend == 1
-    return trend == -1
+        return trend == 1 and all_consistent
+    return trend == -1 and all_consistent
 
 def check_ema50_below(df):
     ema = df["close"].ewm(span=50, adjust=False).mean()
