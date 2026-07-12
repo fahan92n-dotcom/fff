@@ -857,7 +857,7 @@ def check_smi_overbought(df, threshold=40):
 def check_ema50_above_since_overbought(df, smi_threshold=40):
     if len(df) < WARMUP_SMI:
         return False
-    smi, _ = calc_smi(df["high"], df["low"], df["close"])
+    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     ema = df["close"].ewm(span=50, adjust=False).mean()
     overbought_mask = smi >= smi_threshold
     if not overbought_mask.any():
