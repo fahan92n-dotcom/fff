@@ -821,21 +821,26 @@ def check_ema50_above(df):
     ema = df["close"].ewm(span=50, adjust=False).mean()
     return bool(df["close"].iloc[-1] > ema.iloc[-1])
 
-def calc_smi(high, low, close, k=10, d=3, ema_len=10, smooth=1):
-    hh = high.rolling(k, min_periods=k).max()
+def calc_smi(high, low, close, k=10, smooth_period=1, d=3, c=10):
+    """
+    Stochastic Momentum Index (SMI) - مطابق تماماً لـ Pine Script v5 (Stoch_MTM)
+    """
     ll = low.rolling(k, min_periods=k).min()
+    hh = high.rolling(k, min_periods=k).max()
     diff = hh - ll
     rdiff = close - (hh + ll) / 2
+
     avgrel = rdiff.ewm(span=d, min_periods=d, adjust=False).mean()
-    avgrel = avgrel.ewm(span=d, min_periods=d, adjust=False).mean()
     avgdiff = diff.ewm(span=d, min_periods=d, adjust=False).mean()
-    avgdiff = avgdiff.ewm(span=d, min_periods=d, adjust=False).mean()
-    smi_arr = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
-    smi = pd.Series(smi_arr, index=close.index)
-    if smooth > 1:
-        smi = smi.rolling(smooth, min_periods=smooth).mean()
-    sig = smi.ewm(span=ema_len, min_periods=ema_len, adjust=False).mean()
-    return smi, sig
+
+    smi = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
+    smi = pd.Series(smi, index=close.index)
+
+    smi_smoothed = smi.rolling(smooth_period, min_periods=smooth_period).mean()
+    smi_signal = smi_smoothed.ewm(span=d, min_periods=d, adjust=False).mean()
+    ema_signal = smi_smoothed.ewm(span=c, min_periods=c, adjust=False).mean()
+
+    return smi_smoothed, smi_signal, ema_signal
 
 def check_smi_oversold(df, threshold=-40):
     if len(df) < WARMUP_SMI:
