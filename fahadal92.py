@@ -1471,7 +1471,9 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             return
 
         price = df5["close"].iloc[-1]
-        candle_ts = df5["ts"].iloc[-1].strftime("%Y-%m-%d %H:%M UTC")
+        candle_start = df5["ts"].iloc[-1]
+        candle_end = candle_start + timedelta(minutes=5)
+        candle_ts = f"{candle_start.strftime('%H:%M')} → {candle_end.strftime('%H:%M')} UTC ({candle_start.strftime('%Y-%m-%d')})"
         fetch_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
         rsi_series = calc_rsi_tv(df5["close"], period=14)
