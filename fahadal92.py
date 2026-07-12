@@ -1540,31 +1540,31 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             macd_color = "🟢" if macd_hist_val > 0 else "🔴"
             
             smi_series, smi_sig_series, _ = calc_smi(df_raw["high"], df_raw["low"], df_raw["close"])
-smi_val = round(float(smi_series.iloc[-1]), 2)
-smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
-
-# ✅ أضف هنا: حساب الاتجاهات
-rsi_trend = "📈 صاعد" if rsi_val > 50 else "📉 هابط"
-macd_trend = "🟢 أخضر" if macd_hist_val > 0 else "🔴 أحمر"
-
-rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
-stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
-smi_zone = "🔴 تشبع بيعي" if smi_val <= -40 else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
-
-send_telegram(
-    f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
-    f"🕯️ الشمعة المغلقة: {ts.strftime('%H:%M UTC (%Y-%m-%d)')}\n"
-    f"━━━━━━━━━━━━━━━━\n"
-    f"💰 السعر: <b>${price:.2f}</b>\n"
-    f"━━━━━━━━━━━━━━━━\n"
-    f"📈 RSI (14): <b>{rsi_val}</b> {rsi_trend} {rsi_zone}\n"
-    f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\nStoch D(3): <b>{stoch_d}</b>\n"
-    f"⚡ MACD: {macd_trend} | Histogram: {macd_color} <b>{macd_hist_val}</b>\nMACD Line: <b>{macd_line_val}</b>\nSignal: <b>{signal_line_val}</b>\n"
-    f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\nSignal: <b>{smi_sig}</b>\n"
-    f"━━━━━━━━━━━━━━━━\n"
-    f"📦 شموع الـ5m: {len(df_raw)}",
-    chat_id,
-)
+            smi_val = round(float(smi_series.iloc[-1]), 2)
+            smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
+            
+            # ✅ أضف هنا: حساب الاتجاهات (سطرين جدد)
+            rsi_trend = "📈 صاعد" if rsi_val > 50 else "📉 هابط"
+            macd_trend = "🟢 أخضر" if macd_hist_val > 0 else "🔴 أحمر"
+            
+            rsi_zone = "🔴 تشبع بيعي" if rsi_val < 30 else ("🟠 تشبع شرائي" if rsi_val > 70 else "🟡 محايد")
+            stoch_zone = "🔴 تشبع بيعي" if stoch_k < 20 else ("🟠 تشبع شرائي" if stoch_k > 80 else "🟡 محايد")
+            smi_zone = "🔴 تشبع بيعي" if smi_val <= -40 else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
+            
+            send_telegram(
+                f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+                f"🕯️ الشمعة المغلقة: {ts.strftime('%H:%M UTC (%Y-%m-%d)')}\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"💰 السعر: <b>${price:.2f}</b>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"📈 RSI (14): <b>{rsi_val}</b> {rsi_trend} {rsi_zone}\n"
+                f"📉 Stoch K(15,3): <b>{stoch_k}</b> {stoch_zone}\nStoch D(3): <b>{stoch_d}</b>\n"
+                f"⚡ MACD: {macd_trend} | Histogram: {macd_color} <b>{macd_hist_val}</b>\nMACD Line: <b>{macd_line_val}</b>\nSignal: <b>{signal_line_val}</b>\n"
+                f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\nSignal: <b>{smi_sig}</b>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"📦 شموع الـ5m: {len(df_raw)}",
+                chat_id,
+            )
 
     except Exception as e:
         log.error(f"check5 error: {e}")
