@@ -794,10 +794,21 @@ def calc_donchian_trend_ribbon_correct(df, length=20):
     all_consistent = all(t == current_main for t in layers)
     return current_main, all_consistent
 
-def check_donchian_trend_ribbon(df, direction="green"):
+def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
     if len(df) < 35:
         return False
-    trend, all_consistent = calc_donchian_trend_ribbon_correct(df, length=20)
+
+    if cache_key is not None:
+        with _ribbon_cache_lock:
+            cached = _ribbon_cache.get(cache_key)
+        if cached is None:
+            cached = calc_donchian_trend_ribbon_correct(df, length=20)
+            with _ribbon_cache_lock:
+                _ribbon_cache[cache_key] = cached
+    else:
+        cached = calc_donchian_trend_ribbon_correct(df, length=20)
+
+    trend, all_consistent = cached
     if direction == "green":
         return trend == 1 and all_consistent
     return trend == -1 and all_consistent
