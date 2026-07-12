@@ -1593,7 +1593,7 @@ def _dispatch_command(txt, chat_id):
     with _ribbon_cache_lock:
         _ribbon_cache.clear()
     send_telegram("✅ المسح الفوري اكتمل — جرّب /سبب_شراء الآن", chat_id)
-        threading.Thread(target=do_scan, daemon=True).start()
+    threading.Thread(target=do_scan, daemon=True).start()
         
     elif txt == "/help":
         send_telegram(
