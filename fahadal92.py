@@ -845,7 +845,7 @@ def calc_smi(high, low, close, k=10, smooth_period=1, d=3, c=10):
 def check_smi_oversold(df, threshold=-40):
     if len(df) < WARMUP_SMI:
         return False
-    smi, _ = calc_smi(df["high"], df["low"], df["close"])
+    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     return bool(smi.iloc[-1] <= threshold)
 
 def check_smi_overbought(df, threshold=40):
