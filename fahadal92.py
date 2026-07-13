@@ -1567,7 +1567,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             signal_line_val = round(float(signal_line.iloc[-1]), 4)
             macd_color = "🟢" if macd_hist_val > 0 else "🔴"
             
-            smi_series, smi_sig_series, _ = calc_smi(df_raw["high"], df_raw["low"], df_raw["close"])
+            smi_series, _, smi_sig_series = calc_smi(df_raw["high"], df_raw["low"], df_raw["close"])
             smi_val = round(float(smi_series.iloc[-1]), 2)
             smi_sig = round(float(smi_sig_series.iloc[-1]), 2)
             
