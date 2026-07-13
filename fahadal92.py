@@ -1704,7 +1704,15 @@ def quick_check_watcher():
         except Exception as e:
             log.error("❌ خطأ في quick_check_watcher: %s", e)
 
-
+def _dispatch_command(txt, chat_id):
+    """معالج أوامر Telegram"""
+    if txt.startswith("/check5"):
+        parts = txt.split()
+        symbol = parts[1] if len(parts) > 1 else "BTCUSDT"
+        handle_check5(chat_id, symbol)
+    elif txt.startswith("/cascade_diag"):
+        _cmd_cascade_diag(chat_id, "buy")
+    # 
 def poll_telegram_commands():
     last_id = 0
     while True:
