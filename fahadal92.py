@@ -1750,6 +1750,16 @@ def cascade_watcher():
             log.error("❌ خطأ في cascade_watcher: %s", e)
             time.sleep(5)
 
+def cleanup_old_symbols_cache():
+    with symbols_cache_lock:
+        active_symbols = set(symbols_cache)
+    with ohlcv_cache_lock:
+        stale_keys = [k for k in ohlcv_cache if k[0] not in active_symbols]
+        for k in stale_keys:
+            del ohlcv_cache[k]
+    if stale_keys:
+        log.info("🧹 حذف %d مفتاح كاش قديم", len(stale_keys))
+
 def update_symbols_loop():
     while True:
         try:
