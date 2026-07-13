@@ -1712,7 +1712,15 @@ def _dispatch_command(txt, chat_id):
         handle_check5(chat_id, symbol)
     elif txt.startswith("/cascade_diag"):
         _cmd_cascade_diag(chat_id, "buy")
-    # 
+    elif txt.startswith("/cascade_diag_sell"):
+        _cmd_cascade_diag(chat_id, "sell")
+    elif txt.startswith("/status"):
+        _cmd_status(chat_id)
+    elif txt.startswith("/hard_filters"):
+        handle_hard_filters_command(chat_id, "buy")
+    elif txt.startswith("/hard_filters_sell"):
+        handle_hard_filters_command(chat_id, "sell")
+
 def poll_telegram_commands():
     last_id = 0
     while True:
