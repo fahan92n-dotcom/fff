@@ -1777,6 +1777,7 @@ def update_symbols_loop():
             with symbols_cache_lock:
                 symbols_cache[:] = [t["symbol"] for t in top]
             log.info("✅ عملات: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
+            cleanup_old_symbols_cache()
             if not fast_prefetch_done.is_set():
                 threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()
         except requests.RequestException as exc:
