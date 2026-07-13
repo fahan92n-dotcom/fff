@@ -33,8 +33,6 @@ ALERT_EXPIRY_HOURS = 4
 
 TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}
 
-return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
-        if all_dfs else pd.DataFrame())
 
 TRIPLING_PAIRS = [
     (9, 27, 3, "1m", "1m"), (12, 36, 4, "1m", "1m"), (15, 45, 5, "1m", "1m"),
