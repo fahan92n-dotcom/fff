@@ -33,6 +33,36 @@ ALERT_EXPIRY_HOURS = 4
 
 TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}
 
+while fetched < target:
+    batch = min(bin_max, target - fetched)
+    start_ms = end_ms - batch * tf_ms
+    try:
+        resp = get_session().get(f"{BINANCE_BASE}/api/v3/klines",
+            params={"symbol": symbol, "interval": binance_tf, "startTime": start_ms, "endTime": end_ms, "limit": batch}, timeout=15).json()
+        if not isinstance(resp, list) or not resp:
+            retries += 1
+            if retries >= 3:
+                break
+            time.sleep(2 ** retries)
+            continue
+        df = _parse_binance_klines(resp)
+        all_dfs.insert(0, df)
+        fetched += len(df)
+        retries = 0
+        # استخدم أول طابع زمني من الدفعة لتحديد end_ms للطلب التالي (أدق من طرح batch*tf_ms)
+        first_ts_ms = int(df["ts"].iloc[0].timestamp() * 1000)
+        end_ms = first_ts_ms - 1
+        if len(df) < batch:
+            break
+    except requests.RequestException:
+        retries += 1
+        if retries >= 3:
+            break
+        time.sleep(2)
+
+return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
+        if all_dfs else pd.DataFrame())
+
 TRIPLING_PAIRS = [
     (9, 27, 3, "1m", "1m"), (12, 36, 4, "1m", "1m"), (15, 45, 5, "1m", "1m"),
     (18, 54, 6, "1m", "1m"), (21, 63, 7, "1m", "1m"), (24, 72, 8, "1m", "1m"),
