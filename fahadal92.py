@@ -1535,6 +1535,20 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             send_telegram("❌ فشل جلب البيانات من الكاش", chat_id)
             return
         
+        # ✅ احذف الشمعة الأخيرة لو لسه ما اتقفلتش (عشان المؤشرات تتحسب وقت الإغلاق تماماً)
+        now_utc = datetime.now(timezone.utc)
+        last_candle_ts = df_raw["ts"].iloc[-1]
+        candle_close_time = last_candle_ts + pd.Timedelta(minutes=5)
+        if now_utc < candle_close_time:
+            df_raw = df_raw.iloc[:-1].reset_index(drop=True)
+
+        if df_raw.empty:
+            send_telegram("❌ لا توجد شمعة مغلقة كافية بعد", chat_id)
+            return
+
+        ts = df_raw["ts"].iloc[-1]
+        price = float(df_raw["close"].iloc[-1])
+
         # حساب المؤشرات من البيانات الخام
         if len(df_raw) >= 50:
             rsi_series = calc_rsi_tv(df_raw["close"], period=14)
