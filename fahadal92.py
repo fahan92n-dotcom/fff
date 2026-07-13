@@ -549,6 +549,42 @@ def get_ohlcv(symbol, tf, limit=500):
 
 def get_ohlcv_full(symbol, tf, target):
     binance_tf = TF_MAP.get(tf, "1m")
+    tf_ms_map = {"1m": 60_000, "5m": 300_000, "60m": 3_600_000}
+    tf_ms = tf_ms_map.get(tf, 60_000)
+    bin_max = 1000
+    all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
+
+    while fetched < target:
+        batch = min(bin_max, target - fetched)
+        start_ms = end_ms - batch * tf_ms
+        try:
+            resp = get_session().get(f"{BINANCE_BASE}/api/v3/klines",
+                params={"symbol": symbol, "interval": binance_tf, "startTime": start_ms, "endTime": end_ms, "limit": batch}, timeout=15).json()
+            if not isinstance(resp, list) or not resp:
+                retries += 1
+                if retries >= 3:
+                    break
+                time.sleep(2 ** retries)
+                continue
+            df = _parse_binance_klines(resp)
+            all_dfs.insert(0, df)
+            fetched += len(df)
+            retries = 0
+            first_ts_ms = int(df["ts"].iloc[0].timestamp() * 1000)
+            end_ms = first_ts_ms - 1
+            if len(df) < batch:
+                break
+        except requests.RequestException:
+            retries += 1
+            if retries >= 3:
+                break
+            time.sleep(2)
+
+    return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
+            if all_dfs else pd.DataFrame())
+
+def get_ohlcv_full(symbol, tf, target):
+    binance_tf = TF_MAP.get(tf, "1m")
     tf_ms = 60_000 if tf == "1m" else 3_600_000
     bin_max = 1000
     all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
