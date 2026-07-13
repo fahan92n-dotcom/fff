@@ -1825,6 +1825,7 @@ def main():
     threading.Thread(target=poll_telegram_commands, daemon=True).start()
     threading.Thread(target=cache_updater_1m, daemon=True).start()
     threading.Thread(target=cache_updater_60m, daemon=True).start()
+    threading.Thread(target=cache_updater_5m, daemon=True).start()
     threading.Thread(target=cascade_watcher, daemon=True).start()
     threading.Thread(target=quick_check_watcher, daemon=True).start()
 
