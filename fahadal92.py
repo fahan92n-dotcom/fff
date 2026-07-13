@@ -581,40 +581,6 @@ def get_ohlcv_full(symbol, tf, target):
     return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
             if all_dfs else pd.DataFrame())
 
-def get_ohlcv_full(symbol, tf, target):
-    binance_tf = TF_MAP.get(tf, "1m")
-    tf_ms = 60_000 if tf == "1m" else 3_600_000
-    bin_max = 1000
-    all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
-
-    while fetched < target:
-        batch = min(bin_max, target - fetched)
-        start_ms = end_ms - batch * tf_ms
-        try:
-            resp = get_session().get(f"{BINANCE_BASE}/api/v3/klines",
-                params={"symbol": symbol, "interval": binance_tf, "startTime": start_ms, "endTime": end_ms, "limit": batch}, timeout=15).json()
-            if not isinstance(resp, list) or not resp:
-                retries += 1
-                if retries >= 3:
-                    break
-                time.sleep(2 ** retries)
-                continue
-            df = _parse_binance_klines(resp)
-            all_dfs.insert(0, df)
-            fetched += len(df)
-            retries = 0
-            end_ms = start_ms - 1
-            if len(df) < batch:
-                break
-        except requests.RequestException:
-            retries += 1
-            if retries >= 3:
-                break
-            time.sleep(2)
-
-    return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
-            if all_dfs else pd.DataFrame())
-
 def cache_merge(symbol, tf, new_df):
     if new_df.empty:
         return
