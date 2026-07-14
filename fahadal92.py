@@ -1219,7 +1219,7 @@ def run_cascade_scan():
                 return c, False, str(e)
 
         try:
-            with ThreadPoolExecutor(max_workers=20) as executor:
+            with ThreadPoolExecutor(max_workers=15) as executor:
                 futures = [executor.submit(run_one, candidate) for candidate in candidates]
                 results = []
                 for future in concurrent.futures.as_completed(futures, timeout=120):
@@ -1330,7 +1330,7 @@ def run_short_cascade_scan():
                 return c, False, str(e)
 
         try:
-            with ThreadPoolExecutor(max_workers=50) as executor:
+            with ThreadPoolExecutor(max_workers=15) as executor:
                 futures = [executor.submit(run_one, candidate) for candidate in candidates]
                 results = []
 
