@@ -1260,6 +1260,10 @@ def run_cascade_scan():
     for c in candidates:
         _fire_signal(c["sym"], c["base_frame"], c["confirm_frame"],
                      c["triple_frame"], c["df_base"], signal_type="buy")
+
+    resample_cache.clear()
+    with _ribbon_cache_lock:
+        _ribbon_cache.clear()
                     
 
 def run_short_cascade_scan():
