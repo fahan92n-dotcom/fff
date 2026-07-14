@@ -1395,6 +1395,10 @@ def run_short_cascade_scan():
             signal_type="sell"
         )
 
+    resample_cache.clear()
+    with _ribbon_cache_lock:
+        _ribbon_cache.clear()
+
 # ------------------------------------------
 # Telegram Commands
 # ------------------------------------------
