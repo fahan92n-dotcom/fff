@@ -1709,21 +1709,92 @@ def quick_check_watcher():
 
 def _dispatch_command(txt, chat_id):
     """معالج أوامر Telegram"""
-    if txt.startswith("/check5"):
+    # تقارير الإشارات
+    if txt in ("1", "/today"):
+        send_telegram(get_report("today"), chat_id)
+    elif txt in ("2", "/yesterday"):
+        send_telegram(get_report("yesterday"), chat_id)
+    elif txt in ("3", "/week"):
+        send_telegram(get_report("week"), chat_id)
+    # فحص العملة
+    elif txt.startswith("/check5"):
         parts = txt.split()
         symbol = parts[1] if len(parts) > 1 else "BTCUSDT"
         handle_check5(chat_id, symbol)
-    elif txt.startswith("/cascade_diag"):
+    # تقارير Cascade
+    elif txt in ("/cascade_diag", "/سبب_شراء", "/diag_buy"):
         _cmd_cascade_diag(chat_id, "buy")
-    elif txt.startswith("/cascade_diag_sell"):
+    elif txt in ("/cascade_diag_sell", "/سبب_بيع", "/diag_sell"):
         _cmd_cascade_diag(chat_id, "sell")
-    elif txt.startswith("/status"):
+    # الناجحون من كل خطوة (شراء)
+    elif txt == "/survivors6":
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
+    elif txt == "/survivors7":
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="buy")
+    elif txt == "/survivors8":
+        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="buy")
+    # الناجحون من كل خطوة (بيع)
+    elif txt == "/survivors6_sell":
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="sell")
+    elif txt == "/survivors7_sell":
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="sell")
+    elif txt == "/survivors8_sell":
+        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="sell")
+    # دعم /survivors برقم (مثل /survivors 6 أو /survivors 6_sell)
+    elif txt.startswith("/survivors"):
+        parts = txt.split()
+        if "_sell" in txt:
+            num_part = parts[0].replace("/survivors", "").replace("_sell", "")
+            step_num = int(num_part) if num_part.isdigit() else 6
+            _cmd_show_step_survivors(chat_id, step_num=step_num, signal_type="sell")
+        else:
+            step_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 6
+            if 1 <= step_num <= 8:
+                _cmd_show_step_survivors(chat_id, step_num=step_num, signal_type="buy")
+            else:
+                send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 8", chat_id)
+    # الحالة والفلاتر
+    elif txt == "/status":
         _cmd_status(chat_id)
-    elif txt.startswith("/hard_filters"):
+    elif txt == "/hard_filters":
         handle_hard_filters_command(chat_id, "buy")
-    elif txt.startswith("/hard_filters_sell"):
+    elif txt == "/hard_filters_sell":
         handle_hard_filters_command(chat_id, "sell")
-
+    # المساعدة
+    elif txt == "/help":
+        send_telegram(
+            "📋 <b>الأوامر المتاحة:</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>📊 التقارير:</b>\n"
+            "1️⃣ <code>1</code> أو <code>/today</code> — إشارات اليوم\n"
+            "2️⃣ <code>2</code> أو <code>/yesterday</code> — إشارات أمس\n"
+            "3️⃣ <code>3</code> أو <code>/week</code> — آخر 7 أيام\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>🔍 التحليل:</b>\n"
+            "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
+            "🔴 <code>/cascade_diag_sell</code> أو <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>🎯 الناجحون (شراء):</b>\n"
+            "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"
+            "🟢 <code>/survivors7</code> — الناجحون حتى الخطوة 7\n"
+            "🟢 <code>/survivors8</code> — الناجحون حتى الخطوة 8\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>🎯 الناجحون (بيع):</b>\n"
+            "🔴 <code>/survivors6_sell</code> — الناجحون حتى الخطوة 6\n"
+            "🔴 <code>/survivors7_sell</code> — الناجحون حتى الخطوة 7\n"
+            "🔴 <code>/survivors8_sell</code> — الناجحون حتى الخطوة 8\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>⚠️ الفلاتر القاسية:</b>\n"
+            "⚠️ <code>/hard_filters</code> — أقسى الفلاتر (شراء)\n"
+            "⚠️ <code>/hard_filters_sell</code> — أقسى الفلاتر (بيع)\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>📈 أخرى:</b>\n"
+            "📊 <code>/status</code> — حالة البوت\n"
+            "🔎 <code>/check5 [symbol]</code> — فحص عملة فريم 5 دقايق\n"
+            "📋 <code>/help</code> — هذه القائمة",
+            chat_id,
+        )
+        
 def poll_telegram_commands():
     last_id = 0
     while True:
