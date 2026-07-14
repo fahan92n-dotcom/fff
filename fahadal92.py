@@ -851,10 +851,14 @@ def calc_smi(high, low, close, k=10, smooth_period=1, d=3, c=10):
     smi = pd.Series(smi, index=close.index)
 
     smi_smoothed = smi.rolling(smooth_period, min_periods=smooth_period).mean()
+    
+    # ✅ التصحيح - D Line (optional)
     smi_signal = smi_smoothed.ewm(span=d, min_periods=d, adjust=False).mean()
+    
+    # ✅ Signal Line الصحيح (المهم)
     ema_signal = smi_smoothed.ewm(span=c, min_periods=c, adjust=False).mean()
 
-    return smi_smoothed, smi_signal, ema_signal
+    return smi_smoothed, ema_signal, smi_signal  # ⬅️ لاحظ الترتيب
 
 def check_smi_oversold(df, threshold=-40):
     if len(df) < WARMUP_SMI:
