@@ -797,6 +797,37 @@ def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
         return 0
     return 1 if last_up > last_down else -1
 
+# ------------------ Donchian check + cache ------------------
+
+def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
+    """
+    يفحص Donchian بطول 20 باستخدام calc_donchian_trend_vectorized.
+    - إذا مررت cache_key سيخزن/يقرأ النتيجة من _ribbon_cache (محمي بواسطة _ribbon_cache_lock).
+    - direction: "green" => نتحقق أن النتيجة == 1, "red" => النتيجة == -1.
+    """
+    length = 20
+    # نحتاج نافذة سابقة كاملة + الشمعة الحالية
+    if df.empty or len(df) < length + 1:
+        return False
+
+    if cache_key is not None:
+        with _ribbon_cache_lock:
+            cached = _ribbon_cache.get(cache_key)
+        if cached is None:
+            close = df["close"].values
+            high = df["high"].values
+            low = df["low"].values
+            cached = calc_donchian_trend_vectorized(close, high, low, length=length)
+            with _ribbon_cache_lock:
+                _ribbon_cache[cache_key] = cached
+    else:
+        close = df["close"].values
+        high = df["high"].values
+        low = df["low"].values
+        cached = calc_donchian_trend_vectorized(close, high, low, length=length)
+
+    return (cached == 1) if direction == "green" else (cached == -1)
+
 def calc_donchian_trend_ribbon_correct(df, length=20):
     if len(df) < length + 2:
         return 0, False
