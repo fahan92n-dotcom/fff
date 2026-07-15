@@ -746,57 +746,6 @@ def check_macd_line_short(df, pct=0.20):
         return False
     return True
 
-def calc_donchian_trend_new(df, length=20):
-    """Donchian trend - نسخة مبسطة وسريعة (vectorized)"""
-    if len(df) < length + 2:
-        return 0
-
-    close = df["close"].values
-    high_s = df["high"]
-    low_s = df["low"]
-
-    prev_hh = high_s.rolling(length).max().shift(1).values
-    prev_ll = low_s.rolling(length).min().shift(1).values
-
-    breakout_up = close > prev_hh
-    breakout_down = close < prev_ll
-
-    up_idx = np.where(breakout_up)[0]
-    down_idx = np.where(breakout_down)[0]
-
-    last_up = up_idx[-1] if len(up_idx) else -1
-    last_down = down_idx[-1] if len(down_idx) else -1
-
-    if last_up == -1 and last_down == -1:
-        return 0
-    return 1 if last_up > last_down else -1
-
-def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
-    n = len(close_arr)
-    if n < length + 2:
-        return 0
-
-    high_s = pd.Series(high_arr)
-    low_s = pd.Series(low_arr)
-
-    prev_hh = high_s.rolling(length).max().shift(1).values
-    prev_ll = low_s.rolling(length).min().shift(1).values
-
-    close_arr = np.asarray(close_arr)
-
-    breakout_up = close_arr > prev_hh
-    breakout_down = close_arr < prev_ll
-
-    up_indices = np.where(breakout_up)[0]
-    down_indices = np.where(breakout_down)[0]
-
-    last_up = up_indices[-1] if len(up_indices) > 0 else -1
-    last_down = down_indices[-1] if len(down_indices) > 0 else -1
-
-    if last_up == -1 and last_down == -1:
-        return 0
-    return 1 if last_up > last_down else -1
-
 # ------------------ Donchian check + cache ------------------
 
 def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
