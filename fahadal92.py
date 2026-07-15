@@ -1554,96 +1554,6 @@ def check_rsi_stoch(df, lookback=5, max_gap=5):
     return False
 
 def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
-    if signal_type == "buy":
-        lock = last_complete_lock
-        survivors_dict = last_complete_survivors
-    else:
-        lock = last_complete_short_lock
-        survivors_dict = last_complete_short_survivors
-
-    with lock:
-        survivors = survivors_dict.get(step_num, [])
-
-    if not survivors:
-        send_telegram(f"⚠️ لا توجد عملات نجحت حتى الخطوة {step_num}", chat_id)
-        return
-
-    icon = "🟢" if signal_type == "buy" else "🔴"
-    lines = [f"{icon} <b>الناجحون حتى الخطوة {step_num} ({len(survivors)} عملات)</b>", "━" * 30]
-
-    for c in survivors:
-        lines.append(
-    f"• <b>{c['sym']}</b>\n"
-    f"├─ فريم أساسي: {c['base_frame']}m\n"
-    f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
-    f"└─ فريم تثليث: {c['triple_frame']}m"
-)
-
-    msg = "\n".join(lines)
-
-    for i in range(0, len(msg), 4000):
-        send_telegram(msg[i:i + 4000], chat_id)
-
-
-def check_rsi_stoch(df, lookback=5, max_gap=5):
-    if len(df) < WARMUP_RSI + lookback:
-        return False
-    try:
-        rsi = calc_rsi_tv(df["close"], period=14)
-        rsi_sig = rsi.rolling(14).mean()
-        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-        if float(k.iloc[-1]) <= 20:
-            return False
-        stoch_crosses = []
-        rsi_crosses = []
-        for i in range(-lookback, 0):
-            try:
-                if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
-                    stoch_crosses.append(i)
-                if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
-                    rsi_crosses.append(i)
-            except (ValueError, IndexError):
-                continue
-        for sc in stoch_crosses:
-            for rc in rsi_crosses:
-                if abs(sc - rc) <= max_gap:
-                    return True
-        return False
-    except Exception as e:
-        log.error("❌ خطأ في check_rsi_stoch: %s", e)
-        return False
-
-
-def check_rsi_stoch_short(df, lookback=5, max_gap=5):
-    if len(df) < WARMUP_RSI + lookback:
-        return False
-    try:
-        rsi = calc_rsi_tv(df["close"], period=14)
-        rsi_sig = rsi.rolling(14).mean()
-        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-        if float(k.iloc[-1]) >= 80:
-            return False
-        stoch_crosses = []
-        rsi_crosses = []
-        for i in range(-lookback, 0):
-            try:
-                if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
-                    stoch_crosses.append(i)
-                if float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) <= float(rsi_sig.iloc[i]):
-                    rsi_crosses.append(i)
-            except (ValueError, IndexError):
-                continue
-        for sc in stoch_crosses:
-            for rc in rsi_crosses:
-                if abs(sc - rc) <= max_gap:
-                    return True
-        return False
-    except Exception as e:
-        log.error("❌ خطأ في check_rsi_stoch_short: %s", e)
-        return False
-
-
-def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     """عرض العملات الناجحة حتى خطوة معينة"""
     if signal_type == "buy":
         lock = last_complete_lock
@@ -1666,12 +1576,12 @@ def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     ]
 
     for c in survivors:
-    lines.append(
-        f"• <b>{c['sym']}</b>\n"
-        f"├─ فريم أساسي: {c['base_frame']}m\n"
-        f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
-        f"└─ فريم تثليث: {c['triple_frame']}m"
-    )
+        lines.append(
+            f"• <b>{c['sym']}</b>\n"
+            f"├─ فريم أساسي: {c['base_frame']}m\n"
+            f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
+            f"└─ فريم تثليث: {c['triple_frame']}m"
+        )
 
     msg = "\n".join(lines)
 
