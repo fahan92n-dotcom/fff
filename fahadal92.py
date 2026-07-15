@@ -746,31 +746,7 @@ def check_macd_line_short(df, pct=0.20):
         return False
     return True
 
-# ------------------ Donchian check + cache ------------------
 
-def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
-    """
-    يفحص Donchian بطول 20 باستخدام calc_donchian_trend_vectorized.
-    - إذا مررت cache_key سيخزن/يقرأ النتيجة من _ribbon_cache (محمي بواسطة _ribbon_cache_lock).
-    - direction: "green" => نتحقق أن النتيجة == 1, "red" => النتيجة == -1.
-    """
-    length = 20
-    # نحتاج نافذة سابقة كاملة + الشمعة الحالية
-    if df.empty or len(df) < length + 1:
-        return False
-
-    if cache_key is not None:
-        with _ribbon_cache_lock:
-            cached = _ribbon_cache.get(cache_key)
-        if cached is None:
-            close = df["close"].values
-            high = df["high"].values
-            low = df["low"].values
-            cached = calc_donchian_trend_vectorized(close, high, low, length=length)
-            with _ribbon_cache_lock:
-                _ribbon_cache[cache_key] = cached
-    else:
-        close = df["close"].values
         high = df["high"].values
         low = df["low"].values
         cached = calc_donchian_trend_vectorized(close, high, low, length=length)
