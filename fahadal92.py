@@ -1666,12 +1666,12 @@ def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     ]
 
     for c in survivors:
-        lines.append(
-            f"• <b>{c['sym']}</b>\n"
-            f"├─ فريم أساسي: {c['base_frame']}m\n"
-            f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
-            f"└─ فريم تثليث: {c['triple_frame']}m"
-        )
+    lines.append(
+        f"• <b>{c['sym']}</b>\n"
+        f"├─ فريم أساسي: {c['base_frame']}m\n"
+        f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
+        f"└─ فريم تثليث: {c['triple_frame']}m"
+    )
 
     msg = "\n".join(lines)
 
