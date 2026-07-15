@@ -1075,8 +1075,10 @@ def step6(c):
     return True, "passed"
 
 def step7(c):
-    if not check_donchian_trend_ribbon(c["df_triple"], "green"):
-        return False, "donchian_triple_green"
+    # عند الشراء: فريم التثليث يجب أن يكون Donchian أحمر (دخول عكسي)
+    if not check_donchian_trend_ribbon(c["df_triple"], "red"):
+        # استخدم reason متناسق مع STEP_NAMES ("donchian_triple")
+        return False, "donchian_triple"
     return True, "passed"
 
 def step8(c):
