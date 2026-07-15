@@ -747,12 +747,6 @@ def check_macd_line_short(df, pct=0.20):
     return True
 
 
-        high = df["high"].values
-        low = df["low"].values
-        cached = calc_donchian_trend_vectorized(close, high, low, length=length)
-
-    return (cached == 1) if direction == "green" else (cached == -1)
-
 def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     """
     Vectorized Donchian trend with shift(1) + forward-fill to keep last non-zero trend.
