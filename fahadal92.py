@@ -798,6 +798,41 @@ def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     raw[breakout_up.fillna(False)] = 1
     raw[breakout_down.fillna(False)] = -1
 
+# ------------------ Donchian check + cache ------------------
+def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
+    """
+    يفحص Donchian بطول 20 باستخدام calc_donchian_trend_vectorized.
+    - إذا مررت cache_key سيخزن/يقرأ النتيجة من _ribbon_cache (محمي بواسطة _ribbon_cache_lock).
+    - direction: "green" => نتحقق أن النتيجة == 1, "red" => النتيجة == -1.
+    """
+    length = 20
+    # نحتاج نافذة سابقة كاملة + الشمعة الحالية
+    if df.empty or len(df) < length + 1:
+        return False
+
+    if cache_key is not None:
+        # قراءة سريعة من الكاش
+        with _ribbon_cache_lock:
+            cached = _ribbon_cache.get(cache_key)
+        if cached is None:
+            close = df["close"].values
+            high = df["high"].values
+            low = df["low"].values
+            result = calc_donchian_trend_vectorized(close, high, low, length=length)       
+            # double-checked locking: تأكد لم يقم خيط آخر بالتخزين أثناء الحساب
+            with _ribbon_cache_lock:
+                cached = _ribbon_cache.get(cache_key)
+                if cached is None:
+                    _ribbon_cache[cache_key] = result
+                    cached = result
+    else:
+        close = df["close"].values
+        high = df["high"].values
+        low = df["low"].values
+        cached = calc_donchian_trend_vectorized(close, high, low, length=length)
+
+    return (cached == 1) if direction == "green" else (cached == -1)
+
     # ffill يرث آخر قيمة (مثل nz(trend[1]) في Pine)
     trend = raw.ffill().fillna(0)
 
