@@ -753,27 +753,9 @@ def check_macd_line_short(df, pct=0.20):
 
     return (cached == 1) if direction == "green" else (cached == -1)
 
-def calc_donchian_trend_ribbon_correct(df, length=20):
-    if len(df) < length + 2:
-        return 0, False
-    close = df["close"].values
-    high = df["high"].values
-    low = df["low"].values
-    layers = []
-    for offset in range(10):
-        layer_len = length - offset
-        if layer_len < 2:
-            layers.append(0)
-            continue
-        t = calc_donchian_trend_vectorized(close, high, low, layer_len)
-        layers.append(t)
-    current_main = layers[0]
-    all_consistent = all(t == current_main for t in layers)
-    return current_main, all_consistent
-
 def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     """
-    Vectorized Donchian trend with shift(1) + forward-fill to keep last non-zero trend
+    Vectorized Donchian trend with shift(1) + forward-fill to keep last non-zero trend.
     Returns 1 (breakout up), -1 (breakout down) or 0.
     """
     n = len(close_arr)
@@ -785,11 +767,11 @@ def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     low_s = pd.Series(low_arr)
     close_s = pd.Series(close_arr)
 
-    # highest/lowest على الفترات السابقة فقط (shift(1))
+    # أعلى/أدنى للنافذة السابقة فقط (بدون الشمعة الحالية)
     hh = high_s.rolling(length, min_periods=length).max().shift(1)
     ll = low_s.rolling(length, min_periods=length).min().shift(1)
 
-    # موجّة Boolean للمواقع اللي فيها breakout
+    # مواقع breakout (Boolean series)
     breakout_up = close_s > hh
     breakout_down = close_s < ll
 
@@ -798,10 +780,10 @@ def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     raw[breakout_up.fillna(False)] = 1
     raw[breakout_down.fillna(False)] = -1
 
-    # ffill يرث آخر قيمة (مثل nz(trend[1]) في Pine)
+    # ffill يرث آخر قيمة معروفة (مثل nz(trend[1]) في Pine)
     trend = raw.ffill().fillna(0)
 
-    # القيمة الأخيرة هي التي نحتاجها
+    # نعيد قيمة آخر عنصر كحالة الاتجاه الحالية
     try:
         return int(trend.iloc[-1])
     except Exception:
