@@ -746,23 +746,30 @@ def check_macd_line_short(df, pct=0.20):
         return False
     return True
 
-def calc_donchian_trend(df, length=20):
+def calc_donchian_trend_new(df, length=20):
+    """Donchian trend - نسخة مبسطة وسريعة (vectorized)"""
     if len(df) < length + 2:
-        return []
-    hh = df["high"].rolling(length).max()
-    ll = df["low"].rolling(length).min()
-    trend = [0] * len(df)
-    for i in range(1, len(df)):
-        if pd.isna(hh.iloc[i-1]) or pd.isna(ll.iloc[i-1]):
-            trend[i] = trend[i-1]
-            continue
-        if df["close"].iloc[i] > hh.iloc[i-1]:
-            trend[i] = 1
-        elif df["close"].iloc[i] < ll.iloc[i-1]:
-            trend[i] = -1
-        else:
-            trend[i] = trend[i-1]
-    return trend
+        return 0
+
+    close = df["close"].values
+    high_s = df["high"]
+    low_s = df["low"]
+
+    prev_hh = high_s.rolling(length).max().shift(1).values
+    prev_ll = low_s.rolling(length).min().shift(1).values
+
+    breakout_up = close > prev_hh
+    breakout_down = close < prev_ll
+
+    up_idx = np.where(breakout_up)[0]
+    down_idx = np.where(breakout_down)[0]
+
+    last_up = up_idx[-1] if len(up_idx) else -1
+    last_down = down_idx[-1] if len(down_idx) else -1
+
+    if last_up == -1 and last_down == -1:
+        return 0
+    return 1 if last_up > last_down else -1
 
 def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     n = len(close_arr)
