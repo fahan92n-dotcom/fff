@@ -1126,7 +1126,8 @@ def short_step3(c):
     key = (c["sym"], c["base_api"], c["base_frame"])
     if not check_donchian_trend_ribbon(c["df_base"], "red", cache_key=key):
         return False, "donchian_base_red"
-    return True, "passed"
+  
+return True, "passed"
 
 def short_step4(c):
     key = (c["sym"], c["base_api"], c["confirm_frame"])
