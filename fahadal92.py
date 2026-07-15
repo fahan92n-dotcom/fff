@@ -815,24 +815,41 @@ def calc_donchian_trend_ribbon_correct(df, length=20):
     all_consistent = all(t == current_main for t in layers)
     return current_main, all_consistent
 
-def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
-    if len(df) < 35:
-        return False
+def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
+    """
+    Vectorized Donchian trend with shift(1) + forward-fill to keep last non-zero trend
+    Returns 1 (breakout up), -1 (breakout down) or 0.
+    """
+    n = len(close_arr)
+    # نحتاج length شموع سابقة كاملة + الشمعة الحالية
+    if n < length + 1:
+        return 0
 
-    if cache_key is not None:
-        with _ribbon_cache_lock:
-            cached = _ribbon_cache.get(cache_key)
-        if cached is None:
-            cached = calc_donchian_trend_ribbon_correct(df, length=20)
-            with _ribbon_cache_lock:
-                _ribbon_cache[cache_key] = cached
-    else:
-        cached = calc_donchian_trend_ribbon_correct(df, length=20)
+    high_s = pd.Series(high_arr)
+    low_s = pd.Series(low_arr)
+    close_s = pd.Series(close_arr)
 
-    trend, all_consistent = cached
-    if direction == "green":
-        return trend == 1 and all_consistent
-    return trend == -1 and all_consistent
+    # highest/lowest على الفترات السابقة فقط (shift(1))
+    hh = high_s.rolling(length, min_periods=length).max().shift(1)
+    ll = low_s.rolling(length, min_periods=length).min().shift(1)
+
+    # موجّة Boolean للمواقع اللي فيها breakout
+    breakout_up = close_s > hh
+    breakout_down = close_s < ll
+
+    # سلسلة أولية بقيم NaN، نضع 1/-1 عند حالات الـ breakout
+    raw = pd.Series(np.nan, index=close_s.index)
+    raw[breakout_up.fillna(False)] = 1
+    raw[breakout_down.fillna(False)] = -1
+
+    # ffill يرث آخر قيمة (مثل nz(trend[1]) في Pine)
+    trend = raw.ffill().fillna(0)
+
+    # القيمة الأخيرة هي التي نحتاجها
+    try:
+        return int(trend.iloc[-1])
+    except Exception:
+        return 0
 
 def check_ema50_below(df):
     ema = df["close"].ewm(span=50, adjust=False).mean()
