@@ -925,34 +925,6 @@ def check_confirm_rsi_not_overbought(df, lookback=30, threshold=70):
     rsi = calc_rsi_tv(df["close"], period=14)
     return not bool((rsi.iloc[-lookback:] >= threshold).any())
 
-def check_rsi_stoch(df, lookback=5, max_gap=5):
-    if len(df) < WARMUP_RSI + lookback:
-        return False
-    try:
-        rsi = calc_rsi_tv(df["close"], period=14)
-        rsi_sig = rsi.rolling(14).mean()
-        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-        if float(k.iloc[-1]) <= 20:
-            return False
-        stoch_crosses = []
-        rsi_crosses = []
-        for i in range(-lookback, 0):
-            try:
-                if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
-                    stoch_crosses.append(i)
-                if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
-                    rsi_crosses.append(i)
-            except (ValueError, IndexError):
-                continue
-        for sc in stoch_crosses:
-            for rc in rsi_crosses:
-                if abs(sc - rc) <= max_gap:
-                    return True
-        return False
-    except Exception as e:
-        log.error("❌ خطأ في check_rsi_stoch: %s", e)
-        return False
-
 def check_rsi_stoch_short(df, lookback=5, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
