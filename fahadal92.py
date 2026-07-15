@@ -1051,7 +1051,6 @@ def step2(c):
     return True, "passed"
 
 def step3(c):
-  def step3(c):
     if not check_donchian_trend_ribbon(c["df_base"], "green"):
         return False, "donchian_base"
     return True, "passed"
