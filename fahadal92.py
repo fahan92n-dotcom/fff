@@ -1447,6 +1447,155 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
+Code improvements and error handling fixes
+Copilot Chat
+Code improvements and error handling fixes
+fahadal92.py
+هذا مشروعي هل فيه أخطاء؟ _ @fahan92n-dotcom/fff/files/fahadal92.py
+سأحلل ملف البوت الخاص بك للتحقق من الأخطاء والمشاكل المحتملة.
+
+
+View file fahadal92.py
+نعم، هناك عدة أخطاء وتحذيرات في الكود:
+❌ الأخطاء الحرجة:
+1. سطور معلقة (Orphaned Lines) — سطور 750-754
+Python
+# ❌ WRONG - هذه السطور ملقاة بلا فائدة خارج أي دالة
+        high = df["high"].values
+        low = df["low"].values
+        cached = calc_donchian_trend_vectorized(close, high, low, length=length)
+
+return (cached == 1) if direction == "green" else (cached == -1)
+الحل: احذف هذه السطور تماماً — هي بقايا كود قديم. الكود الصحيح موجود في check_donchian_trend_ribbon().
+
+2. كشف الأخطاء الناقصة في استثناءات check_rsi_stoch — سطور 934-956
+Python
+# ⚠️ المشكلة: لو حدث index error، الدالة ترجع False فقط
+# لكن لو حدث استثناء آخر، الكود قد يفشل بصمت
+for i in range(-lookback, 0):
+    try:
+        # ... code
+    except (ValueError, IndexError):
+        continue  # ⚠️ قد يتجاهل أخطاء أخرى مهمة
+3. الكود تحته غير معروّف في _cmd_show_step_survivors() — سطر 1471
+Python
+# ❌ النص مقطوع
+lines.append(f"• <b>{c['sym']}</b>\n├─ فريم أساسي: {c['base_frame']}m\n├─ فريم تأكيد: {c['confirm_frame']}m\n└─ فريم تثليث: {c['triple_frame']}m"[...]
+#                                                                                                                                                        ^^^
+يجب أن يكون:
+
+Python
+lines.append(
+    f"• <b>{c['sym']}</b>\n"
+    f"├─ فريم أساسي: {c['base_frame']}m\n"
+    f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
+    f"└─ فريم تثليث: {c['triple_frame']}m"
+)
+4. مشكلة Division by Zero محتملة في calc_smi() — سطر 846
+Python
+smi = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
+#                          ^^^^^^^^^^^^^^^^^^^^
+# إذا كان avgdiff قريب من 0، قد تحدث تقسيم غير دقيق
+⚠️ تحذيرات وممارسات سيئة:
+5. Telegram Token مكشوف — سطر 26
+Python
+# ⚠️ SECURITY: Token موجود في الكود بشكل واضح!
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
+الحل: احذف الـ default token:
+
+Python
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN env variable is required")
+6. فلوكات محتملة في resample_ohlcv() — سطور 681-683
+Python
+last_candle_end = resampled["ts"].iloc[-1] + pd.Timedelta(minutes=minutes)
+if now < last_candle_end:
+    resampled = resampled.iloc[:-1]  # قد يحذف كل شيء إذا لم يكن هناك شموات كاملة
+7. بيانات قديمة في الكاش — لا يوجد مكان يفرغ _ribbon_cache
+Python
+# ⚠️ الكاش قد ينمو بدون حد
+_ribbon_cache = {}
+# فقط يُنظّف في run_cascade_scan عند الانتهاء
+# لكن قد يتراكم أثناء الـ runtime
+8. Race condition في check_donchian_trend_ribbon() — سطر 813-817
+Python
+# ⚠️ رغم أن هناك double-checked locking، قد يكون هناك تأخير
+with _ribbon_cache_lock:
+    cached = _ribbon_cache.get(cache_key)
+    if cached is None:
+        _ribbon_cache[cache_key] = result  # خيطان قد يفعلان نفس الشيء
+        cached = result
+✅ الإصلاحات المقترحة:
+Python
+# 1️⃣ احذف السطور 750-754 تماماً
+
+# 2️⃣ أصلح check_rsi_stoch:
+def check_rsi_stoch(df, lookback=5, max_gap=5):
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+    try:
+        rsi = calc_rsi_tv(df["close"], period=14)
+        rsi_sig = rsi.rolling(14).mean()
+        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+        if float(k.iloc[-1]) <= 20:
+            return False
+        stoch_crosses = []
+        rsi_crosses = []
+        for i in range(-lookback, 0):
+            try:
+                if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
+                    stoch_crosses.append(i)
+                if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
+                    rsi_crosses.append(i)
+            except (ValueError, IndexError):
+                continue
+        for sc in stoch_crosses:
+            for rc in rsi_crosses:
+                if abs(sc - rc) <= max_gap:
+                    return True
+        return False
+    except Exception as e:
+        log.error("check_rsi_stoch error: %s", e)
+        return False
+
+# 3️⃣ أصلح line 1471:
+lines.append(
+    f"• <b>{c['sym']}</b>\n"
+    f"├─ فريم أساسي: {c['base_frame']}m\n"
+    f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
+    f"└─ فريم تثليث: {c['triple_frame']}m"
+)
+
+# 4️⃣ أزل Telegram token من الكود
+النقاط الأكثر حرجة: 🔴 السطور 750-754 — احذفها فوراً
+🔴 Telegram Token — انقله للـ environment فقط
+🔴 السطر 1471 — أصلح المحتوى المقطوع
+
+def check_rsi_stoch(df, lookback=5, max_gap=5):
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+    rsi = calc_rsi_tv(df["close"], period=14)
+    rsi_sig = rsi.rolling(14).mean()
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+    if float(k.iloc[-1]) <= 20:
+        return False
+    stoch_crosses = []
+    rsi_crosses = []
+    for i in range(-lookback, 0):
+        try:
+            if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
+                stoch_crosses.append(i)
+            if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
+                rsi_crosses.append(i)
+        except (ValueError, IndexError):
+            continue
+    for sc in stoch_crosses:
+        for rc in rsi_crosses:
+            if abs(sc - rc) <= max_gap:
+                return True
+    return False
+
 def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     if signal_type == "buy":
         lock = last_complete_lock
@@ -1526,6 +1675,165 @@ def get_last_closed_candle(symbol, tf):
         
     except Exception as e:
         log.error("get_last_closed_candle error: %s", e)
+        return None
+
+صلحها وارسلها
+Python
+def check_rsi_stoch(df, lookback=5, max_gap=5):
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+    try:
+        rsi = calc_rsi_tv(df["close"], period=14)
+        rsi_sig = rsi.rolling(14).mean()
+        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+        if float(k.iloc[-1]) <= 20:
+            return False
+        stoch_crosses = []
+        rsi_crosses = []
+        for i in range(-lookback, 0):
+            try:
+                if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
+                    stoch_crosses.append(i)
+                if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
+                    rsi_crosses.append(i)
+            except (ValueError, IndexError):
+                continue
+        for sc in stoch_crosses:
+            for rc in rsi_crosses:
+                if abs(sc - rc) <= max_gap:
+                    return True
+        return False
+    except Exception as e:
+        log.error("❌ خطأ في check_rsi_stoch: %s", e)
+        return False
+
+
+def check_rsi_stoch_short(df, lookback=5, max_gap=5):
+    if len(df) < WARMUP_RSI + lookback:
+        return False
+    try:
+        rsi = calc_rsi_tv(df["close"], period=14)
+        rsi_sig = rsi.rolling(14).mean()
+        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+        if float(k.iloc[-1]) >= 80:
+            return False
+        stoch_crosses = []
+        rsi_crosses = []
+        for i in range(-lookback, 0):
+            try:
+                if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
+                    stoch_crosses.append(i)
+                if float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) <= float(rsi_sig.iloc[i]):
+                    rsi_crosses.append(i)
+            except (ValueError, IndexError):
+                continue
+        for sc in stoch_crosses:
+            for rc in rsi_crosses:
+                if abs(sc - rc) <= max_gap:
+                    return True
+        return False
+    except Exception as e:
+        log.error("❌ خطأ في check_rsi_stoch_short: %s", e)
+        return False
+
+
+def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
+    """عرض العملات الناجحة حتى خطوة معينة"""
+    if signal_type == "buy":
+        lock = last_complete_lock
+        survivors_dict = last_complete_survivors
+    else:
+        lock = last_complete_short_lock
+        survivors_dict = last_complete_short_survivors
+
+    with lock:
+        survivors = survivors_dict.get(step_num, [])
+
+    if not survivors:
+        send_telegram(f"⚠️ لا توجد عملات نجحت حتى الخطوة {step_num}", chat_id)
+        return
+
+    icon = "🟢" if signal_type == "buy" else "🔴"
+    lines = [
+        f"{icon} <b>الناجحون حتى الخطوة {step_num} ({len(survivors)} عملات)</b>",
+        "━" * 30
+    ]
+
+    for c in survivors:
+        lines.append(
+            f"• <b>{c['sym']}</b>\n"
+            f"├─ فريم أساسي: {c['base_frame']}m\n"
+            f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
+            f"└─ فريم تثليث: {c['triple_frame']}m"
+        )
+
+    msg = "\n".join(lines)
+
+    for i in range(0, len(msg), 4000):
+        send_telegram(msg[i:i + 4000], chat_id)
+
+
+def _cmd_status(chat_id):
+    """عرض حالة البوت الحالية"""
+    with ohlcv_cache_lock:
+        cache_size = len(ohlcv_cache)
+    with trades_lock:
+        signals_count = len(trades_history)
+
+    msg = (
+        f"<b>📊 حالة البوت</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔄 الكاش: <b>{cache_size}</b> مفتاح\n"
+        f"📈 الإشارات: <b>{signals_count}</b>\n"
+        f"⚡ التحميل السريع: {'✅ اكتمل' if fast_prefetch_done.is_set() else '⏳ قيد التحميل'}\n"
+        f"📦 التحميل الكامل: {'✅ اكتمل' if prefetch_done.is_set() else '⏳ قيد التحميل'}"
+    )
+    send_telegram(msg, chat_id)
+
+
+def get_last_closed_candle(symbol, tf):
+    """جلب آخر شمعة مُغلقة 100% من Binance"""
+    try:
+        df = get_ohlcv(symbol, tf, limit=2)
+        
+        if df.empty or len(df) < 2:
+            log.warning("⚠️ بيانات ناقصة لـ %s فريم %s", symbol, tf)
+            return None
+        
+        now = datetime.now(timezone.utc)
+        last_candle = df.iloc[-1]
+        last_ts = last_candle["ts"]
+        
+        tf_minutes = {"1m": 1, "5m": 5, "60m": 60}.get(tf, 1)
+        candle_close_time = last_ts + pd.Timedelta(minutes=tf_minutes)
+        
+        # الشمعة الأخيرة مغلقة 100%
+        if now >= candle_close_time:
+            return {
+                "close": float(last_candle["close"]),
+                "open": float(last_candle["open"]),
+                "high": float(last_candle["high"]),
+                "low": float(last_candle["low"]),
+                "timestamp": last_ts,
+                "closed": True
+            }
+        
+        # الشمعة السابقة مغلقة تماماً
+        if len(df) >= 2:
+            prev_candle = df.iloc[-2]
+            return {
+                "close": float(prev_candle["close"]),
+                "open": float(prev_candle["open"]),
+                "high": float(prev_candle["high"]),
+                "low": float(prev_candle["low"]),
+                "timestamp": prev_candle["ts"],
+                "closed": True
+            }
+        
+        return None
+        
+    except Exception as e:
+        log.error("❌ خطأ في get_last_closed_candle: %s | symbol: %s | tf: %s", e, symbol, tf)
         return None
         
 def handle_check5(chat_id, symbol="BTCUSDT"):
