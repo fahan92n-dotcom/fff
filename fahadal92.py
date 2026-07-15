@@ -798,6 +798,15 @@ def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
     raw[breakout_up.fillna(False)] = 1
     raw[breakout_down.fillna(False)] = -1
 
+    # ffill يرث آخر قيمة (مثل nz(trend[1]) في Pine)
+    trend = raw.ffill().fillna(0)
+
+    # القيمة الأخيرة هي التي نحتاجها
+    try:
+        return int(trend.iloc[-1])
+    except Exception:
+        return 0
+
 # ------------------ Donchian check + cache ------------------
 def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
     """
@@ -1126,7 +1135,6 @@ def short_step3(c):
     key = (c["sym"], c["base_api"], c["base_frame"])
     if not check_donchian_trend_ribbon(c["df_base"], "red", cache_key=key):
         return False, "donchian_base_red"
-  
 return True, "passed"
 
 def short_step4(c):
