@@ -947,22 +947,7 @@ def check_rsi_stoch_short(df, lookback=5, max_gap=5):
         for rc in rsi_crosses:
             if abs(sc - rc) <= max_gap:
                 return True
-    return False
 
-def check_rsi_closed_oversold(df, threshold=35):
-    """RSI آخر شمعة مغلقة <= threshold (للشراء)"""
-    if len(df) < WARMUP_RSI:
-        return False
-    rsi = calc_rsi_tv(df["close"], period=14)
-    return bool(rsi.iloc[-1] <= threshold)
-
-def check_rsi_closed_overbought(df, threshold=65):
-    """RSI آخر شمعة مغلقة >= threshold (للبيع)"""
-    if len(df) < WARMUP_RSI:
-        return False
-    rsi = calc_rsi_tv(df["close"], period=14)
-    return bool(rsi.iloc[-1] >= threshold)
-    
 def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_type="buy"):
     key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
     now = datetime.now(timezone.utc)
