@@ -1068,12 +1068,14 @@ def step2(c):
     return True, "passed"
 
 def step3(c):
-    if not check_donchian_trend_ribbon(c["df_base"], "green"):
+    key = (c["sym"], c["base_api"], c["base_frame"])
+    if not check_donchian_trend_ribbon(c["df_base"], "green", cache_key=key):
         return False, "donchian_base"
     return True, "passed"
 
 def step4(c):
-    if not check_donchian_trend_ribbon(c["df_confirm"], "green"):
+    key = (c["sym"], c["base_api"], c["confirm_frame"])
+    if not check_donchian_trend_ribbon(c["df_confirm"], "green", cache_key=key):
         return False, "donchian_confirm"
     return True, "passed"
 
@@ -1092,9 +1094,8 @@ def step6(c):
     return True, "passed"
 
 def step7(c):
-    # عند الشراء: فريم التثليث يجب أن يكون Donchian أحمر (دخول عكسي)
-    if not check_donchian_trend_ribbon(c["df_triple"], "red"):
-        # استخدم reason متناسق مع STEP_NAMES ("donchian_triple")
+    key = (c["sym"], c["triple_api"], c["triple_frame"])
+    if not check_donchian_trend_ribbon(c["df_triple"], "red", cache_key=key):
         return False, "donchian_triple"
     return True, "passed"
 
@@ -1131,12 +1132,14 @@ def short_step2(c):
     return True, "passed"
 
 def short_step3(c):
-    if not check_donchian_trend_ribbon(c["df_base"], "red"):
+    key = (c["sym"], c["base_api"], c["base_frame"])
+    if not check_donchian_trend_ribbon(c["df_base"], "red", cache_key=key):
         return False, "donchian_base_red"
     return True, "passed"
 
 def short_step4(c):
-    if not check_donchian_trend_ribbon(c["df_confirm"], "red"):
+    key = (c["sym"], c["base_api"], c["confirm_frame"])
+    if not check_donchian_trend_ribbon(c["df_confirm"], "red", cache_key=key):
         return False, "donchian_confirm_red"
     return True, "passed"
 
