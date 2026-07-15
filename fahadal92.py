@@ -1158,7 +1158,8 @@ def short_step6(c):
     return True, "passed"
 
 def short_step7(c):
-    if not check_donchian_trend_ribbon(c["df_triple"], "green"):
+    key = (c["sym"], c["triple_api"], c["triple_frame"])
+    if not check_donchian_trend_ribbon(c["df_triple"], "green", cache_key=key):
         return False, "donchian_triple_green"
     return True, "passed"
 
