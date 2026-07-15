@@ -1627,63 +1627,7 @@ def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
-def _cmd_status(chat_id):
-    with ohlcv_cache_lock:
-        cache_size = len(ohlcv_cache)
-    with trades_lock:
-        signals_count = len(trades_history)
 
-    msg = (f"<b>📊 حالة البوت</b>\n"
-           f"🔄 الكاش: {cache_size} مفتاح\n"
-           f"📈 الإشارات: {signals_count}\n"
-           f"⚡ التحميل السريع: {'✅' if fast_prefetch_done.is_set() else '⏳'}\n"
-           f"📦 التحميل الكامل: {'✅' if prefetch_done.is_set() else '⏳'}")
-    send_telegram(msg, chat_id)
-    
-def get_last_closed_candle(symbol, tf):
-    """جلب آخر شمعة مُغلقة 100% من Binance مباشرة"""
-    try:
-        df = get_ohlcv(symbol, tf, limit=2)
-        
-        if df.empty or len(df) < 2:
-            return None
-        
-        now = datetime.now(timezone.utc)
-        last_candle = df.iloc[-1]
-        last_ts = last_candle["ts"]
-        
-        tf_minutes = {"1m": 1, "5m": 5, "60m": 60}.get(tf, 1)
-        candle_close_time = last_ts + pd.Timedelta(minutes=tf_minutes)
-        
-        if now >= candle_close_time:
-            return {
-                "close": float(last_candle["close"]),
-                "open": float(last_candle["open"]),
-                "high": float(last_candle["high"]),
-                "low": float(last_candle["low"]),
-                "timestamp": last_ts,
-                "closed": True
-            }
-        
-        if len(df) >= 2:
-            prev_candle = df.iloc[-2]
-            return {
-                "close": float(prev_candle["close"]),
-                "open": float(prev_candle["open"]),
-                "high": float(prev_candle["high"]),
-                "low": float(prev_candle["low"]),
-                "timestamp": prev_candle["ts"],
-                "closed": True
-            }
-        
-        return None
-        
-    except Exception as e:
-        log.error("get_last_closed_candle error: %s", e)
-        return None
-
-صلحها وارسلها
-Python
 def check_rsi_stoch(df, lookback=5, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
