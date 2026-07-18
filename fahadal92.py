@@ -1867,31 +1867,35 @@ def cascade_watcher():
                     if len(ohlcv_cache) < 300:  # تأكد الكاش فيه بيانات
                         time.sleep(30)
                         continue
-                # ✅ fetch مرة واحدة للاثنين
+                # ✅ fetch مرة واحدة للاثنين — أضفنا 30m لضمان فريش دائمًا
                 with symbols_cache_lock:
                     syms = list(symbols_cache)
-                
+
                 def fetch_fresh(sym):
-                    for tf in ["1m", "60m"]:
+                    for tf in ["1m", "30m", "60m"]:
                         df = get_ohlcv(sym, tf, limit=3)
                         if not df.empty:
                             cache_merge(sym, tf, df)
-                
+
                 with ThreadPoolExecutor(max_workers=30) as executor:
                     executor.map(fetch_fresh, syms)
 
-                # 🔄 سكان كامل (1-8) — كل 3 دورات فقط لتحديث القائمة المحفوظة
-                _quick_check_counter["n"] += 1
-                if _quick_check_counter["n"] >= 3:
-                    _quick_check_counter["n"] = 0
-                    t1 = threading.Thread(target=run_cascade_scan, daemon=True)
-                    t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
-                    t1.start()
-                    t2.start()
-                    t1.join()
-                    t2.join()
-                    with _ribbon_cache_lock:
-                        _ribbon_cache.clear()
+                # 🔄 سكان كامل (1-8) — كل استيقاظة (بدون تخطي دورات)
+                # مع قفل يمنع تشغيل سكان جديد قبل انتهاء القديم
+                if _scan_lock.acquire(blocking=False):
+                    try:
+                        t1 = threading.Thread(target=run_cascade_scan, daemon=True)
+                        t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
+                        t1.start()
+                        t2.start()
+                        t1.join()
+                        t2.join()
+                        with _ribbon_cache_lock:
+                            _ribbon_cache.clear()
+                    finally:
+                        _scan_lock.release()
+                else:
+                    log.warning("⏭️ تخطي السكان — السكان السابق لسه شغال")
 
             time.sleep(next_candle_close())
         except Exception as e:
