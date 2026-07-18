@@ -31,24 +31,24 @@ TOP_SYMBOLS_LIMIT = 100
 PORT = int(os.environ.get("PORT", "8080"))
 ALERT_EXPIRY_HOURS = 4
 
-TF_MAP = {"1m": "1m", "5m": "5m", "60m": "1h"}
+TF_MAP = {"1m": "1m", "30m": "30m", "60m": "1h"}
 
 
 TRIPLING_PAIRS = [
     (9, 27, 3, "1m", "1m"), (12, 36, 4, "1m", "1m"), (15, 45, 5, "1m", "1m"),
     (18, 54, 6, "1m", "1m"), (21, 63, 7, "1m", "1m"), (24, 72, 8, "1m", "1m"),
     (27, 81, 9, "1m", "1m"), (30, 90, 10, "1m", "1m"), (45, 135, 15, "1m", "1m"),
-    (60, 180, 20, "60m", "1m"), (90, 270, 30, "60m", "1m"), (120, 360, 40, "60m", "1m"),
-    (150, 450, 50, "60m", "1m"), (180, 540, 60, "60m", "60m"), (210, 630, 70, "60m", "1m"),
-    (240, 720, 80, "60m", "1m"),
+    (60, 180, 20, "60m", "1m"), (90, 270, 30, "30m", "30m"), (120, 360, 40, "30m", "30m"),
+    (150, 450, 50, "30m", "30m"), (180, 540, 60, "60m", "60m"), (210, 630, 70, "60m", "30m"),
+    (240, 720, 80, "60m", "30m"),
 ]
 
 TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150, 180, 210, 240]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i + 1] for i in range(len(TIMEFRAME_CHAIN) - 1)}
 
-API_FETCH_CANDLES = {"1m": 10_000, "60m": 6_000, "5m": 4_000}
-CACHE_MAX_CANDLES = {"1m": 10_000, "60m": 6_000, "5m": 4_000}
-FAST_FETCH_CANDLES = {"1m": 10_000, "60m": 6_000, "5m": 4_000}
+API_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
+CACHE_MAX_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
+FAST_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
 
 WARMUP_EMA = 200
 WARMUP_MACD = 200
@@ -257,15 +257,15 @@ def diagnose_signal_failures():
     total_candidates = 0
     
     for sym in symbols[:10]:  # فحص أول 10 عملات
-        raw_1m = get_cached(sym, "1m")
-        raw_60m = get_cached(sym, "60m")
-        
-        if raw_1m.empty or raw_60m.empty:
-            continue
+        raw_by_tf = {
+            "1m": get_cached(sym, "1m"),
+            "30m": get_cached(sym, "30m"),
+            "60m": get_cached(sym, "60m"),
+        }
         
         for base_frame, confirm_frame, triple_frame, base_api, triple_api in TRIPLING_PAIRS:
             total_candidates += 1
-            raw_base = raw_1m if base_api == "1m" else raw_60m
+            raw_base = raw_by_tf.get(base_api, pd.DataFrame())
             
             if raw_base.empty:
                 continue
@@ -547,7 +547,7 @@ def get_ohlcv(symbol, tf, limit=500):
 
 def get_ohlcv_full(symbol, tf, target):
     binance_tf = TF_MAP.get(tf, "1m")
-    tf_ms_map = {"1m": 60_000, "5m": 300_000, "60m": 3_600_000}
+    tf_ms_map = {"1m": 60_000, "30m": 1_800_000, "60m": 3_600_000}
     tf_ms = tf_ms_map.get(tf, 60_000)
     bin_max = 1000
     all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
@@ -652,7 +652,7 @@ def cache_updater_60m():
             if syms:
                 _update_batch(syms, "60m", limit=5)
                 
-def cache_updater_5m():
+def cache_updater_30m():
     while True:
         if not fast_prefetch_done.is_set():
             time.sleep(5)
@@ -660,8 +660,8 @@ def cache_updater_5m():
         with symbols_cache_lock:
             syms = list(symbols_cache)
         if syms:
-            _update_batch(syms, "5m", limit=5)
-        time.sleep(280)
+            _update_batch(syms, "30m", limit=5)
+        time.sleep(1780)
 
 # ------------------------------------------
 # Technical Indicators
@@ -1134,12 +1134,15 @@ def run_cascade_scan():
 
     candidates = []
     for sym in symbols:
-        raw_ec_1m = get_cached(sym, "1m")
-        raw_ec_60m = get_cached(sym, "60m")
+        raw_by_tf = {
+            "1m": get_cached(sym, "1m"),
+            "30m": get_cached(sym, "30m"),
+            "60m": get_cached(sym, "60m"),
+        }
 
         for base_frame, confirm_frame, triple_frame, base_api, triple_api in TRIPLING_PAIRS:
-            raw_base = raw_ec_1m if base_api == "1m" else raw_ec_60m
-            raw_triple = raw_ec_1m if triple_api == "1m" else raw_ec_60m
+            raw_base = raw_by_tf.get(base_api, pd.DataFrame())
+            raw_triple = raw_by_tf.get(triple_api, pd.DataFrame())
 
             if raw_base.empty or raw_triple.empty:
                 continue
@@ -1246,12 +1249,15 @@ def run_short_cascade_scan():
 
     short_candidates = []
     for sym in symbols:
-        raw_base_1m = get_cached(sym, "1m")
-        raw_base_60m = get_cached(sym, "60m")
+        raw_by_tf = {
+            "1m": get_cached(sym, "1m"),
+            "30m": get_cached(sym, "30m"),
+            "60m": get_cached(sym, "60m"),
+        }
 
         for base_frame, confirm_frame, triple_frame, base_api, triple_api in TRIPLING_PAIRS:
-            raw_base = raw_base_1m if base_api == "1m" else raw_base_60m
-            raw_triple = raw_base_1m if triple_api == "1m" else raw_base_60m
+            raw_base = raw_by_tf.get(base_api, pd.DataFrame())
+            raw_triple = raw_by_tf.get(triple_api, pd.DataFrame())
 
             if raw_base.empty or raw_triple.empty:
                 continue
@@ -1404,131 +1410,6 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
-Code improvements and error handling fixes
-Copilot Chat
-Code improvements and error handling fixes
-fahadal92.py
-هذا مشروعي هل فيه أخطاء؟ _ @fahan92n-dotcom/fff/files/fahadal92.py
-سأحلل ملف البوت الخاص بك للتحقق من الأخطاء والمشاكل المحتملة.
-
-
-View file fahadal92.py
-نعم، هناك عدة أخطاء وتحذيرات في الكود:
-❌ الأخطاء الحرجة:
-1. سطور معلقة (Orphaned Lines) — سطور 750-754
-Python
-# ❌ WRONG - هذه السطور ملقاة بلا فائدة خارج أي دالة
-        high = df["high"].values
-        low = df["low"].values
-        cached = calc_donchian_trend_vectorized(close, high, low, length=length)
-
-return (cached == 1) if direction == "green" else (cached == -1)
-الحل: احذف هذه السطور تماماً — هي بقايا كود قديم. الكود الصحيح موجود في check_donchian_trend_ribbon().
-
-2. كشف الأخطاء الناقصة في استثناءات check_rsi_stoch — سطور 934-956
-Python
-# ⚠️ المشكلة: لو حدث index error، الدالة ترجع False فقط
-# لكن لو حدث استثناء آخر، الكود قد يفشل بصمت
-for i in range(-lookback, 0):
-    try:
-        # ... code
-    except (ValueError, IndexError):
-        continue  # ⚠️ قد يتجاهل أخطاء أخرى مهمة
-3. الكود تحته غير معروّف في _cmd_show_step_survivors() — سطر 1471
-Python
-# ❌ النص مقطوع
-lines.append(f"• <b>{c['sym']}</b>\n├─ فريم أساسي: {c['base_frame']}m\n├─ فريم تأكيد: {c['confirm_frame']}m\n└─ فريم تثليث: {c['triple_frame']}m"[...]
-#                                                                                                                                                        ^^^
-يجب أن يكون:
-
-Python
-lines.append(
-    f"• <b>{c['sym']}</b>\n"
-    f"├─ فريم أساسي: {c['base_frame']}m\n"
-    f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
-    f"└─ فريم تثليث: {c['triple_frame']}m"
-)
-4. مشكلة Division by Zero محتملة في calc_smi() — سطر 846
-Python
-smi = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
-#                          ^^^^^^^^^^^^^^^^^^^^
-# إذا كان avgdiff قريب من 0، قد تحدث تقسيم غير دقيق
-⚠️ تحذيرات وممارسات سيئة:
-5. Telegram Token مكشوف — سطر 26
-Python
-# ⚠️ SECURITY: Token موجود في الكود بشكل واضح!
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
-الحل: احذف الـ default token:
-
-Python
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN env variable is required")
-6. فلوكات محتملة في resample_ohlcv() — سطور 681-683
-Python
-last_candle_end = resampled["ts"].iloc[-1] + pd.Timedelta(minutes=minutes)
-if now < last_candle_end:
-    resampled = resampled.iloc[:-1]  # قد يحذف كل شيء إذا لم يكن هناك شموات كاملة
-7. بيانات قديمة في الكاش — لا يوجد مكان يفرغ _ribbon_cache
-Python
-# ⚠️ الكاش قد ينمو بدون حد
-_ribbon_cache = {}
-# فقط يُنظّف في run_cascade_scan عند الانتهاء
-# لكن قد يتراكم أثناء الـ runtime
-8. Race condition في check_donchian_trend_ribbon() — سطر 813-817
-Python
-# ⚠️ رغم أن هناك double-checked locking، قد يكون هناك تأخير
-with _ribbon_cache_lock:
-    cached = _ribbon_cache.get(cache_key)
-    if cached is None:
-        _ribbon_cache[cache_key] = result  # خيطان قد يفعلان نفس الشيء
-        cached = result
-✅ الإصلاحات المقترحة:
-Python
-# 1️⃣ احذف السطور 750-754 تماماً
-
-# 2️⃣ أصلح check_rsi_stoch:
-def check_rsi_stoch(df, lookback=5, max_gap=5):
-    if len(df) < WARMUP_RSI + lookback:
-        return False
-    try:
-        rsi = calc_rsi_tv(df["close"], period=14)
-        rsi_sig = rsi.rolling(14).mean()
-        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-        if float(k.iloc[-1]) <= 20:
-            return False
-        stoch_crosses = []
-        rsi_crosses = []
-        for i in range(-lookback, 0):
-            try:
-                if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
-                    stoch_crosses.append(i)
-                if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
-                    rsi_crosses.append(i)
-            except (ValueError, IndexError):
-                continue
-        for sc in stoch_crosses:
-            for rc in rsi_crosses:
-                if abs(sc - rc) <= max_gap:
-                    return True
-        return False
-    except Exception as e:
-        log.error("check_rsi_stoch error: %s", e)
-        return False
-
-# 3️⃣ أصلح line 1471:
-lines.append(
-    f"• <b>{c['sym']}</b>\n"
-    f"├─ فريم أساسي: {c['base_frame']}m\n"
-    f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
-    f"└─ فريم تثليث: {c['triple_frame']}m"
-)
-
-# 4️⃣ أزل Telegram token من الكود
-النقاط الأكثر حرجة: 🔴 السطور 750-754 — احذفها فوراً
-🔴 Telegram Token — انقله للـ environment فقط
-🔴 السطر 1471 — أصلح المحتوى المقطوع
-
 def check_rsi_stoch(df, lookback=5, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
@@ -1620,7 +1501,7 @@ def get_last_closed_candle(symbol, tf):
         last_candle = df.iloc[-1]
         last_ts = last_candle["ts"]
         
-        tf_minutes = {"1m": 1, "5m": 5, "60m": 60}.get(tf, 1)
+        tf_minutes = {"1m": 1, "30m": 30, "60m": 60}.get(tf, 1)
         candle_close_time = last_ts + pd.Timedelta(minutes=tf_minutes)
         
         # الشمعة الأخيرة مغلقة 100%
@@ -1653,9 +1534,9 @@ def get_last_closed_candle(symbol, tf):
         return None
         
 def handle_check5(chat_id, symbol="BTCUSDT"):
-    send_telegram(f"🔄 جاري جلب آخر إغلاق لـ {symbol} — فريم 5 دقايق...", chat_id)
+    send_telegram(f"🔄 جاري جلب آخر إغلاق لـ {symbol} — فريم 1 دقيقة...", chat_id)
     try:
-        candle = get_last_closed_candle(symbol, "5m")
+        candle = get_last_closed_candle(symbol, "1m")
         
         if not candle:
             send_telegram("❌ فشل جلب البيانات من Binance", chat_id)
@@ -1665,11 +1546,11 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         ts = candle["timestamp"]
         
         # جلب البيانات الكاملة للمؤشرات
-        fresh = get_ohlcv_full(symbol, "5m", target=3000)
+        fresh = get_ohlcv_full(symbol, "1m", target=3000)
         if not fresh.empty:
-            cache_merge(symbol, "5m", fresh)
+            cache_merge(symbol, "1m", fresh)
         
-        df_raw = get_cached(symbol, "5m")
+        df_raw = get_cached(symbol, "1m")
         if df_raw.empty:
             send_telegram("❌ فشل جلب البيانات من الكاش", chat_id)
             return
@@ -1677,7 +1558,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         # ✅ احذف الشمعة الأخيرة لو لسه ما اتقفلتش (عشان المؤشرات تتحسب وقت الإغلاق تماماً)
         now_utc = datetime.now(timezone.utc)
         last_candle_ts = df_raw["ts"].iloc[-1]
-        candle_close_time = last_candle_ts + pd.Timedelta(minutes=5)
+        candle_close_time = last_candle_ts + pd.Timedelta(minutes=1)
         if now_utc < candle_close_time:
             df_raw = df_raw.iloc[:-1].reset_index(drop=True)
 
@@ -1715,7 +1596,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
             smi_zone = "🔴 تشبع بيعي" if smi_val <= -40 else ("🟠 تشبع شرائي" if smi_val >= 40 else "🟡 محايد")
             
             send_telegram(
-                f"📊 <b>{symbol} — فريم 5 دقايق</b>\n"
+                f"📊 <b>{symbol} — فريم 1 دقيقة</b>\n"
                 f"🕯️ الشمعة المغلقة: {ts.strftime('%H:%M UTC (%Y-%m-%d)')}\n"
                 f"━━━━━━━━━━━━━━━━\n"
                 f"💰 السعر: <b>${price:.2f}</b>\n"
@@ -1725,7 +1606,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
                 f"⚡ MACD: {macd_trend} | Histogram: {macd_color} <b>{macd_hist_val}</b>\nMACD Line: <b>{macd_line_val}</b>\nSignal: <b>{signal_line_val}</b>\n"
                 f"🔵 SMI: <b>{smi_val}</b> {smi_zone}\nSignal: <b>{smi_sig}</b>\n"
                 f"━━━━━━━━━━━━━━━━\n"
-                f"📦 شموع الـ5m: {len(df_raw)}",
+                f"📦 شموع الـ1m: {len(df_raw)}",
                 chat_id,
             )
 
@@ -1925,7 +1806,7 @@ def _dispatch_command(txt, chat_id):
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>📈 أخرى:</b>\n"
             "📊 <code>/status</code> — حالة البوت\n"
-            "🔎 <code>/check5 [symbol]</code> — فحص عملة فريم 5 دقايق\n"
+            "🔎 <code>/check5 [symbol]</code> — فحص عملة على آخر شمعة مغلقة 1m\n"
             "📋 <code>/help</code> — هذه القائمة",
             chat_id,
         )
@@ -2064,7 +1945,7 @@ def main():
     threading.Thread(target=poll_telegram_commands, daemon=True).start()
     threading.Thread(target=cache_updater_1m, daemon=True).start()
     threading.Thread(target=cache_updater_60m, daemon=True).start()
-    threading.Thread(target=cache_updater_5m, daemon=True).start()
+    threading.Thread(target=cache_updater_30m, daemon=True).start()
     threading.Thread(target=cascade_watcher, daemon=True).start()
     threading.Thread(target=quick_check_watcher, daemon=True).start()
 
