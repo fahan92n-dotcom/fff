@@ -661,7 +661,7 @@ def cache_updater_30m():
             syms = list(symbols_cache)
         if syms:
             _update_batch(syms, "30m", limit=5)
-        time.sleep(1780)
+        time.sleep(30 * 60 - 20)
 
 # ------------------------------------------
 # Technical Indicators
@@ -1806,7 +1806,7 @@ def _dispatch_command(txt, chat_id):
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>📈 أخرى:</b>\n"
             "📊 <code>/status</code> — حالة البوت\n"
-            "🔎 <code>/check5 [symbol]</code> — فحص عملة على آخر شمعة مغلقة 1m\n"
+            "🔎 <code>/check5 [symbol]</code> — فحص 1m (اسم الأمر ثابت للتوافق)\n"
             "📋 <code>/help</code> — هذه القائمة",
             chat_id,
         )
