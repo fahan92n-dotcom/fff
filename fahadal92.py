@@ -925,7 +925,19 @@ def check_confirm_rsi_not_overbought(df, lookback=30, threshold=70):
     rsi = calc_rsi_tv(df["close"], period=14)
     return not bool((rsi.iloc[-lookback:] >= threshold).any())
 
-def check_rsi_stoch_short(df, lookback=5, max_gap=5):
+def check_rsi_closed_oversold(df, threshold=35):
+    if len(df) < WARMUP_RSI:
+        return False
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return bool(rsi.iloc[-1] <= threshold)
+
+def check_rsi_closed_overbought(df, threshold=65):
+    if len(df) < WARMUP_RSI:
+        return False
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return bool(rsi.iloc[-1] >= threshold)
+
+def check_rsi_stoch_short(df, lookback=10, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
@@ -947,14 +959,12 @@ def check_rsi_stoch_short(df, lookback=5, max_gap=5):
         for rc in rsi_crosses:
             if abs(sc - rc) <= max_gap:
                 return True
+    return False
 
 def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_type="buy"):
     key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
     now = datetime.now(timezone.utc)
     with alerted_keys_lock:
-        last = alerted_keys.get(key)
-        if last and now - last < timedelta(hours=ALERT_EXPIRY_HOURS):
-            return
         alerted_keys[key] = now
 
     price = float(df["close"].iloc[-1])
@@ -1404,132 +1414,9 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
-Code improvements and error handling fixes
-Copilot Chat
-Code improvements and error handling fixes
-fahadal92.py
-هذا مشروعي هل فيه أخطاء؟ _ @fahan92n-dotcom/fff/files/fahadal92.py
-سأحلل ملف البوت الخاص بك للتحقق من الأخطاء والمشاكل المحتملة.
 
 
-View file fahadal92.py
-نعم، هناك عدة أخطاء وتحذيرات في الكود:
-❌ الأخطاء الحرجة:
-1. سطور معلقة (Orphaned Lines) — سطور 750-754
-Python
-# ❌ WRONG - هذه السطور ملقاة بلا فائدة خارج أي دالة
-        high = df["high"].values
-        low = df["low"].values
-        cached = calc_donchian_trend_vectorized(close, high, low, length=length)
-
-return (cached == 1) if direction == "green" else (cached == -1)
-الحل: احذف هذه السطور تماماً — هي بقايا كود قديم. الكود الصحيح موجود في check_donchian_trend_ribbon().
-
-2. كشف الأخطاء الناقصة في استثناءات check_rsi_stoch — سطور 934-956
-Python
-# ⚠️ المشكلة: لو حدث index error، الدالة ترجع False فقط
-# لكن لو حدث استثناء آخر، الكود قد يفشل بصمت
-for i in range(-lookback, 0):
-    try:
-        # ... code
-    except (ValueError, IndexError):
-        continue  # ⚠️ قد يتجاهل أخطاء أخرى مهمة
-3. الكود تحته غير معروّف في _cmd_show_step_survivors() — سطر 1471
-Python
-# ❌ النص مقطوع
-lines.append(f"• <b>{c['sym']}</b>\n├─ فريم أساسي: {c['base_frame']}m\n├─ فريم تأكيد: {c['confirm_frame']}m\n└─ فريم تثليث: {c['triple_frame']}m"[...]
-#                                                                                                                                                        ^^^
-يجب أن يكون:
-
-Python
-lines.append(
-    f"• <b>{c['sym']}</b>\n"
-    f"├─ فريم أساسي: {c['base_frame']}m\n"
-    f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
-    f"└─ فريم تثليث: {c['triple_frame']}m"
-)
-4. مشكلة Division by Zero محتملة في calc_smi() — سطر 846
-Python
-smi = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
-#                          ^^^^^^^^^^^^^^^^^^^^
-# إذا كان avgdiff قريب من 0، قد تحدث تقسيم غير دقيق
-⚠️ تحذيرات وممارسات سيئة:
-5. Telegram Token مكشوف — سطر 26
-Python
-# ⚠️ SECURITY: Token موجود في الكود بشكل واضح!
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
-الحل: احذف الـ default token:
-
-Python
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN env variable is required")
-6. فلوكات محتملة في resample_ohlcv() — سطور 681-683
-Python
-last_candle_end = resampled["ts"].iloc[-1] + pd.Timedelta(minutes=minutes)
-if now < last_candle_end:
-    resampled = resampled.iloc[:-1]  # قد يحذف كل شيء إذا لم يكن هناك شموات كاملة
-7. بيانات قديمة في الكاش — لا يوجد مكان يفرغ _ribbon_cache
-Python
-# ⚠️ الكاش قد ينمو بدون حد
-_ribbon_cache = {}
-# فقط يُنظّف في run_cascade_scan عند الانتهاء
-# لكن قد يتراكم أثناء الـ runtime
-8. Race condition في check_donchian_trend_ribbon() — سطر 813-817
-Python
-# ⚠️ رغم أن هناك double-checked locking، قد يكون هناك تأخير
-with _ribbon_cache_lock:
-    cached = _ribbon_cache.get(cache_key)
-    if cached is None:
-        _ribbon_cache[cache_key] = result  # خيطان قد يفعلان نفس الشيء
-        cached = result
-✅ الإصلاحات المقترحة:
-Python
-# 1️⃣ احذف السطور 750-754 تماماً
-
-# 2️⃣ أصلح check_rsi_stoch:
-def check_rsi_stoch(df, lookback=5, max_gap=5):
-    if len(df) < WARMUP_RSI + lookback:
-        return False
-    try:
-        rsi = calc_rsi_tv(df["close"], period=14)
-        rsi_sig = rsi.rolling(14).mean()
-        k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-        if float(k.iloc[-1]) <= 20:
-            return False
-        stoch_crosses = []
-        rsi_crosses = []
-        for i in range(-lookback, 0):
-            try:
-                if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
-                    stoch_crosses.append(i)
-                if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
-                    rsi_crosses.append(i)
-            except (ValueError, IndexError):
-                continue
-        for sc in stoch_crosses:
-            for rc in rsi_crosses:
-                if abs(sc - rc) <= max_gap:
-                    return True
-        return False
-    except Exception as e:
-        log.error("check_rsi_stoch error: %s", e)
-        return False
-
-# 3️⃣ أصلح line 1471:
-lines.append(
-    f"• <b>{c['sym']}</b>\n"
-    f"├─ فريم أساسي: {c['base_frame']}m\n"
-    f"├─ فريم تأكيد: {c['confirm_frame']}m\n"
-    f"└─ فريم تثليث: {c['triple_frame']}m"
-)
-
-# 4️⃣ أزل Telegram token من الكود
-النقاط الأكثر حرجة: 🔴 السطور 750-754 — احذفها فوراً
-🔴 Telegram Token — انقله للـ environment فقط
-🔴 السطر 1471 — أصلح المحتوى المقطوع
-
-def check_rsi_stoch(df, lookback=5, max_gap=5):
+def check_rsi_stoch(df, lookback=10, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
