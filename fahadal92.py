@@ -1709,7 +1709,7 @@ def run_quick_step78_short():
 
 # ⬇️ أضف هنا
 def quick_check_watcher():
-    """يفحص خطوة 7 و8 كل دقيقة على الناجحين من خطوة 6 فقط"""
+"""يفحص خطوة 7 و8 كل 15 ثانية على الناجحين من خطوة 6 فقط"""
     while True:
         time.sleep(15)
         try:
