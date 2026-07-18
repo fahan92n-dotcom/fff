@@ -1857,7 +1857,7 @@ def next_candle_close():
         if remaining < min_wait:
             min_wait = remaining
     return min_wait + 1
-_quick_check_counter = {"n": 0}
+_scan_lock = threading.Lock()
 
 def cascade_watcher():
     while True:
