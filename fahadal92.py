@@ -965,9 +965,6 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_typ
     key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
     now = datetime.now(timezone.utc)
     with alerted_keys_lock:
-        last = alerted_keys.get(key)
-        if last and now - last < timedelta(hours=ALERT_EXPIRY_HOURS):
-            return
         alerted_keys[key] = now
 
     price = float(df["close"].iloc[-1])
