@@ -937,7 +937,7 @@ def check_rsi_closed_overbought(df, threshold=65):
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool(rsi.iloc[-1] >= threshold)
 
-def check_rsi_stoch_short(df, lookback=5, max_gap=5):
+def check_rsi_stoch_short(df, lookback=10, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
@@ -1419,7 +1419,7 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
 
 
 
-def check_rsi_stoch(df, lookback=5, max_gap=5):
+def check_rsi_stoch(df, lookback=10, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
