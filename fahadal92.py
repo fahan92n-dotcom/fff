@@ -929,6 +929,18 @@ def check_confirm_rsi_not_overbought(df, lookback=30, threshold=70):
     rsi = calc_rsi_tv(df["close"], period=14)
     return not bool((rsi.iloc[-lookback:] >= threshold).any())
 
+def check_rsi_closed_oversold(df, threshold=35):
+    if len(df) < WARMUP_RSI:
+        return False
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return bool(rsi.iloc[-1] <= threshold)
+
+def check_rsi_closed_overbought(df, threshold=65):
+    if len(df) < WARMUP_RSI:
+        return False
+    rsi = calc_rsi_tv(df["close"], period=14)
+    return bool(rsi.iloc[-1] >= threshold)
+
 def check_rsi_stoch_short(df, lookback=5, max_gap=5):
     if len(df) < WARMUP_RSI + lookback:
         return False
@@ -951,6 +963,7 @@ def check_rsi_stoch_short(df, lookback=5, max_gap=5):
         for rc in rsi_crosses:
             if abs(sc - rc) <= max_gap:
                 return True
+    return False
 
 def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_type="buy"):
     key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
@@ -1019,9 +1032,9 @@ def step6(c):
     if not check_ema50_below(c["df_base"]):
         return False, "ema50"
     if not check_rsi_closed_oversold(c["df_triple"], threshold=35):
-        return False, "ema50"
+        return False, "rsi_triple_closed"
     if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
-        return False, "ema50"
+        return False, "rsi_confirm_recent"
     return True, "passed"
 
 def step7(c):
@@ -1083,9 +1096,9 @@ def short_step6(c):
     if not check_ema50_above(c["df_base"]):
         return False, "ema50_above"
     if not check_rsi_closed_overbought(c["df_triple"], threshold=65):
-        return False, "ema50_above"
+        return False, "rsi_triple_closed_over"
     if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
-        return False, "ema50_above"
+        return False, "rsi_confirm_recent_over"
     return True, "passed"
 
 def short_step7(c):
