@@ -1864,7 +1864,7 @@ def cascade_watcher():
         try:
             if fast_prefetch_done.is_set():
                 with ohlcv_cache_lock:
-                    if len(ohlcv_cache) < 300:  # تأكد الكاش فيه بيانات
+                    if len(ohlcv_cache) < 200:  # تأكد الكاش فيه بيانات
                         time.sleep(30)
                         continue
                 # ✅ fetch مرة واحدة للاثنين — أضفنا 30m لضمان فريش دائمًا
