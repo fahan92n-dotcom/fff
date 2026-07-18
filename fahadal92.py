@@ -42,7 +42,8 @@ TRIPLING_PAIRS = [
     (150, 450, 50, "30m", "30m"), (180, 540, 60, "60m", "60m"), (210, 630, 70, "60m", "30m"),
     (240, 720, 80, "60m", "30m"),
 ]
-# low frames -> 1m source, medium frames -> 30m source, highest confirmation frames -> 60m source
+# Source routing is mixed by pair to balance history depth and granularity:
+# low tripling frames use 1m, medium ranges use 30m, and long confirmation ranges keep 60m.
 
 TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150, 180, 210, 240]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i + 1] for i in range(len(TIMEFRAME_CHAIN) - 1)}
@@ -51,6 +52,7 @@ API_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}  # 3k keeps MIN_C
 CACHE_MAX_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
 FAST_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
 UPDATE_BUFFER_SECONDS = 20
+UPDATER_30M_INTERVAL_SECONDS = 30 * 60 - UPDATE_BUFFER_SECONDS
 
 WARMUP_EMA = 200
 WARMUP_MACD = 200
@@ -663,7 +665,7 @@ def cache_updater_30m():
             syms = list(symbols_cache)
         if syms:
             _update_batch(syms, "30m", limit=5)
-        time.sleep(30 * 60 - UPDATE_BUFFER_SECONDS)
+        time.sleep(UPDATER_30M_INTERVAL_SECONDS)
 
 # ------------------------------------------
 # Technical Indicators
@@ -1808,7 +1810,7 @@ def _dispatch_command(txt, chat_id):
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>📈 أخرى:</b>\n"
             "📊 <code>/status</code> — حالة البوت\n"
-            "🔎 <code>/check5 [symbol]</code> — فحص 1m (اسم الأمر ثابت للتوافق)\n"
+            "🔎 <code>/check5 [symbol]</code> — فحص 1m بدلاً من 5m (اسم الأمر ثابت للتوافق)\n"
             "📋 <code>/help</code> — هذه القائمة",
             chat_id,
         )
