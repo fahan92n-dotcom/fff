@@ -43,15 +43,15 @@ TRIPLING_PAIRS = [
     (240, 720, 80, "60m", "30m"),
 ]
 # Source routing is mixed by pair to balance history depth and granularity:
-# low tripling frames use 1m, medium ranges use 30m, and long confirmation ranges keep 60m.
+# low triple frames use 1m, medium ranges use 30m, and long confirmation ranges keep 60m.
 
 TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150, 180, 210, 240]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i + 1] for i in range(len(TIMEFRAME_CHAIN) - 1)}
 
-API_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}  # 3k keeps MIN_CANDLES coverage for 30m/60m resamples
+API_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}  # 3k gives deep 30m/60m history while lowering RAM
 CACHE_MAX_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
 FAST_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
-UPDATE_BUFFER_SECONDS = 20
+UPDATE_BUFFER_SECONDS = 20  # small safety buffer before next 30m boundary (API/network jitter)
 UPDATER_30M_INTERVAL_SECONDS = 30 * 60 - UPDATE_BUFFER_SECONDS
 
 WARMUP_EMA = 200
@@ -1538,7 +1538,7 @@ def get_last_closed_candle(symbol, tf):
         return None
         
 def handle_check5(chat_id, symbol="BTCUSDT"):
-    send_telegram(f"🔄 جاري جلب آخر إغلاق لـ {symbol} — فريم 1 دقيقة (تحديث /check5)...", chat_id)
+    send_telegram(f"🔄 جاري جلب آخر إغلاق لـ {symbol} — فريم 1 دقيقة (الأمر /check5 يستخدم 1m الآن)...", chat_id)
     try:
         candle = get_last_closed_candle(symbol, "1m")
         
@@ -1810,7 +1810,7 @@ def _dispatch_command(txt, chat_id):
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>📈 أخرى:</b>\n"
             "📊 <code>/status</code> — حالة البوت\n"
-            "🔎 <code>/check5 [symbol]</code> — فحص 1m بدلاً من 5m (اسم الأمر ثابت للتوافق)\n"
+            "🔎 <code>/check5 [symbol]</code> — فحص 1m بدلاً من 5m (الاسم محفوظ للتوافق مع الإصدارات السابقة)\n"
             "📋 <code>/help</code> — هذه القائمة",
             chat_id,
         )
