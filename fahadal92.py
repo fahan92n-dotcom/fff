@@ -102,6 +102,24 @@ prefetch_done = threading.Event()
 
 _local = threading.local()
 
+# ------------------------------------------
+# آلة الحالة (State Machine) للإعدادات النشطة
+# ------------------------------------------
+
+# بنية بيانات تتبع الإعدادات النشطة لكل (عملة + فريمات + نوع الإشارة)
+# المراحل: "waiting_1_to_6" (يراقب ①-⑥) أو "triple_watch" (①-⑥ اكتملت، يراقب ⑦-⑧)
+# مفتاح: (sym, base_frame, confirm_frame, triple_frame, signal_type)
+# قيمة: قاموس بمعلومات الإعداد الكاملة
+active_setups = {}
+active_setups_lock = threading.Lock()
+
+# إحصاءات الإلغاء: (أ) خروج من التشبع، (ب) ظهور تشبع في فريم أعلى
+active_setups_cancel_stats = {
+    "buy":  {"cancelled_smi_exit": 0, "cancelled_higher_tf": 0, "total_activated": 0},
+    "sell": {"cancelled_smi_exit": 0, "cancelled_higher_tf": 0, "total_activated": 0},
+}
+active_setups_cancel_stats_lock = threading.Lock()
+
 first_scan_notified = False
 first_scan_lock = threading.Lock()
 cache_updated_event = threading.Event()
@@ -987,6 +1005,53 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_typ
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# دوال مساعدة لآلة الحالة (State Machine Helpers)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_dynamic_lookback(step6_time, triple_frame_minutes, min_lb=3, extra=3):
+    """
+    حساب نافذة الفحص الديناميكية لخطوتي ⑦-⑧ منذ اكتمال الخطوات ①-⑥.
+    بدل نافذة ثابتة للخلف (10 شموع دائماً)، نحسب كم شمعة مرّت في df_triple
+    منذ لحظة step6_time (دخول مرحلة المراقبة).
+    """
+    if step6_time is None:
+        return min_lb
+    elapsed_minutes = (datetime.now(timezone.utc) - step6_time).total_seconds() / 60
+    candles_elapsed = int(elapsed_minutes / triple_frame_minutes)
+    return max(min_lb, candles_elapsed + extra)
+
+
+def _has_smi_higher_tf_oversold(sym, base_api, base_frame, get_resampled_fn, raw_base):
+    """
+    شرط الإلغاء (ب) للشراء: فحص ظهور تشبع بيعي في أي فريم أعلى من TIMEFRAME_CHAIN.
+    نفس منطق 'active_skip' في step1 لكن كدالة مستقلة تُستخدم طوال فترة المراقبة.
+    إذا كان هناك تشبع SMI نشط في فريم أعلى → يجب إلغاء الإعداد النشط للفريم الأصغر فوراً.
+    """
+    for tf in TIMEFRAME_CHAIN:
+        if tf <= base_frame:
+            continue
+        df_higher = get_resampled_fn(raw_base, sym, base_api, tf)
+        if not df_higher.empty and check_smi_oversold(df_higher):
+            return True
+    return False
+
+
+def _has_smi_higher_tf_overbought(sym, base_api, base_frame, get_resampled_fn, raw_base):
+    """
+    شرط الإلغاء (ب) للبيع: فحص ظهور تشبع شرائي في أي فريم أعلى من TIMEFRAME_CHAIN.
+    """
+    for tf in TIMEFRAME_CHAIN:
+        if tf <= base_frame:
+            continue
+        df_higher = get_resampled_fn(raw_base, sym, base_api, tf)
+        if not df_higher.empty and check_smi_overbought(df_higher, threshold=40):
+            return True
+    return False
+
+
+
+
 # ------------------------------------------
 # CASCADE PIPELINE - LONG (BUY)
 # ------------------------------------------
@@ -1149,7 +1214,8 @@ def run_cascade_scan():
             resample_cache[key] = resample_ohlcv(raw_df, minutes)
         return resample_cache[key]
 
-    candidates = []
+    # ── بناء المرشحين الأولية (كل العملات × كل الفريمات) ──
+    all_candidates = []
     for sym in symbols:
         raw_by_tf = {
             "1m": get_cached(sym, "1m"),
@@ -1173,7 +1239,7 @@ def run_cascade_scan():
             if len(df_base) < MIN_CANDLES:
                 continue
 
-            candidates.append({
+            all_candidates.append({
                 "sym": sym, "base_api": base_api, "triple_api": triple_api,
                 "base_frame": base_frame, "confirm_frame": confirm_frame, "triple_frame": triple_frame,
                 "df_base": df_base, "df_confirm": df_confirm, "df_triple": df_triple,
@@ -1181,9 +1247,14 @@ def run_cascade_scan():
                 "get_resampled": get_resampled,
             })
 
-    log.info("🔄 Cascade Scan (LONG): %d مرشح قبل الخطوات", len(candidates))
+    log.info("🔄 Cascade Scan (LONG): %d مرشح قبل الخطوات", len(all_candidates))
 
-    for step_num, step_fn in enumerate(steps, start=1):
+    # ── مرحلة الفلترة: تشغيل الخطوات ①-⑥ فقط (بدون ⑦-⑧) ──
+    candidates = list(all_candidates)
+    step1_passed_set = set()   # مفاتيح من نجح في خطوة ①
+    step6_survivors = []       # من نجح في خطوات ①-⑥ كلها
+
+    for step_num, step_fn in enumerate(steps[:6], start=1):
         if not candidates:
             log.info("⏸️ انقطعت المعالجة في الخطوة %d (LONG)", step_num)
             break
@@ -1221,8 +1292,239 @@ def run_cascade_scan():
 
         log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
         step_survivors[step_num] = passed
+
+        # تتبع من نجح في خطوة ① لتحديث آلة الحالة لاحقاً
+        if step_num == 1:
+            step1_passed_set = {
+                (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                for c in passed
+            }
+
         candidates = passed
 
+    step6_survivors = candidates  # من نجح في ①-⑥ كلها
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # تحديث آلة الحالة (State Machine Update)
+    # الخطوة: تسجيل/إلغاء الإعدادات النشطة بناءً على نتائج السكان الحالي
+    # ─────────────────────────────────────────────────────────────────────────
+    now = datetime.now(timezone.utc)
+
+    # بناء خريطة سريعة للبحث عن المرشحين بالمفتاح
+    all_candidates_map = {
+        (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"]): c
+        for c in all_candidates
+    }
+    step6_keys = {
+        (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+        for c in step6_survivors
+    }
+
+    # ── فحص شروط الإلغاء للإعدادات النشطة الموجودة ──
+    # يُفحص في كل دورة سكان لكل الإعدادات النشطة (بغض النظر عن مرحلتها)
+    to_cancel = {}
+    with active_setups_lock:
+        buy_setup_keys = [k for k in active_setups if k[4] == "buy"]
+
+    for setup_key in buy_setup_keys:
+        sym, bf, cf, tf_s, _ = setup_key
+        c = all_candidates_map.get((sym, bf, cf, tf_s))
+        if c is None:
+            continue  # البيانات غير متوفرة لهذه الدورة، تخطي الفحص
+
+        # (أ) فحص خروج SMI من منطقة التشبع → إلغاء الإعداد
+        if not check_smi_oversold(c["df_base"]):
+            to_cancel[setup_key] = "smi_exit"
+        # (ب) فحص ظهور تشبع في فريم أعلى → إلغاء الإعداد
+        elif _has_smi_higher_tf_oversold(sym, c["base_api"], bf, c["get_resampled"], c["raw_base"]):
+            to_cancel[setup_key] = "higher_tf"
+
+    # تطبيق الإلغاءات مع تحديث الإحصاءات
+    with active_setups_lock:
+        for setup_key, reason in to_cancel.items():
+            if setup_key in active_setups:
+                phase = active_setups[setup_key].get("phase", "")
+                del active_setups[setup_key]
+                with active_setups_cancel_stats_lock:
+                    if reason == "smi_exit":
+                        # (أ) الإلغاء بسبب خروج SMI من منطقة التشبع
+                        active_setups_cancel_stats["buy"]["cancelled_smi_exit"] += 1
+                        log.info("🚫 إلغاء LONG (أ-خروج SMI): %s %sm [%s]",
+                                 setup_key[0], setup_key[1], phase)
+                    else:
+                        # (ب) الإلغاء بسبب ظهور تشبع في فريم أعلى
+                        active_setups_cancel_stats["buy"]["cancelled_higher_tf"] += 1
+                        log.info("🚫 إلغاء LONG (ب-فريم أعلى): %s %sm [%s]",
+                                 setup_key[0], setup_key[1], phase)
+
+    # ── تسجيل/ترقية الإعدادات النشطة بناءً على نتائج الخطوات ①-⑥ ──
+    with active_setups_lock:
+        # من نجح في ①-⑥ جميعاً → triple_watch (مرحلة مراقبة التثليث)
+        for c in step6_survivors:
+            setup_key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "buy")
+            if setup_key not in active_setups:
+                # إعداد جديد يدخل مرحلة المراقبة لأول مرة
+                active_setups[setup_key] = {
+                    "phase": "triple_watch",
+                    "smi_start_time": now,
+                    "step6_time": now,
+                    "sym": c["sym"], "base_frame": c["base_frame"],
+                    "confirm_frame": c["confirm_frame"], "triple_frame": c["triple_frame"],
+                    "base_api": c["base_api"], "triple_api": c["triple_api"],
+                }
+                with active_setups_cancel_stats_lock:
+                    active_setups_cancel_stats["buy"]["total_activated"] += 1
+                log.info("🚀 إعداد LONG جديد → مرحلة المراقبة: %s %sm/%sm/%sm",
+                         c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+            elif active_setups[setup_key]["phase"] == "waiting_1_to_6":
+                # ترقية من مرحلة الانتظار إلى مرحلة المراقبة
+                active_setups[setup_key]["phase"] = "triple_watch"
+                active_setups[setup_key]["step6_time"] = now
+                log.info("⬆️ ترقية LONG لمرحلة المراقبة: %s %sm", c["sym"], c["base_frame"])
+            # إذا كان بالفعل في triple_watch → نحافظ على step6_time الأصلية (لا نعيد التعيين)
+
+        # من نجح في ① فقط (لم ينجح في ②-⑥ بعد) → waiting_1_to_6
+        for ckey in step1_passed_set:
+            if ckey in step6_keys:
+                continue  # معالج بالفعل كـ triple_watch
+            setup_key = (ckey[0], ckey[1], ckey[2], ckey[3], "buy")
+            if setup_key not in active_setups:
+                c = all_candidates_map.get(ckey)
+                if c:
+                    # تسجيل إعداد جديد في مرحلة الانتظار
+                    active_setups[setup_key] = {
+                        "phase": "waiting_1_to_6",
+                        "smi_start_time": now,
+                        "step6_time": None,
+                        "sym": c["sym"], "base_frame": c["base_frame"],
+                        "confirm_frame": c["confirm_frame"], "triple_frame": c["triple_frame"],
+                        "base_api": c["base_api"], "triple_api": c["triple_api"],
+                    }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # تشغيل الخطوات ⑦-⑧ على الإعدادات في مرحلة المراقبة فقط
+    # (triple_watch: من اكتملت شروطهم ①-⑥ في هذا السكان أو سكان سابق)
+    # ─────────────────────────────────────────────────────────────────────────
+    with active_setups_lock:
+        triple_watch_list = [
+            (k, dict(v)) for k, v in active_setups.items()
+            if k[4] == "buy" and v["phase"] == "triple_watch"
+        ]
+
+    # إعادة بناء المرشحين لخطوتي ⑦-⑧ بأحدث بيانات
+    step78_candidates = []
+    for setup_key, setup in triple_watch_list:
+        sym = setup["sym"]
+        triple_api = setup["triple_api"]
+        raw_triple = get_cached(sym, triple_api)
+        if raw_triple.empty:
+            continue
+        df_triple = get_resampled(raw_triple, sym, triple_api, setup["triple_frame"])
+        if df_triple.empty or len(df_triple) < MIN_CANDLES:
+            continue
+
+        # df_base لإرسال الإشارة (نأخذ من all_candidates_map إذا متوفر)
+        ckey = (sym, setup["base_frame"], setup["confirm_frame"], setup["triple_frame"])
+        df_base_for_signal = all_candidates_map[ckey]["df_base"] if ckey in all_candidates_map else pd.DataFrame()
+
+        # حساب lookback الديناميكي بناءً على وقت دخول مرحلة المراقبة
+        lookback = _get_dynamic_lookback(setup["step6_time"], setup["triple_frame"])
+
+        step78_candidates.append({
+            "setup_key": setup_key,
+            "setup": setup,
+            "sym": sym,
+            "base_frame": setup["base_frame"],
+            "confirm_frame": setup["confirm_frame"],
+            "triple_frame": setup["triple_frame"],
+            "base_api": setup["base_api"],
+            "triple_api": triple_api,
+            "df_triple": df_triple,
+            "df_base_for_signal": df_base_for_signal,
+            "lookback": lookback,
+        })
+
+    def run_step78_buy(tc):
+        try:
+            # ⑦ Donchian فريم التثليث (أحمر = تصحيح مؤقت داخل ترند صاعد)
+            key = (tc["sym"], tc["triple_api"], tc["triple_frame"])
+            if not check_donchian_trend_ribbon(tc["df_triple"], "red", cache_key=key):
+                return tc, False, 7, "donchian_triple"
+            # ⑧ RSI/Stochastic مع lookback ديناميكي منذ step6_time (وليس ثابتاً)
+            if not check_rsi_touched_oversold(tc["df_triple"], lookback=tc["lookback"]):
+                return tc, False, 8, "rsi_stoch"
+            if not check_rsi_stoch(tc["df_triple"], lookback=tc["lookback"]):
+                return tc, False, 8, "rsi_stoch"
+            return tc, True, 8, "passed"
+        except Exception as e:
+            log.error("❌ خطأ في step78 state machine (LONG): %s", e)
+            return tc, False, 0, str(e)
+
+    step78_results = []
+    if step78_candidates:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            step78_results = list(executor.map(run_step78_buy, step78_candidates))
+
+    # تحديث إحصاءات الخطوتين ⑦ و⑧ للتوافق مع لوحة التشخيص
+    now = datetime.now(timezone.utc)
+    step7_passed_list = []
+    step8_passed_list = []
+    fired_keys = []
+
+    with cascade_results_lock, cascade_stats_lock:
+        cascade_stats[7]["total"] = len(step78_results)
+        cascade_stats[8]["total"] = 0
+        for tc, ok, last_step, reason in step78_results:
+            ckey = (tc["sym"], tc["base_frame"], tc["confirm_frame"], tc["triple_frame"])
+            if last_step >= 7:
+                passed7 = (last_step >= 7 and (ok or last_step == 8))
+                cascade_results[7][ckey] = {"passed": passed7, "reason": reason if last_step == 7 else "passed", "time": now}
+                if passed7:
+                    cascade_stats[7]["passed"] += 1
+                    step7_passed_list.append(tc)
+                    cascade_stats[8]["total"] += 1
+            if ok and last_step == 8:
+                cascade_results[8][ckey] = {"passed": True, "reason": "passed", "time": now}
+                cascade_stats[8]["passed"] += 1
+                step8_passed_list.append(tc)
+                fired_keys.append(tc["setup_key"])
+            elif last_step == 8 and not ok:
+                cascade_results[8][ckey] = {"passed": False, "reason": reason, "time": now}
+
+    step_survivors[7] = [{"sym": tc["sym"], "base_frame": tc["base_frame"],
+                          "confirm_frame": tc["confirm_frame"], "triple_frame": tc["triple_frame"],
+                          "base_api": tc["base_api"], "triple_api": tc["triple_api"],
+                          "df_base": tc["df_base_for_signal"], "df_triple": tc["df_triple"],
+                          "df_confirm": pd.DataFrame(), "raw_base": pd.DataFrame(),
+                          "get_resampled": get_resampled} for tc in step7_passed_list]
+    step_survivors[8] = [{"sym": tc["sym"], "base_frame": tc["base_frame"],
+                          "confirm_frame": tc["confirm_frame"], "triple_frame": tc["triple_frame"],
+                          "base_api": tc["base_api"], "triple_api": tc["triple_api"],
+                          "df_base": tc["df_base_for_signal"], "df_triple": tc["df_triple"],
+                          "df_confirm": pd.DataFrame(), "raw_base": pd.DataFrame(),
+                          "get_resampled": get_resampled} for tc in step8_passed_list]
+
+    log.info("📍 خطوة 7 (LONG state): %d/%d | خطوة 8: %d/%d",
+             len(step7_passed_list), len(step78_results),
+             len(step8_passed_list), len(step7_passed_list))
+
+    # إطلاق الإشارات + حذف الإعدادات المُطلقة من active_setups
+    with active_setups_lock:
+        for setup_key in fired_keys:
+            active_setups.pop(setup_key, None)
+
+    fired_count = 0
+    for tc, ok, last_step, reason in step78_results:
+        if ok and last_step == 8:
+            fired_count += 1
+            df_sig = tc["df_base_for_signal"] if not tc["df_base_for_signal"].empty else tc["df_triple"]
+            _fire_signal(tc["sym"], tc["base_frame"], tc["confirm_frame"],
+                         tc["triple_frame"], df_sig, signal_type="buy")
+
+    if fired_count:
+        log.info("🎉 إشارات نهائية (LONG state machine): %d", fired_count)
+
+    # ── حفظ بيانات التشخيص للأوامر الحالية ──
     if cascade_stats.get(1, {}).get("total", 0) > 0:
         with last_complete_lock, cascade_stats_lock, cascade_results_lock:
             for i in range(1, 9):
@@ -1233,15 +1535,9 @@ def run_cascade_scan():
         with last_complete_scan_time_lock:
             last_complete_scan_time["buy"] = datetime.now(timezone.utc)
 
-    log.info("🎉 إشارات نهائية (LONG): %d", len(candidates))
-    for c in candidates:
-        _fire_signal(c["sym"], c["base_frame"], c["confirm_frame"],
-                     c["triple_frame"], c["df_base"], signal_type="buy")
-
     resample_cache.clear()
     with _ribbon_cache_lock:
         _ribbon_cache.clear()
-                    
 
 def run_short_cascade_scan():
     with symbols_cache_lock:
@@ -1264,7 +1560,8 @@ def run_short_cascade_scan():
             resample_cache[key] = resample_ohlcv(raw_df, minutes)
         return resample_cache[key]
 
-    short_candidates = []
+    # ── بناء المرشحين الأولية (كل العملات × كل الفريمات) ──
+    all_short_candidates = []
     for sym in symbols:
         raw_by_tf = {
             "1m": get_cached(sym, "1m"),
@@ -1288,8 +1585,7 @@ def run_short_cascade_scan():
             if len(df_base) < MIN_CANDLES:
                 continue
 
-
-            short_candidates.append({
+            all_short_candidates.append({
                 "sym": sym, "base_api": base_api, "triple_api": triple_api,
                 "base_frame": base_frame, "confirm_frame": confirm_frame, "triple_frame": triple_frame,
                 "df_base": df_base, "df_confirm": df_confirm, "df_triple": df_triple,
@@ -1297,11 +1593,14 @@ def run_short_cascade_scan():
                 "get_resampled": get_resampled,
             })
 
-    log.info("🔄 Cascade Scan (SHORT): %d مرشح", len(short_candidates))
+    log.info("🔄 Cascade Scan (SHORT): %d مرشح", len(all_short_candidates))
 
-    candidates = short_candidates
+    # ── مرحلة الفلترة: تشغيل الخطوات ①-⑥ فقط (بدون ⑦-⑧) ──
+    candidates = list(all_short_candidates)
+    short_step1_passed_set = set()
+    short_step6_survivors = []
 
-    for step_num, step_fn in enumerate(short_steps, start=1):
+    for step_num, step_fn in enumerate(short_steps[:6], start=1):
         if not candidates:
             log.info("⏸️  انقطعت المعالجة في الخطوة %d (SHORT)", step_num)
             break
@@ -1350,10 +1649,227 @@ def run_short_cascade_scan():
         else:
             log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
 
+        # تتبع من نجح في خطوة ① للبيع
+        if step_num == 1:
+            short_step1_passed_set = {
+                (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+                for c in passed
+            }
+
         short_step_survivors[step_num] = passed
         candidates = passed
 
-    # خارج حلقة for
+    short_step6_survivors = candidates
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # تحديث آلة الحالة للبيع (State Machine Update - SHORT)
+    # ─────────────────────────────────────────────────────────────────────────
+    now = datetime.now(timezone.utc)
+
+    all_short_candidates_map = {
+        (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"]): c
+        for c in all_short_candidates
+    }
+    short_step6_keys = {
+        (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+        for c in short_step6_survivors
+    }
+
+    # ── فحص شروط الإلغاء للإعدادات النشطة (SHORT) ──
+    to_cancel_short = {}
+    with active_setups_lock:
+        sell_setup_keys = [k for k in active_setups if k[4] == "sell"]
+
+    for setup_key in sell_setup_keys:
+        sym, bf, cf, tf_s, _ = setup_key
+        c = all_short_candidates_map.get((sym, bf, cf, tf_s))
+        if c is None:
+            continue
+
+        # (أ) فحص خروج SMI من منطقة التشبع الشرائي → إلغاء الإعداد
+        if not check_smi_overbought(c["df_base"], threshold=40):
+            to_cancel_short[setup_key] = "smi_exit"
+        # (ب) فحص ظهور تشبع شرائي في فريم أعلى → إلغاء الإعداد
+        elif _has_smi_higher_tf_overbought(sym, c["base_api"], bf, c["get_resampled"], c["raw_base"]):
+            to_cancel_short[setup_key] = "higher_tf"
+
+    with active_setups_lock:
+        for setup_key, reason in to_cancel_short.items():
+            if setup_key in active_setups:
+                phase = active_setups[setup_key].get("phase", "")
+                del active_setups[setup_key]
+                with active_setups_cancel_stats_lock:
+                    if reason == "smi_exit":
+                        # (أ) الإلغاء بسبب خروج SMI من منطقة التشبع الشرائي
+                        active_setups_cancel_stats["sell"]["cancelled_smi_exit"] += 1
+                        log.info("🚫 إلغاء SHORT (أ-خروج SMI): %s %sm [%s]",
+                                 setup_key[0], setup_key[1], phase)
+                    else:
+                        # (ب) الإلغاء بسبب ظهور تشبع شرائي في فريم أعلى
+                        active_setups_cancel_stats["sell"]["cancelled_higher_tf"] += 1
+                        log.info("🚫 إلغاء SHORT (ب-فريم أعلى): %s %sm [%s]",
+                                 setup_key[0], setup_key[1], phase)
+
+    # ── تسجيل/ترقية الإعدادات النشطة للبيع ──
+    with active_setups_lock:
+        for c in short_step6_survivors:
+            setup_key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
+            if setup_key not in active_setups:
+                active_setups[setup_key] = {
+                    "phase": "triple_watch",
+                    "smi_start_time": now,
+                    "step6_time": now,
+                    "sym": c["sym"], "base_frame": c["base_frame"],
+                    "confirm_frame": c["confirm_frame"], "triple_frame": c["triple_frame"],
+                    "base_api": c["base_api"], "triple_api": c["triple_api"],
+                }
+                with active_setups_cancel_stats_lock:
+                    active_setups_cancel_stats["sell"]["total_activated"] += 1
+                log.info("🚀 إعداد SHORT جديد → مرحلة المراقبة: %s %sm/%sm/%sm",
+                         c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"])
+            elif active_setups[setup_key]["phase"] == "waiting_1_to_6":
+                active_setups[setup_key]["phase"] = "triple_watch"
+                active_setups[setup_key]["step6_time"] = now
+                log.info("⬆️ ترقية SHORT لمرحلة المراقبة: %s %sm", c["sym"], c["base_frame"])
+
+        for ckey in short_step1_passed_set:
+            if ckey in short_step6_keys:
+                continue
+            setup_key = (ckey[0], ckey[1], ckey[2], ckey[3], "sell")
+            if setup_key not in active_setups:
+                c = all_short_candidates_map.get(ckey)
+                if c:
+                    active_setups[setup_key] = {
+                        "phase": "waiting_1_to_6",
+                        "smi_start_time": now,
+                        "step6_time": None,
+                        "sym": c["sym"], "base_frame": c["base_frame"],
+                        "confirm_frame": c["confirm_frame"], "triple_frame": c["triple_frame"],
+                        "base_api": c["base_api"], "triple_api": c["triple_api"],
+                    }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # تشغيل الخطوات ⑦-⑧ للبيع على الإعدادات في مرحلة المراقبة فقط
+    # ─────────────────────────────────────────────────────────────────────────
+    with active_setups_lock:
+        short_triple_watch_list = [
+            (k, dict(v)) for k, v in active_setups.items()
+            if k[4] == "sell" and v["phase"] == "triple_watch"
+        ]
+
+    short_step78_candidates = []
+    for setup_key, setup in short_triple_watch_list:
+        sym = setup["sym"]
+        triple_api = setup["triple_api"]
+        raw_triple = get_cached(sym, triple_api)
+        if raw_triple.empty:
+            continue
+        df_triple = get_resampled(raw_triple, sym, triple_api, setup["triple_frame"])
+        if df_triple.empty or len(df_triple) < MIN_CANDLES:
+            continue
+
+        ckey = (sym, setup["base_frame"], setup["confirm_frame"], setup["triple_frame"])
+        df_base_for_signal = all_short_candidates_map[ckey]["df_base"] if ckey in all_short_candidates_map else pd.DataFrame()
+
+        lookback = _get_dynamic_lookback(setup["step6_time"], setup["triple_frame"])
+
+        short_step78_candidates.append({
+            "setup_key": setup_key,
+            "setup": setup,
+            "sym": sym,
+            "base_frame": setup["base_frame"],
+            "confirm_frame": setup["confirm_frame"],
+            "triple_frame": setup["triple_frame"],
+            "base_api": setup["base_api"],
+            "triple_api": triple_api,
+            "df_triple": df_triple,
+            "df_base_for_signal": df_base_for_signal,
+            "lookback": lookback,
+        })
+
+    def run_step78_sell(tc):
+        try:
+            # ⑦ Donchian فريم التثليث (أخضر = ارتداد صاعد مؤقت داخل ترند هابط)
+            key = (tc["sym"], tc["triple_api"], tc["triple_frame"])
+            if not check_donchian_trend_ribbon(tc["df_triple"], "green", cache_key=key):
+                return tc, False, 7, "donchian_triple_green"
+            # ⑧ RSI/Stochastic للبيع مع lookback ديناميكي
+            if not check_rsi_overbought_short(tc["df_triple"], lookback=tc["lookback"]):
+                return tc, False, 8, "rsi_stoch_short"
+            if not check_rsi_stoch_short(tc["df_triple"], lookback=tc["lookback"]):
+                return tc, False, 8, "rsi_stoch_short"
+            return tc, True, 8, "passed"
+        except Exception as e:
+            log.error("❌ خطأ في step78 state machine (SHORT): %s", e)
+            return tc, False, 0, str(e)
+
+    short_step78_results = []
+    if short_step78_candidates:
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            short_step78_results = list(executor.map(run_step78_sell, short_step78_candidates))
+
+    # تحديث إحصاءات الخطوتين ⑦ و⑧ للبيع
+    now = datetime.now(timezone.utc)
+    short_step7_passed_list = []
+    short_step8_passed_list = []
+    short_fired_keys = []
+
+    with short_cascade_results_lock, short_cascade_stats_lock:
+        short_cascade_stats[7] = {"total": len(short_step78_results), "passed": 0}
+        short_cascade_stats[8] = {"total": 0, "passed": 0}
+        short_cascade_results[7] = {}
+        short_cascade_results[8] = {}
+        for tc, ok, last_step, reason in short_step78_results:
+            ckey = (tc["sym"], tc["base_frame"], tc["confirm_frame"], tc["triple_frame"])
+            if last_step >= 7:
+                passed7 = (last_step >= 7 and (ok or last_step == 8))
+                short_cascade_results[7][ckey] = {"passed": passed7, "reason": reason if last_step == 7 else "passed", "time": now}
+                if passed7:
+                    short_cascade_stats[7]["passed"] += 1
+                    short_step7_passed_list.append(tc)
+                    short_cascade_stats[8]["total"] += 1
+            if ok and last_step == 8:
+                short_cascade_results[8][ckey] = {"passed": True, "reason": "passed", "time": now}
+                short_cascade_stats[8]["passed"] += 1
+                short_step8_passed_list.append(tc)
+                short_fired_keys.append(tc["setup_key"])
+            elif last_step == 8 and not ok:
+                short_cascade_results[8][ckey] = {"passed": False, "reason": reason, "time": now}
+
+    short_step_survivors[7] = [{"sym": tc["sym"], "base_frame": tc["base_frame"],
+                                "confirm_frame": tc["confirm_frame"], "triple_frame": tc["triple_frame"],
+                                "base_api": tc["base_api"], "triple_api": tc["triple_api"],
+                                "df_base": tc["df_base_for_signal"], "df_triple": tc["df_triple"],
+                                "df_confirm": pd.DataFrame(), "raw_base": pd.DataFrame(),
+                                "get_resampled": get_resampled} for tc in short_step7_passed_list]
+    short_step_survivors[8] = [{"sym": tc["sym"], "base_frame": tc["base_frame"],
+                                "confirm_frame": tc["confirm_frame"], "triple_frame": tc["triple_frame"],
+                                "base_api": tc["base_api"], "triple_api": tc["triple_api"],
+                                "df_base": tc["df_base_for_signal"], "df_triple": tc["df_triple"],
+                                "df_confirm": pd.DataFrame(), "raw_base": pd.DataFrame(),
+                                "get_resampled": get_resampled} for tc in short_step8_passed_list]
+
+    log.info("📍 خطوة 7 (SHORT state): %d/%d | خطوة 8: %d/%d",
+             len(short_step7_passed_list), len(short_step78_results),
+             len(short_step8_passed_list), len(short_step7_passed_list))
+
+    # إطلاق الإشارات + حذف الإعدادات المُطلقة
+    with active_setups_lock:
+        for setup_key in short_fired_keys:
+            active_setups.pop(setup_key, None)
+
+    short_fired_count = 0
+    for tc, ok, last_step, reason in short_step78_results:
+        if ok and last_step == 8:
+            short_fired_count += 1
+            df_sig = tc["df_base_for_signal"] if not tc["df_base_for_signal"].empty else tc["df_triple"]
+            _fire_signal(tc["sym"], tc["base_frame"], tc["confirm_frame"],
+                         tc["triple_frame"], df_sig, signal_type="sell")
+
+    if short_fired_count:
+        log.info("🎉 إشارات نهائية (SHORT state machine): %d", short_fired_count)
+
+    # ── حفظ بيانات التشخيص ──
     if short_cascade_stats.get(1, {}).get("total", 0) > 0:
         with last_complete_short_lock, short_cascade_stats_lock, short_cascade_results_lock:
             for i in range(1, 9):
@@ -1363,17 +1879,6 @@ def run_short_cascade_scan():
             last_complete_short_survivors.update(short_step_survivors)
         with last_complete_scan_time_lock:
             last_complete_scan_time["sell"] = datetime.now(timezone.utc)
-
-    log.info("🎉 إشارات نهائية (SHORT): %d", len(candidates))
-    for c in candidates:
-        _fire_signal(
-            c["sym"],
-            c["base_frame"],
-            c["confirm_frame"],
-            c["triple_frame"],
-            c["df_base"],
-            signal_type="sell"
-        )
 
     resample_cache.clear()
     with _ribbon_cache_lock:
@@ -1632,23 +2137,24 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         send_telegram(f"❌ خطأ: {e}", chat_id)
         
 # ------------------------------------------
-# QUICK CHECK - Steps 7-8 only on saved Step6 survivors
+# QUICK CHECK - Steps 7-8 للإعدادات في مرحلة المراقبة (state machine)
+# يُشغَّل كل 15 ثانية للتقاط التقاطعات بسرعة بدون انتظار إغلاق شمعة
 # ------------------------------------------
 
 def run_quick_step78(signal_type="buy"):
-    if signal_type == "buy":
-        surv_lock = last_complete_lock
-        survivors_dict = last_complete_survivors
-        step7_fn, step8_fn = step7, step8
-    else:
-        surv_lock = last_complete_short_lock
-        survivors_dict = last_complete_short_survivors
-        step7_fn, step8_fn = short_step7, short_step8
+    """
+    فحص سريع لخطوتي ⑦-⑧ على الإعدادات النشطة في مرحلة triple_watch.
+    يُستخدم lookback ديناميكي مرتبط بوقت دخول مرحلة المراقبة (step6_time).
+    يشمل أيضاً فحص شرطي الإلغاء (أ) و(ب) لكل إعداد نشط.
+    """
+    # جمع الإعدادات في مرحلة المراقبة
+    with active_setups_lock:
+        watch_setups = [
+            (k, dict(v)) for k, v in active_setups.items()
+            if k[4] == signal_type and v["phase"] == "triple_watch"
+        ]
 
-    with surv_lock:
-        candidates = list(survivors_dict.get(6, []))
-
-    if not candidates:
+    if not watch_setups:
         return
 
     resample_cache = {}
@@ -1659,70 +2165,151 @@ def run_quick_step78(signal_type="buy"):
             resample_cache[key] = resample_ohlcv(raw_df, minutes)
         return resample_cache[key]
 
-    # إعادة بناء df_triple بأحدث بيانات (raw_base قد يكون تحدّث)
-    refreshed = []
-    for c in candidates:
-        sym = c["sym"]
-        triple_api = c["triple_api"]
-        raw_triple = get_cached(sym, triple_api)
-        if raw_triple.empty:
-            continue
-        df_triple = get_resampled(raw_triple, sym, triple_api, c["triple_frame"])
-        if df_triple.empty or len(df_triple) < MIN_CANDLES:
-            continue
-        c2 = dict(c)
-        c2["df_triple"] = df_triple
-        c2["get_resampled"] = get_resampled
-        refreshed.append(c2)
+    # إعادة بناء البيانات وفحص الإلغاء ثم تشغيل ⑦-⑧
+    to_cancel = {}
+    valid_candidates = []
 
-    if not refreshed:
+    for setup_key, setup in watch_setups:
+        sym = setup["sym"]
+        base_api = setup["base_api"]
+        triple_api = setup["triple_api"]
+        base_frame = setup["base_frame"]
+
+        # جلب أحدث بيانات
+        raw_base = get_cached(sym, base_api)
+        raw_triple = get_cached(sym, triple_api)
+        if raw_base.empty or raw_triple.empty:
+            continue
+
+        df_base = get_resampled(raw_base, sym, base_api, base_frame)
+        df_triple = get_resampled(raw_triple, sym, triple_api, setup["triple_frame"])
+        if df_base.empty or df_triple.empty or len(df_triple) < MIN_CANDLES:
+            continue
+
+        # ── فحص شروط الإلغاء (كل 15 ثانية، وليس فقط في السكان الرئيسي) ──
+        cancel_reason = None
+        if signal_type == "buy":
+            # (أ) فحص خروج SMI من التشبع البيعي
+            if not check_smi_oversold(df_base):
+                cancel_reason = "smi_exit"
+            # (ب) فحص ظهور تشبع في فريم أعلى
+            elif _has_smi_higher_tf_oversold(sym, base_api, base_frame, get_resampled, raw_base):
+                cancel_reason = "higher_tf"
+        else:
+            # (أ) فحص خروج SMI من التشبع الشرائي
+            if not check_smi_overbought(df_base, threshold=40):
+                cancel_reason = "smi_exit"
+            # (ب) فحص ظهور تشبع شرائي في فريم أعلى
+            elif _has_smi_higher_tf_overbought(sym, base_api, base_frame, get_resampled, raw_base):
+                cancel_reason = "higher_tf"
+
+        if cancel_reason:
+            to_cancel[setup_key] = cancel_reason
+            continue
+
+        lookback = _get_dynamic_lookback(setup["step6_time"], setup["triple_frame"])
+        valid_candidates.append({
+            "setup_key": setup_key,
+            "sym": sym,
+            "base_frame": setup["base_frame"],
+            "confirm_frame": setup["confirm_frame"],
+            "triple_frame": setup["triple_frame"],
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "df_base": df_base,
+            "df_triple": df_triple,
+            "lookback": lookback,
+        })
+
+    # تطبيق الإلغاءات
+    if to_cancel:
+        with active_setups_lock:
+            for setup_key, reason in to_cancel.items():
+                if setup_key in active_setups:
+                    phase = active_setups[setup_key].get("phase", "")
+                    del active_setups[setup_key]
+                    with active_setups_cancel_stats_lock:
+                        if reason == "smi_exit":
+                            active_setups_cancel_stats[signal_type]["cancelled_smi_exit"] += 1
+                            log.info("🚫 Quick إلغاء %s (أ-SMI): %s %sm [%s]",
+                                     signal_type.upper(), setup_key[0], setup_key[1], phase)
+                        else:
+                            active_setups_cancel_stats[signal_type]["cancelled_higher_tf"] += 1
+                            log.info("🚫 Quick إلغاء %s (ب-فريم أعلى): %s %sm [%s]",
+                                     signal_type.upper(), setup_key[0], setup_key[1], phase)
+
+    if not valid_candidates:
         return
 
     def run_one(c):
         try:
-            ok7, _ = step7_fn(c)
-            if not ok7:
+            # ⑦ Donchian فريم التثليث
+            ribbon_key = (c["sym"], c["triple_api"], c["triple_frame"])
+            direction = "red" if signal_type == "buy" else "green"
+            if not check_donchian_trend_ribbon(c["df_triple"], direction, cache_key=ribbon_key):
                 return c, False
-            ok8, _ = step8_fn(c)
-            return c, ok8
+            # ⑧ RSI/Stochastic مع lookback ديناميكي
+            if signal_type == "buy":
+                if not check_rsi_touched_oversold(c["df_triple"], lookback=c["lookback"]):
+                    return c, False
+                if not check_rsi_stoch(c["df_triple"], lookback=c["lookback"]):
+                    return c, False
+            else:
+                if not check_rsi_overbought_short(c["df_triple"], lookback=c["lookback"]):
+                    return c, False
+                if not check_rsi_stoch_short(c["df_triple"], lookback=c["lookback"]):
+                    return c, False
+            return c, True
         except Exception as e:
             log.error("❌ خطأ في quick_step78 (%s): %s", signal_type, e)
             return c, False
 
     with ThreadPoolExecutor(max_workers=20) as executor:
-        results = list(executor.map(run_one, refreshed))
+        results = list(executor.map(run_one, valid_candidates))
 
     fired = 0
+    fired_keys = []
     for c, ok in results:
         if ok:
             fired += 1
+            fired_keys.append(c["setup_key"])
             _fire_signal(c["sym"], c["base_frame"], c["confirm_frame"],
                          c["triple_frame"], c["df_base"], signal_type=signal_type)
 
-    if fired:
-        log.info("⚡ Quick check (%s): %d إشارة من %d مرشح محفوظ", signal_type, fired, len(refreshed))
+    # حذف الإعدادات التي أطلقت إشارة
+    if fired_keys:
+        with active_setups_lock:
+            for sk in fired_keys:
+                active_setups.pop(sk, None)
+        log.info("⚡ Quick check (%s): %d إشارة من %d إعداد نشط",
+                 signal_type, fired, len(valid_candidates))
 
 
 def run_quick_step78_short():
     run_quick_step78(signal_type="sell")
 
 
-# ⬇️ أضف هنا
 def quick_check_watcher():
-    """يفحص خطوة 7 و8 كل 15 ثانية على الناجحين من خطوة 6 فقط"""
+    """يفحص خطوة 7 و8 كل 15 ثانية على الإعدادات النشطة في مرحلة triple_watch"""
     while True:
         time.sleep(15)
         try:
             if fast_prefetch_done.is_set():
-                # جلب بيانات فريم التثليث فقط للعملات المعنية
-                with last_complete_lock:
-                    buy_survivors = list(last_complete_survivors.get(6, []))
-                with last_complete_short_lock:
-                    sell_survivors = list(last_complete_short_survivors.get(6, []))
+                # جلب أحدث بيانات التثليث للإعدادات النشطة
+                with active_setups_lock:
+                    watch_keys = [
+                        (v["sym"], v["triple_api"])
+                        for v in active_setups.values()
+                        if v["phase"] == "triple_watch"
+                    ]
+                    # أيضاً نجلب df_base للتحقق من شروط الإلغاء
+                    base_keys = [
+                        (v["sym"], v["base_api"])
+                        for v in active_setups.values()
+                        if v["phase"] == "triple_watch"
+                    ]
 
-                triple_syms = set()
-                for c in buy_survivors + sell_survivors:
-                    triple_syms.add((c["sym"], c["triple_api"]))
+                triple_syms = set(watch_keys) | set(base_keys)
 
                 def fetch_triple(item):
                     sym, tf = item
@@ -1739,6 +2326,60 @@ def quick_check_watcher():
 
         except Exception as e:
             log.error("❌ خطأ في quick_check_watcher: %s", e)
+
+def _cmd_active_setups(chat_id):
+    """عرض حالة الإعدادات النشطة الحالية في آلة الحالة (State Machine)"""
+    now = datetime.now(timezone.utc)
+    with active_setups_lock:
+        all_setups = list(active_setups.items())
+
+    with active_setups_cancel_stats_lock:
+        stats_buy = dict(active_setups_cancel_stats["buy"])
+        stats_sell = dict(active_setups_cancel_stats["sell"])
+
+    buy_waiting = [(k, v) for k, v in all_setups if k[4] == "buy" and v["phase"] == "waiting_1_to_6"]
+    buy_watching = [(k, v) for k, v in all_setups if k[4] == "buy" and v["phase"] == "triple_watch"]
+    sell_waiting = [(k, v) for k, v in all_setups if k[4] == "sell" and v["phase"] == "waiting_1_to_6"]
+    sell_watching = [(k, v) for k, v in all_setups if k[4] == "sell" and v["phase"] == "triple_watch"]
+
+    lines = [
+        "🧠 <b>آلة الحالة — الإعدادات النشطة</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        f"<b>🟢 شراء (LONG):</b>",
+        f"  ⏳ انتظار ①-⑥: <b>{len(buy_waiting)}</b> إعداد",
+        f"  👁 مراقبة ⑦-⑧: <b>{len(buy_watching)}</b> إعداد",
+        f"  إجمالي مُفعَّل: {stats_buy['total_activated']}",
+        f"  إلغاء (أ) خروج SMI: {stats_buy['cancelled_smi_exit']}",
+        f"  إلغاء (ب) فريم أعلى: {stats_buy['cancelled_higher_tf']}",
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        f"<b>🔴 بيع (SHORT):</b>",
+        f"  ⏳ انتظار ①-⑥: <b>{len(sell_waiting)}</b> إعداد",
+        f"  👁 مراقبة ⑦-⑧: <b>{len(sell_watching)}</b> إعداد",
+        f"  إجمالي مُفعَّل: {stats_sell['total_activated']}",
+        f"  إلغاء (أ) خروج SMI: {stats_sell['cancelled_smi_exit']}",
+        f"  إلغاء (ب) فريم أعلى: {stats_sell['cancelled_higher_tf']}",
+    ]
+
+    if buy_watching:
+        lines.append("\n━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("🟢 <b>تفاصيل LONG في مرحلة المراقبة:</b>")
+        for k, v in buy_watching[:10]:
+            age = int((now - v["step6_time"]).total_seconds() / 60) if v["step6_time"] else 0
+            lb = _get_dynamic_lookback(v["step6_time"], k[3])
+            lines.append(f"• <b>{k[0]}</b> {k[1]}m/{k[2]}m/{k[3]}m | منذ {age}د | lookback={lb}")
+
+    if sell_watching:
+        lines.append("\n━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("🔴 <b>تفاصيل SHORT في مرحلة المراقبة:</b>")
+        for k, v in sell_watching[:10]:
+            age = int((now - v["step6_time"]).total_seconds() / 60) if v["step6_time"] else 0
+            lb = _get_dynamic_lookback(v["step6_time"], k[3])
+            lines.append(f"• <b>{k[0]}</b> {k[1]}m/{k[2]}m/{k[3]}m | منذ {age}د | lookback={lb}")
+
+    msg = "\n".join(lines)
+    for i in range(0, len(msg), 4000):
+        send_telegram(msg[i:i + 4000], chat_id)
+
 
 def _dispatch_command(txt, chat_id):
     """معالج أوامر Telegram"""
@@ -1759,6 +2400,9 @@ def _dispatch_command(txt, chat_id):
         _cmd_cascade_diag(chat_id, "buy")
     elif txt in ("/cascade_diag_sell", "/سبب_بيع", "/diag_sell"):
         _cmd_cascade_diag(chat_id, "sell")
+    # آلة الحالة
+    elif txt == "/active_setups":
+        _cmd_active_setups(chat_id)
     # الناجحون من كل خطوة (شراء)
     elif txt == "/survivors6":
         _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
@@ -1806,6 +2450,7 @@ def _dispatch_command(txt, chat_id):
             "<b>🔍 التحليل:</b>\n"
             "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
             "🔴 <code>/cascade_diag_sell</code> أو <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
+            "🧠 <code>/active_setups</code> — حالة الإعدادات النشطة (آلة الحالة)\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>🎯 الناجحون (شراء):</b>\n"
             "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"
