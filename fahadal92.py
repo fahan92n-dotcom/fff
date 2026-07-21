@@ -98,6 +98,8 @@ trades_history = deque(maxlen=2000)
 trades_lock = threading.Lock()
 symbols_cache = []
 symbols_cache_lock = threading.Lock()
+invalid_symbols_cache = []
+invalid_symbols_lock = threading.Lock()
 ohlcv_cache = {}
 ohlcv_cache_lock = threading.Lock()
 
