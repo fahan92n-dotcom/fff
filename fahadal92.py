@@ -1865,6 +1865,13 @@ def _dispatch_command(txt, chat_id):
             else:
                 send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 8", chat_id)
     # الحالة والفلاتر
+        elif txt == "/invalid_symbols":
+        with invalid_symbols_lock:
+            bad = list(invalid_symbols_cache)
+        if bad:
+            send_telegram("❌ <b>عملات غير متاحة حالياً:</b>\n" + "\n".join(f"• <code>{s}</code>" for s in bad), chat_id)
+        else:
+            send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
     elif txt == "/status":
         _cmd_status(chat_id)
     elif txt == "/hard_filters":
