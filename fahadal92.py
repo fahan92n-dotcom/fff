@@ -2246,8 +2246,7 @@ def main():
     threading.Thread(target=cache_updater_30m_futures, daemon=True).start()
     threading.Thread(target=cascade_watcher, daemon=True).start()
     threading.Thread(target=quick_check_watcher, daemon=True).start()
-    threading.Thread(target=cascade_watcher, daemon=True).start()
-    threading.Thread(target=quick_check_watcher, daemon=True).start()
+
 
     send_telegram("🚀 <b>البوت انطلق — استراتيجية مزدوجة (شراء + بيع)</b>")
 
