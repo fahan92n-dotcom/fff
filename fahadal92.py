@@ -2240,12 +2240,10 @@ def main():
     delete_webhook()
 
     threading.Thread(target=update_symbols_loop_futures, daemon=True).start()
-    threading.Thread(target=poll_telegram_commands, daemon=True).start()
-    threading.Thread(target=cache_updater_1m_futures, daemon=True).start()
-    threading.Thread(target=cache_updater_60m_futures, daemon=True).start()
-    threading.Thread(target=cache_updater_30m_futures, daemon=True).start()
-    threading.Thread(target=cascade_watcher, daemon=True).start()
-    threading.Thread(target=quick_check_watcher, daemon=True).start()
+threading.Thread(target=poll_telegram_commands, daemon=True).start()
+threading.Thread(target=cache_updater_1m_futures, daemon=True).start()
+threading.Thread(target=cache_updater_60m_futures, daemon=True).start()
+threading.Thread(target=cache_updater_30m_futures, daemon=True).start()
 
     send_telegram("🚀 <b>البوت انطلق — استراتيجية مزدوجة (شراء + بيع)</b>")
 
