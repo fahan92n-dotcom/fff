@@ -1439,7 +1439,8 @@ def run_short_cascade_scan():
         else:
             log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
 
-                short_step_survivors[step_num] = passed
+                
+        short_step_survivors[step_num] = passed
 
         if step_num == 7:
             now_ts = datetime.now(timezone.utc)
