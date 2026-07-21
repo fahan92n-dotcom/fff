@@ -1439,7 +1439,16 @@ def run_short_cascade_scan():
         else:
             log.warning("⚠️  لا توجد نتائج في الخطوة %d", step_num)
 
-        short_step_survivors[step_num] = passed
+                short_step_survivors[step_num] = passed
+
+        if step_num == 7:
+            now_ts = datetime.now(timezone.utc)
+            with step7_ready_since_lock:
+                for c in passed:
+                    key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
+                    if key not in step7_ready_since:
+                        step7_ready_since[key] = now_ts
+
         candidates = passed
 
     # خارج حلقة for
