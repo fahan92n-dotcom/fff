@@ -990,6 +990,33 @@ def check_rsi_closed_oversold(df, threshold=35):
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool(rsi.iloc[-1] <= threshold)
 
+def check_rsi_touched_since(df, since_ts, threshold=35, direction="long"):
+    """
+    يفحص هل RSI لمس المستوى المطلوب منذ وقت since_ts وحتى الآن
+    direction:
+      - "long"  => لمس <= threshold
+      - "short" => لمس >= threshold
+    """
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
+        return False
+
+    window = df[df["ts"] >= since_ts].copy()
+    if window.empty:
+        return False
+
+    rsi = calc_rsi_tv(window["close"], period=14)
+
+    if direction == "long":
+        return bool((rsi <= threshold).any())
+    else:
+        return bool((rsi >= threshold).any())
+
+
+def get_ready_since(symbol, base_frame, confirm_frame, triple_frame, signal_type="buy"):
+    key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
+    with step7_ready_since_lock:
+        return step7_ready_since.get(key)
+
 def check_rsi_closed_overbought(df, threshold=65):
     if len(df) < WARMUP_RSI:
         return False
