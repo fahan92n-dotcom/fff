@@ -1176,12 +1176,10 @@ def short_step5(c):
 def short_step6(c):
     if not check_ema50_above(c["df_base"]):
         return False, "ema50_above"
-    if not check_rsi_closed_overbought(c["df_triple"], threshold=65):
-        return False, "rsi_triple_closed_over"
     if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
         return False, "rsi_confirm_recent_over"
     return True, "passed"
-
+    
 def short_step7(c):
     key = (c["sym"], c["triple_api"], c["triple_frame"])
     if not check_donchian_trend_ribbon(c["df_triple"], "green", cache_key=key):
