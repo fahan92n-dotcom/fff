@@ -2077,11 +2077,11 @@ def main():
 
     delete_webhook()
 
-    threading.Thread(target=update_symbols_loop, daemon=True).start()
+    threading.Thread(target=update_symbols_loop_futures, daemon=True).start()
     threading.Thread(target=poll_telegram_commands, daemon=True).start()
-    threading.Thread(target=cache_updater_1m, daemon=True).start()
-    threading.Thread(target=cache_updater_60m, daemon=True).start()
-    threading.Thread(target=cache_updater_30m, daemon=True).start()
+    threading.Thread(target=cache_updater_1m_futures, daemon=True).start()
+    threading.Thread(target=cache_updater_60m_futures, daemon=True).start()
+    threading.Thread(target=cache_updater_30m_futures, daemon=True).start()
     threading.Thread(target=cascade_watcher, daemon=True).start()
     threading.Thread(target=quick_check_watcher, daemon=True).start()
 
@@ -2101,7 +2101,7 @@ def main():
         except Exception as exc:
             log.error("❌ خطأ في main loop: %s\n%s", exc, traceback.format_exc())
             time.sleep(10)
-
+            
 if __name__ == "__main__":
     main()
     
