@@ -1844,7 +1844,7 @@ def _dispatch_command(txt, chat_id):
             bad = list(invalid_symbols_cache)
         if bad:
             send_telegram("❌ <b>عملات غير متاحة حالياً:</b>\n" + "\n".join(f"• <code>{s}</code>" for s in bad), chat_id)
-    else:
+        else:
             send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
     elif txt == "/status":
         _cmd_status(chat_id)
