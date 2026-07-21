@@ -1882,6 +1882,7 @@ def _dispatch_command(txt, chat_id):
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>📈 أخرى:</b>\n"
             "📊 <code>/status</code> — حالة البوت\n"
+            "📛 <code>/invalid_symbols</code> — عرض العملات غير المتاحة حالياً\n"
             "🔎 <code>/check5 [symbol]</code> — فحص 1m بدلاً من 5m (الاسم محفوظ للتوافق مع الإصدارات السابقة)\n"
             "📋 <code>/help</code> — هذه القائمة",
             chat_id,
