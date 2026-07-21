@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003968771145")
 
-BINANCE_BASE = "https://api.binance.com"
+BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 TOP_SYMBOLS_LIMIT = 100
 PORT = int(os.environ.get("PORT", "8080"))
 ALERT_EXPIRY_HOURS = 4
@@ -55,7 +55,169 @@ CUSTOM_SYMBOLS = [
     "MRVLUSDT", "CRCLUSDT", "SNDKUSDT", "MUUSDT", "SKHYNIXUSDT", "KORUUSDT",
     "RENDERUSDT", "SHIBUSDT", "POLUSDT", "ATOMUSDT", "NOTUSDT", "POPCATUSDT",
     "ALCHUSDT", "MNTUSDT", "TOWNSUSDT", "BLESSUSDT",
+
 ]
+
+def validate_binance_futures_symbols(symbols):
+    valid = []
+    invalid = []
+    try:
+        resp = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/exchangeInfo", timeout=20).json()
+        exchange_symbols = {s["symbol"] for s in resp.get("symbols", []) if s.get("status") == "TRADING"}
+        for sym in symbols:
+            if sym in exchange_symbols:
+                valid.append(sym)
+            else:
+                invalid.append(sym)
+    except requests.RequestException as e:
+        log.error("❌ فشل التحقق من Futures: %s", e)
+        return list(symbols), []
+    except Exception as e:
+        log.error("❌ خطأ في validate_binance_futures_symbols: %s", e)
+        return list(symbols), []
+    return valid, invalid
+
+def get_ohlcv_futures(symbol, tf, limit=500):
+    binance_tf = TF_MAP.get(tf, "1m")
+    try:
+        resp = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/klines",
+            params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)}, timeout=10).json()
+        if isinstance(resp, list) and resp:
+            return _parse_binance_klines(resp)
+    except requests.RequestException as exc:
+        log.error("get_ohlcv_futures %s %s: %s", symbol, tf, exc)
+    return pd.DataFrame()
+
+def get_ohlcv_full_futures(symbol, tf, target):
+    binance_tf = TF_MAP.get(tf, "1m")
+    tf_ms_map = {"1m": 60_000, "30m": 1_800_000, "60m": 3_600_000}
+    tf_ms = tf_ms_map.get(tf, 60_000)
+    bin_max = 1000
+    all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
+
+    while fetched < target:
+        batch = min(bin_max, target - fetched)
+        start_ms = end_ms - batch * tf_ms
+        try:
+            resp = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/klines",
+                params={"symbol": symbol, "interval": binance_tf, "startTime": start_ms, "endTime": end_ms, "limit": batch}, timeout=15).json()
+            if not isinstance(resp, list) or not resp:
+                retries += 1
+                if retries >= 3:
+                    break
+                time.sleep(2 ** retries)
+                continue
+            df = _parse_binance_klines(resp)
+            all_dfs.insert(0, df)
+            fetched += len(df)
+            retries = 0
+            first_ts_ms = int(df["ts"].iloc[0].timestamp() * 1000)
+            end_ms = first_ts_ms - 1
+            if len(df) < batch:
+                break
+        except requests.RequestException:
+            retries += 1
+            if retries >= 3:
+                break
+            time.sleep(2)
+
+    return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
+            if all_dfs else pd.DataFrame())
+
+def prefetch_all_futures(symbols):
+    def fetch_sym_fast(sym):
+        for tf, n in FAST_FETCH_CANDLES.items():
+            df = get_ohlcv_full_futures(sym, tf, target=n)
+            cache_merge(sym, tf, df)
+
+    def fetch_sym_full(sym):
+        for tf, n in API_FETCH_CANDLES.items():
+            df = get_ohlcv_full_futures(sym, tf, target=n)
+            cache_merge(sym, tf, df)
+
+    log.info("🚀 بدء التحميل السريع Futures...")
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        executor.map(fetch_sym_fast, symbols)
+    fast_prefetch_done.set()
+    send_telegram("⚡ <b>التحميل السريع Futures اكتمل — البوت يعمل الآن!</b>")
+
+    log.info("📦 بدء التحميل الكامل Futures...")
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        executor.map(fetch_sym_full, symbols)
+    prefetch_done.set()
+    send_telegram("✅ <b>التحميل الكامل Futures اكتمل وجاهز للعمل!</b>")
+
+def _update_batch_futures(symbols, tf, limit):
+    def fetch_one(sym):
+        df = get_ohlcv_futures(sym, tf, limit=limit)
+        if not df.empty:
+            cache_merge(sym, tf, df)
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        executor.map(fetch_one, symbols)
+
+def cache_updater_1m_futures():
+    while True:
+        if not fast_prefetch_done.is_set():
+            time.sleep(5)
+            continue
+        with symbols_cache_lock:
+            syms = list(symbols_cache)
+        if syms:
+            _update_batch_futures(syms, "1m", limit=5)
+            cache_updated_event.set()
+        time.sleep(55)
+
+def cache_updater_30m_futures():
+    while True:
+        if not fast_prefetch_done.is_set():
+            time.sleep(5)
+            continue
+        with symbols_cache_lock:
+            syms = list(symbols_cache)
+        if syms:
+            _update_batch_futures(syms, "30m", limit=5)
+        time.sleep(UPDATER_30M_INTERVAL_SECONDS)
+
+def cache_updater_60m_futures():
+    while True:
+        time.sleep(3600)
+        if fast_prefetch_done.is_set():
+            with symbols_cache_lock:
+                syms = list(symbols_cache)
+            if syms:
+                _update_batch_futures(syms, "60m", limit=5)
+
+def update_symbols_loop_futures():
+    first_run = True
+    while True:
+        try:
+            valid_symbols, invalid_symbols = validate_binance_futures_symbols(CUSTOM_SYMBOLS)
+
+            with symbols_cache_lock:
+                symbols_cache[:] = valid_symbols
+            with invalid_symbols_lock:
+                invalid_symbols_cache[:] = invalid_symbols
+
+            log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
+            if invalid_symbols:
+                log.warning("❌ العملات غير الصالحة: %s", invalid_symbols)
+
+            cleanup_old_symbols_cache()
+
+            if invalid_symbols:
+                msg_lines = ["⚠️ <b>عملات غير متاحة على Binance Futures ولن يتم مسحها:</b>", "━━━━━━━━━━━━━━━━━━━━"]
+                msg_lines += [f"❌ <code>{s}</code>" for s in invalid_symbols]
+                send_telegram("\n".join(msg_lines))
+            elif first_run:
+                send_telegram(f"✅ جميع العملات ({len(valid_symbols)}) صالحة ومتاحة على Futures.")
+
+            if not fast_prefetch_done.is_set():
+                threading.Thread(target=prefetch_all_futures, args=(list(symbols_cache),), daemon=True).start()
+
+            first_run = False
+        except Exception as exc:
+            log.error("update_symbols_loop_futures: %s", exc)
+        time.sleep(3600)
 
 TF_MAP = {"1m": "1m", "30m": "30m", "60m": "1h"}
 
