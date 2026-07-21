@@ -575,6 +575,33 @@ def get_ohlcv(symbol, tf, limit=500):
         log.error("get_ohlcv %s %s: %s", symbol, tf, exc)
     return pd.DataFrame()
 
+def validate_binance_symbols(symbols):
+    """التحقق من الرموز المتاحة والفعّالة على Binance Spot"""
+    valid = []
+    invalid = []
+
+    try:
+        resp = get_session().get(f"{BINANCE_BASE}/api/v3/exchangeInfo", timeout=20).json()
+        exchange_symbols = {
+            s["symbol"] for s in resp.get("symbols", [])
+            if s.get("status") == "TRADING"
+        }
+
+        for sym in symbols:
+            if sym in exchange_symbols:
+                valid.append(sym)
+            else:
+                invalid.append(sym)
+
+    except requests.RequestException as e:
+        log.error("❌ فشل التحقق من العملات (شبكة): %s", e)
+        return list(symbols), []
+    except Exception as e:
+        log.error("❌ فشل التحقق من العملات: %s", e)
+        return list(symbols), []
+
+    return valid, invalid
+    
 def get_ohlcv_full(symbol, tf, target):
     binance_tf = TF_MAP.get(tf, "1m")
     tf_ms_map = {"1m": 60_000, "30m": 1_800_000, "60m": 3_600_000}
