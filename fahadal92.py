@@ -1115,7 +1115,7 @@ def step6(c):
         return False, "ema50"
     if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
         return False, "rsi_confirm_recent"
-    return True, "passed""
+        return True, "passed"
 
 def step7(c):
     key = (c["sym"], c["triple_api"], c["triple_frame"])
