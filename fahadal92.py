@@ -1187,8 +1187,9 @@ def short_step7(c):
     return True, "passed"
 
 def short_step8(c):
-    if not check_rsi_overbought_short(c["df_triple"]):
-        return False, "rsi_stoch_short"
+    since_ts = get_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
+    if not check_rsi_touched_since(c["df_triple"], since_ts, threshold=65, direction="short"):
+        return False, "rsi_touch_since_ready_short"
     if not check_rsi_stoch_short(c["df_triple"]):
         return False, "rsi_stoch_short"
     return True, "passed"
