@@ -1299,12 +1299,19 @@ def run_cascade_scan():
                     cascade_stats[step_num]["passed"] += 1
                     passed.append(c)
     
+                log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
         step_survivors[step_num] = passed
-        log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
-        step_survivors[step_num] = passed
-        step_survivors[step_num] = passed
-        candidates = passed
 
+        if step_num == 7:
+            now_ts = datetime.now(timezone.utc)
+            with step7_ready_since_lock:
+                for c in passed:
+                    key = (c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "buy")
+                    if key not in step7_ready_since:
+                        step7_ready_since[key] = now_ts
+
+        candidates = passed
+        
     if cascade_stats.get(1, {}).get("total", 0) > 0:
         with last_complete_lock, cascade_stats_lock, cascade_results_lock:
             for i in range(1, 9):
