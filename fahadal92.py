@@ -1998,19 +1998,17 @@ def update_symbols_loop():
 
             with symbols_cache_lock:
                 symbols_cache[:] = valid_symbols
+            with invalid_symbols_lock:
+                invalid_symbols_cache[:] = invalid_symbols
 
             log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
             if invalid_symbols:
-                log.warning("❌ العملات غير الصالحة/غير المدرجة: %s", invalid_symbols)
+                log.warning("❌ العملات غير الصالحة: %s", invalid_symbols)
 
             cleanup_old_symbols_cache()
 
-            # أرسل تقرير Telegram فقط عند وجود عملات غير صالحة
             if invalid_symbols:
-                msg_lines = [
-                    "⚠️ <b>عملات غير متاحة على Binance Spot ولن يتم مسحها:</b>",
-                    "━━━━━━━━━━━━━━━━━━━━",
-                ]
+                msg_lines = ["⚠️ <b>عملات غير متاحة على Binance Spot ولن يتم مسحها:</b>", "━━━━━━━━━━━━━━━━━━━━"]
                 msg_lines += [f"❌ <code>{s}</code>" for s in invalid_symbols]
                 send_telegram("\n".join(msg_lines))
             elif first_run:
