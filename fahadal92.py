@@ -1966,14 +1966,35 @@ def cleanup_old_symbols_cache():
         log.info("🧹 حذف %d مفتاح كاش قديم", len(stale_keys))
 
 def update_symbols_loop():
+    first_run = True
     while True:
         try:
+            valid_symbols, invalid_symbols = validate_binance_symbols(CUSTOM_SYMBOLS)
+
             with symbols_cache_lock:
-                symbols_cache[:] = CUSTOM_SYMBOLS
-            log.info("✅ عملات ثابتة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
+                symbols_cache[:] = valid_symbols
+
+            log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
+            if invalid_symbols:
+                log.warning("❌ العملات غير الصالحة/غير المدرجة: %s", invalid_symbols)
+
             cleanup_old_symbols_cache()
+
+            # أرسل تقرير Telegram فقط عند وجود عملات غير صالحة
+            if invalid_symbols:
+                msg_lines = [
+                    "⚠️ <b>عملات غير متاحة على Binance Spot ولن يتم مسحها:</b>",
+                    "━━━━━━━━━━━━━━━━━━━━",
+                ]
+                msg_lines += [f"❌ <code>{s}</code>" for s in invalid_symbols]
+                send_telegram("\n".join(msg_lines))
+            elif first_run:
+                send_telegram(f"✅ جميع العملات ({len(valid_symbols)}) صالحة ومتاحة على Binance.")
+
             if not fast_prefetch_done.is_set():
                 threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()
+
+            first_run = False
         except Exception as exc:
             log.error("update_symbols_loop: %s", exc)
         time.sleep(3600)
