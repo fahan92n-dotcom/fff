@@ -1017,7 +1017,7 @@ def _get_dynamic_lookback(step6_time, triple_frame_minutes, min_lb=3, extra=3):
     """
     if step6_time is None:
         return min_lb
-    elapsed_minutes = (datetime.now(timezone.utc) - step6_time).total_seconds() / 60
+    elapsed_minutes = max(0.0, (datetime.now(timezone.utc) - step6_time).total_seconds() / 60)
     candles_elapsed = int(elapsed_minutes / triple_frame_minutes)
     return max(min_lb, candles_elapsed + extra)
 
@@ -1479,8 +1479,10 @@ def run_cascade_scan():
         for tc, ok, last_step, reason in step78_results:
             ckey = (tc["sym"], tc["base_frame"], tc["confirm_frame"], tc["triple_frame"])
             if last_step >= 7:
-                passed7 = (last_step >= 7 and (ok or last_step == 8))
-                cascade_results[7][ckey] = {"passed": passed7, "reason": reason if last_step == 7 else "passed", "time": now}
+                # step 7 تحقق فقط إذا وصلنا لخطوة 8 (last_step==8)
+                # لأن run_step78_buy يُرجع last_step=7 فقط عند فشل step7
+                passed7 = (last_step == 8)
+                cascade_results[7][ckey] = {"passed": passed7, "reason": "passed" if passed7 else reason, "time": now}
                 if passed7:
                     cascade_stats[7]["passed"] += 1
                     step7_passed_list.append(tc)
@@ -1825,8 +1827,9 @@ def run_short_cascade_scan():
         for tc, ok, last_step, reason in short_step78_results:
             ckey = (tc["sym"], tc["base_frame"], tc["confirm_frame"], tc["triple_frame"])
             if last_step >= 7:
-                passed7 = (last_step >= 7 and (ok or last_step == 8))
-                short_cascade_results[7][ckey] = {"passed": passed7, "reason": reason if last_step == 7 else "passed", "time": now}
+                # step 7 تحقق فقط إذا وصلنا لخطوة 8 (نفس منطق LONG أعلاه)
+                passed7 = (last_step == 8)
+                short_cascade_results[7][ckey] = {"passed": passed7, "reason": "passed" if passed7 else reason, "time": now}
                 if passed7:
                     short_cascade_stats[7]["passed"] += 1
                     short_step7_passed_list.append(tc)
