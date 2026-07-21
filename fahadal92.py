@@ -640,6 +640,29 @@ def get_ohlcv_full(symbol, tf, target):
     return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
             if all_dfs else pd.DataFrame())
 
+def validate_binance_symbols(symbols):
+    """التحقق من الرموز المتاحة والفعّالة على Binance Spot"""
+    valid = []
+    invalid = []
+    try:
+        resp = get_session().get(f"{BINANCE_BASE}/api/v3/exchangeInfo", timeout=20).json()
+        exchange_symbols = {
+            s["symbol"] for s in resp.get("symbols", [])
+            if s.get("status") == "TRADING"
+        }
+        for sym in symbols:
+            if sym in exchange_symbols:
+                valid.append(sym)
+            else:
+                invalid.append(sym)
+    except requests.RequestException as e:
+        log.error("❌ فشل التحقق من العملات (شبكة): %s", e)
+        return list(symbols), []
+    except Exception as e:
+        log.error("❌ فشل التحقق من العملات: %s", e)
+        return list(symbols), []
+    return valid, invalid
+
 def cache_merge(symbol, tf, new_df):
     if new_df.empty:
         return
