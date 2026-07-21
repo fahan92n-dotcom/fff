@@ -1425,10 +1425,12 @@ def run_cascade_scan():
 
         # df_base لإرسال الإشارة (نأخذ من all_candidates_map إذا متوفر)
         ckey = (sym, setup["base_frame"], setup["confirm_frame"], setup["triple_frame"])
-        df_base_for_signal = all_candidates_map[ckey]["df_base"] if ckey in all_candidates_map else pd.DataFrame()
+        c_match = all_candidates_map.get(ckey)
+        df_base_for_signal = c_match["df_base"] if c_match else pd.DataFrame()
 
         # حساب lookback الديناميكي بناءً على وقت دخول مرحلة المراقبة
-        lookback = _get_dynamic_lookback(setup["step6_time"], setup["triple_frame"])
+        # triple_frame هو عدد صحيح (دقائق) من TRIPLING_PAIRS
+        lookback = _get_dynamic_lookback(setup["step6_time"], int(setup["triple_frame"]))
 
         step78_candidates.append({
             "setup_key": setup_key,
@@ -1769,9 +1771,10 @@ def run_short_cascade_scan():
             continue
 
         ckey = (sym, setup["base_frame"], setup["confirm_frame"], setup["triple_frame"])
-        df_base_for_signal = all_short_candidates_map[ckey]["df_base"] if ckey in all_short_candidates_map else pd.DataFrame()
+        c_match_short = all_short_candidates_map.get(ckey)
+        df_base_for_signal = c_match_short["df_base"] if c_match_short else pd.DataFrame()
 
-        lookback = _get_dynamic_lookback(setup["step6_time"], setup["triple_frame"])
+        lookback = _get_dynamic_lookback(setup["step6_time"], int(setup["triple_frame"]))
 
         short_step78_candidates.append({
             "setup_key": setup_key,
@@ -2207,7 +2210,7 @@ def run_quick_step78(signal_type="buy"):
             to_cancel[setup_key] = cancel_reason
             continue
 
-        lookback = _get_dynamic_lookback(setup["step6_time"], setup["triple_frame"])
+        lookback = _get_dynamic_lookback(setup["step6_time"], int(setup["triple_frame"]))
         valid_candidates.append({
             "setup_key": setup_key,
             "sym": sym,
@@ -2365,7 +2368,7 @@ def _cmd_active_setups(chat_id):
         lines.append("🟢 <b>تفاصيل LONG في مرحلة المراقبة:</b>")
         for k, v in buy_watching[:10]:
             age = int((now - v["step6_time"]).total_seconds() / 60) if v["step6_time"] else 0
-            lb = _get_dynamic_lookback(v["step6_time"], k[3])
+            lb = _get_dynamic_lookback(v["step6_time"], int(k[3]))
             lines.append(f"• <b>{k[0]}</b> {k[1]}m/{k[2]}m/{k[3]}m | منذ {age}د | lookback={lb}")
 
     if sell_watching:
@@ -2373,7 +2376,7 @@ def _cmd_active_setups(chat_id):
         lines.append("🔴 <b>تفاصيل SHORT في مرحلة المراقبة:</b>")
         for k, v in sell_watching[:10]:
             age = int((now - v["step6_time"]).total_seconds() / 60) if v["step6_time"] else 0
-            lb = _get_dynamic_lookback(v["step6_time"], k[3])
+            lb = _get_dynamic_lookback(v["step6_time"], int(k[3]))
             lines.append(f"• <b>{k[0]}</b> {k[1]}m/{k[2]}m/{k[3]}m | منذ {age}د | lookback={lb}")
 
     msg = "\n".join(lines)
