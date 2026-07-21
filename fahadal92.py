@@ -1298,8 +1298,10 @@ def run_cascade_scan():
                 if ok:
                     cascade_stats[step_num]["passed"] += 1
                     passed.append(c)
-
+    
+        step_survivors[step_num] = passed
         log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
+        step_survivors[step_num] = passed
         step_survivors[step_num] = passed
         candidates = passed
 
