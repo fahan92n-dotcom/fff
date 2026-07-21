@@ -1110,6 +1110,13 @@ def step5(c):
         return False, "macd_confirm"
     return True, "passed"
 
+def step6(c):
+    if not check_ema50_below(c["df_base"]):
+        return False, "ema50"
+    if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
+        return False, "rsi_confirm_recent"
+    return True, "passed"
+
 def short_step6(c):
     if not check_ema50_above(c["df_base"]):
         return False, "ema50_above"
