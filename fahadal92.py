@@ -1427,7 +1427,7 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
-def check_rsi_stoch(df, lookback=5, max_gap=5):
+def check_rsi_stoch(df, lookback=10, max_gap=3):
     if len(df) < WARMUP_RSI + lookback:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
