@@ -2241,12 +2241,15 @@ def update_symbols_loop():
     first_run = True
     while True:
         try:
-            valid_symbols, invalid_symbols = validate_binance_symbols(CUSTOM_SYMBOLS)
+            valid_symbols, invalid_symbols, invalid_reasons = validate_symbols_with_reasons(CUSTOM_SYMBOLS, market="spot")
 
             with symbols_cache_lock:
                 symbols_cache[:] = valid_symbols
             with invalid_symbols_lock:
                 invalid_symbols_cache[:] = invalid_symbols
+            with invalid_symbols_reason_lock:
+                invalid_symbols_reason_cache.clear()
+                invalid_symbols_reason_cache.update(invalid_reasons)
 
             log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
             if invalid_symbols:
