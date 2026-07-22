@@ -193,7 +193,7 @@ def update_symbols_loop_futures():
     first_run = True
     while True:
         try:
-            valid_symbols, invalid_symbols = validate_binance_futures_symbols(CUSTOM_SYMBOLS)
+            valid_symbols, invalid_symbols, invalid_reasons = validate_symbols_with_reasons(CUSTOM_SYMBOLS, market="futures")
 
             with symbols_cache_lock:
                 symbols_cache[:] = valid_symbols
