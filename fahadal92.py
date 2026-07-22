@@ -28,6 +28,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003968771145")
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 BINANCE_SPOT_BASE = "https://api.binance.com"
+BINANCE_BASE = BINANCE_SPOT_BASE
 MARKET_MODE = os.environ.get("MARKET_MODE", "futures").lower()  # futures | spot
 TOP_SYMBOLS_LIMIT = 100
 PORT = int(os.environ.get("PORT", "8080"))
