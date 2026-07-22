@@ -2323,9 +2323,13 @@ def main():
                 cache_size = len(ohlcv_cache)
             with trades_lock:
                 signals_count = len(trades_history)
-            log.info("💓 البوت يعمل | كاش: %s مفتاح | إشارات: %s | سريع: %s | كامل: %s",
-                    cache_size, signals_count, "✅" if fast_prefetch_done.is_set() else "⏳",
-                    "✅" if prefetch_done.is_set() else "⏳")
+            log.info(
+                "💓 البوت يعمل | كاش: %s مفتاح | إشارات: %s | سريع: %s | كامل: %s",
+                cache_size,
+                signals_count,
+                "✅" if fast_prefetch_done.is_set() else "⏳",
+                "✅" if prefetch_done.is_set() else "⏳",
+            )
         except Exception as exc:
             log.error("❌ خطأ في main loop: %s\n%s", exc, traceback.format_exc())
             time.sleep(10)
