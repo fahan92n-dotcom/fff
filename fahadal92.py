@@ -78,6 +78,46 @@ def validate_binance_futures_symbols(symbols):
         log.error("❌ خطأ في validate_binance_futures_symbols: %s", e)
         return list(symbols), []
     return valid, invalid
+    
+def validate_symbols_with_reasons(symbols, market="futures"):
+    valid, invalid = [], []
+    reasons = {}
+
+    try:
+        if market == "futures":
+            url = f"{BINANCE_FUTURES_BASE}/fapi/v1/exchangeInfo"
+            market_tag = "FUTURES"
+        else:
+            url = f"{BINANCE_SPOT_BASE}/api/v3/exchangeInfo"
+            market_tag = "SPOT"
+
+        resp = get_session().get(url, timeout=20).json()
+        raw_symbols = resp.get("symbols", [])
+        by_symbol = {s.get("symbol"): s for s in raw_symbols if s.get("symbol")}
+
+        for sym in symbols:
+            meta = by_symbol.get(sym)
+            if not meta:
+                invalid.append(sym)
+                reasons[sym] = f"NOT_FOUND_IN_{market_tag}_EXCHANGE_INFO"
+                continue
+
+            status = str(meta.get("status", "")).upper()
+            if status != "TRADING":
+                invalid.append(sym)
+                reasons[sym] = f"NOT_TRADING({status})"
+                continue
+
+            valid.append(sym)
+
+    except requests.RequestException as e:
+        log.error("❌ validate_symbols_with_reasons network error: %s", e)
+        return list(symbols), [], {}
+    except Exception as e:
+        log.error("❌ validate_symbols_with_reasons error: %s", e)
+        return list(symbols), [], {}
+
+    return valid, invalid, reasons
 
 def get_ohlcv_futures(symbol, tf, limit=500):
     binance_tf = TF_MAP.get(tf, "1m")
