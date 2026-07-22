@@ -2109,7 +2109,7 @@ def _dispatch_command(txt, chat_id):
         for s in bad:
             lines.append(f"• <code>{s}</code> — {reasons.get(s, 'UNKNOWN')}")
         send_telegram("\n".join(lines), chat_id)
-    else:
+    elif:
         send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
     elif txt == "/status":
         _cmd_status(chat_id)
