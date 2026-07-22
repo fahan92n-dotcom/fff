@@ -240,6 +240,9 @@ def update_symbols_loop_futures():
                 symbols_cache[:] = valid_symbols
             with invalid_symbols_lock:
                 invalid_symbols_cache[:] = invalid_symbols
+            with invalid_symbols_reason_lock:
+                invalid_symbols_reason_cache.clear()
+                invalid_symbols_reason_cache.update(invalid_reasons)
 
             log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
             if invalid_symbols:
