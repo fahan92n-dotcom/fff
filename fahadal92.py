@@ -2093,18 +2093,20 @@ def _dispatch_command(txt, chat_id):
                 send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 8", chat_id)
     # الحالة والفلاتر
     elif txt == "/invalid_symbols":
-        with invalid_symbols_lock:
-            bad = list(invalid_symbols_cache)
-        if bad:
-            with invalid_symbols_reason_lock:
-    reasons = dict(invalid_symbols_reason_cache)
+    with invalid_symbols_lock:
+        bad = list(invalid_symbols_cache)
 
-lines = ["❌ <b>عملات غير متاحة حالياً:</b>"]
-for s in bad:
-    lines.append(f"• <code>{s}</code> — {reasons.get(s, 'UNKNOWN')}")
-send_telegram("\n".join(lines), chat_id)
-        else:
-            send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
+    if bad:
+        with invalid_symbols_reason_lock:
+            reasons = dict(invalid_symbols_reason_cache)
+
+        market_label = "Futures" if MARKET_MODE == "futures" else "Spot"
+        lines = [f"❌ <b>عملات غير متاحة حالياً على Binance {market_label}:</b>"]
+        for s in bad:
+            lines.append(f"• <code>{s}</code> — {reasons.get(s, 'UNKNOWN')}")
+        send_telegram("\n".join(lines), chat_id)
+    else:
+        send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
     elif txt == "/status":
         _cmd_status(chat_id)
     elif txt == "/hard_filters":
