@@ -304,6 +304,8 @@ symbols_cache = []
 symbols_cache_lock = threading.Lock()
 invalid_symbols_cache = []
 invalid_symbols_lock = threading.Lock()
+invalid_symbols_reason_cache = {}
+invalid_symbols_reason_lock = threading.Lock()
 ohlcv_cache = {}
 ohlcv_cache_lock = threading.Lock()
 
