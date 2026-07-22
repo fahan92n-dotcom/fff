@@ -2097,7 +2097,7 @@ def _dispatch_command(txt, chat_id):
                 send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 8", chat_id)
     # الحالة والفلاتر
     elif txt == "/invalid_symbols":
-        with invalid_symbols_lock:
+    with invalid_symbols_lock:
         bad = list(invalid_symbols_cache)
 
     if bad:
