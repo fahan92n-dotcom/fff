@@ -985,7 +985,7 @@ def check_macd_green(df):
         return False
     return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
     
-def check_macd_line_long(df, pct=0.20):
+def check_macd_line_long(df, pct=0.40):
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
@@ -993,14 +993,22 @@ def check_macd_line_long(df, pct=0.20):
     current_hist = float(histogram.iloc[-1])
     if current_hist < 0 and current_macd < current_hist:
         return False
+    
+    # آخر 24 ساعة فقط (1440 شمعة = 24 ساعة × 60 دقيقة)
     today_candles = 1440
     macd_today = macd_line.iloc[-today_candles:]
-    max_today = float(macd_today[macd_today > 0].max()) if (macd_today > 0).any() else 0
-    if max_today > 0 and current_macd > max_today * pct:
+    
+    # أعلى وأدنى قيمة في آخر 24 ساعة
+    max_24h = float(macd_today.max())
+    
+    # 40% من أعلى قيمة
+    threshold = max_24h * pct
+    
+    if current_macd > threshold:
         return False
     return True
 
-def check_macd_line_short(df, pct=0.20):
+def check_macd_line_short(df, pct=0.40):
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
@@ -1008,10 +1016,18 @@ def check_macd_line_short(df, pct=0.20):
     current_hist = float(histogram.iloc[-1])
     if current_hist > 0 and current_macd > current_hist:
         return False
+    
+    # آخر 24 ساعة فقط
     today_candles = 1440
     macd_today = macd_line.iloc[-today_candles:]
-    min_today = float(macd_today[macd_today < 0].min()) if (macd_today < 0).any() else 0
-    if min_today < 0 and current_macd < min_today * pct:
+    
+    # أدنى قيمة في آخر 24 ساعة
+    min_24h = float(macd_today.min())
+    
+    # 40% من أدنى قيمة
+    threshold = min_24h * pct
+    
+    if current_macd < threshold:
         return False
     return True
 
