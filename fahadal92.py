@@ -294,7 +294,7 @@ WARMUP_SMI = 100
 WARMUP_RSI = 200
 WARMUP_STOCH = 100
 WARMUP_DON = 50
-MIN_CANDLES = 250
+MIN_CANDLES = 100
 
 # ------------------------------------------
 # Shared State
