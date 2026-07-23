@@ -1255,8 +1255,18 @@ def check_rsi_stoch_short(df, lookback=10, max_gap=3):
     rsi = calc_rsi_tv(df["close"], period=14)
     rsi_sig = rsi.rolling(14).mean()
     k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-    if float(k.iloc[-1]) >= 80:
+    
+    # ✅ الحالة الحالية يجب تكون آمنة (بين 20 و 80)
+    current_k = float(k.iloc[-1])
+    current_rsi = float(rsi.iloc[-1])
+    
+    if current_k >= 80:  # تشبع شرائي
         return False
+    if current_k <= 20:  # تشبع بيعي ❌ ارفض!
+        return False
+    if current_rsi > float(rsi_sig.iloc[-1]):  # ارتد لفوق ❌ ارفض!
+        return False
+    
     stoch_crosses = []
     rsi_crosses = []
     for i in range(-lookback, 0):
@@ -1267,6 +1277,7 @@ def check_rsi_stoch_short(df, lookback=10, max_gap=3):
                 rsi_crosses.append(i)
         except (ValueError, IndexError):
             continue
+    
     for sc in stoch_crosses:
         for rc in rsi_crosses:
             if abs(sc - rc) <= max_gap:
