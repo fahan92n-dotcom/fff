@@ -2114,7 +2114,7 @@ def _dispatch_command(txt, chat_id):
     # الحالة والفلاتر
     elif txt == "/invalid_symbols":
     with invalid_symbols_lock:
-        bad = list(invalid_symbols_cache)
+        bad = list(invalid_symbols_cache)  # ✅ محاذى صح
     
     if bad:
         with invalid_symbols_reason_lock:
@@ -2127,8 +2127,8 @@ def _dispatch_command(txt, chat_id):
         send_telegram("\n".join(lines), chat_id)
     else:
         send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
-    elif txt == "/status":
-        _cmd_status(chat_id)
+    elif txt == "/status":  # ✅ elif عادي
+    _cmd_status(chat_id)
     elif txt == "/hard_filters":
         handle_hard_filters_command(chat_id, "buy")
     elif txt == "/hard_filters_sell":
