@@ -282,9 +282,9 @@ TRIPLING_PAIRS = [
 TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150, 180, 210, 240]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i + 1] for i in range(len(TIMEFRAME_CHAIN) - 1)}
 
-API_FETCH_CANDLES = {"1m": 50_000, "30m": 3_000, "60m": 3_000}  # توازن ممتاز
+API_FETCH_CANDLES = {"1m": 50_000, "30m": 3_000, "60m": 3_000}
 CACHE_MAX_CANDLES = {"1m": 50_000, "30m": 3_000, "60m": 3_000}
-FAST_FETCH_CANDLES = {"1m": 10_000, "30m": 3_000, "60m": 3_000}
+FAST_FETCH_CANDLES = {"1m": 50_000, "30m": 3_000, "60m": 3_000}
 UPDATE_BUFFER_SECONDS = 20  # small safety buffer before next 30m boundary (API/network jitter)
 UPDATER_30M_INTERVAL_SECONDS = 30 * 60 - UPDATE_BUFFER_SECONDS
 
