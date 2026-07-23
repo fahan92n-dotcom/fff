@@ -2087,6 +2087,39 @@ def quick_check_watcher():
         except Exception as e:
             log.error("❌ خطأ في quick_check_watcher: %s", e)
 
+def quick_check_watcher():
+    """يفحص خطوة 7 و8 كل 15 ثانية على الناجحين من خطوة 6 فقط"""
+    while True:
+        time.sleep(15)
+        try:
+            if fast_prefetch_done.is_set():
+                # جلب بيانات فريم التثليث فقط للعملات المعنية
+                with last_complete_lock:
+                    buy_survivors = list(last_complete_survivors.get(6, []))
+                with last_complete_short_lock:
+                    sell_survivors = list(last_complete_short_survivors.get(6, []))
+
+                triple_syms = set()
+                for c in buy_survivors + sell_survivors:
+                    triple_syms.add((c["sym"], c["triple_api"]))
+
+                def fetch_triple(item):
+                    sym, tf = item
+                    df = get_ohlcv(sym, tf, limit=3)
+                    if not df.empty:
+                        cache_merge(sym, tf, df)
+
+                if triple_syms:
+                    with ThreadPoolExecutor(max_workers=20) as executor:
+                        executor.map(fetch_triple, triple_syms)
+
+                run_quick_step78("buy")
+                run_quick_step78("sell")
+
+        except Exception as e:
+            log.error("❌ خطأ في quick_check_watcher: %s", e)
+
+
 def _dispatch_command(txt, chat_id):
     """معالج أوامر Telegram"""
     # تقارير الإشارات
@@ -2096,16 +2129,19 @@ def _dispatch_command(txt, chat_id):
         send_telegram(get_report("yesterday"), chat_id)
     elif txt in ("3", "/week"):
         send_telegram(get_report("week"), chat_id)
+
     # فحص العملة
     elif txt.startswith("/check5"):
         parts = txt.split()
         symbol = parts[1] if len(parts) > 1 else "BTCUSDT"
         handle_check5(chat_id, symbol)
+
     # تقارير Cascade
     elif txt in ("/cascade_diag", "/سبب_شراء", "/diag_buy"):
         _cmd_cascade_diag(chat_id, "buy")
     elif txt in ("/cascade_diag_sell", "/سبب_بيع", "/diag_sell"):
         _cmd_cascade_diag(chat_id, "sell")
+
     # الناجحون من كل خطوة (شراء)
     elif txt == "/survivors6":
         _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
@@ -2113,6 +2149,7 @@ def _dispatch_command(txt, chat_id):
         _cmd_show_step_survivors(chat_id, step_num=7, signal_type="buy")
     elif txt == "/survivors8":
         _cmd_show_step_survivors(chat_id, step_num=8, signal_type="buy")
+
     # الناجحون من كل خطوة (بيع)
     elif txt == "/survivors6_sell":
         _cmd_show_step_survivors(chat_id, step_num=6, signal_type="sell")
@@ -2120,6 +2157,7 @@ def _dispatch_command(txt, chat_id):
         _cmd_show_step_survivors(chat_id, step_num=7, signal_type="sell")
     elif txt == "/survivors8_sell":
         _cmd_show_step_survivors(chat_id, step_num=8, signal_type="sell")
+
     # دعم /survivors برقم (مثل /survivors 6 أو /survivors 6_sell)
     elif txt.startswith("/survivors"):
         parts = txt.split()
@@ -2133,33 +2171,33 @@ def _dispatch_command(txt, chat_id):
                 _cmd_show_step_survivors(chat_id, step_num=step_num, signal_type="buy")
             else:
                 send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 8", chat_id)
+
     # الحالة والفلاتر
     elif txt == "/invalid_symbols":
-    with invalid_symbols_lock:
-        bad = list(invalid_symbols_cache)
-    
-    if bad:
-        with invalid_symbols_reason_lock:
-            reasons = dict(invalid_symbols_reason_cache)
-        
-        market_label = "Futures" if MARKET_MODE == "futures" else "Spot"
-        lines = [f"❌ <b>عملات غير متاحة حالياً على Binance {market_label}:</b>"]
-        for s in bad:
-            lines.append(f"• <code>{s}</code> — {reasons.get(s, 'UNKNOWN')}")
-        send_telegram("\n".join(lines), chat_id)
-    else:
-        send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
-elif txt == "/status":
-    _cmd_status(chat_id)
-elif txt == "/hard_filters":
-    handle_hard_filters_command(chat_id, "buy")
-elif txt == "/hard_filters_sell":
-    handle_hard_filters_command(chat_id, "sell")
-elif txt == "/help":
-    send_telegram(
-        "📋 <b>الأوامر المتاحة:</b>\n"
-        ...
-    )
+        with invalid_symbols_lock:
+            bad = list(invalid_symbols_cache)
+
+        if bad:
+            with invalid_symbols_reason_lock:
+                reasons = dict(invalid_symbols_reason_cache)
+
+            market_label = "Futures" if MARKET_MODE == "futures" else "Spot"
+            lines = [f"❌ <b>عملات غير متاحة حالياً على Binance {market_label}:</b>"]
+            for s in bad:
+                lines.append(f"• <code>{s}</code> — {reasons.get(s, 'UNKNOWN')}")
+            send_telegram("\n".join(lines), chat_id)
+        else:
+            send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
+
+    elif txt == "/status":
+        _cmd_status(chat_id)
+
+    elif txt == "/hard_filters":
+        handle_hard_filters_command(chat_id, "buy")
+
+    elif txt == "/hard_filters_sell":
+        handle_hard_filters_command(chat_id, "sell")
+
     # المساعدة
     elif txt == "/help":
         send_telegram(
@@ -2191,7 +2229,7 @@ elif txt == "/help":
             "<b>📈 أخرى:</b>\n"
             "📊 <code>/status</code> — حالة البوت\n"
             "📛 <code>/invalid_symbols</code> — عرض العملات غير المتاحة حالياً\n"
-            "🔎 <code>/check5 [symbol]</code> — فحص 1m بدلاً من 5m (الاسم محفوظ للتوافق مع الإصدارات السابقة)\n"
+            "🔎 <code>/check5 [symbol]</code> — فحص 1m بدلاً من 5m (الاسم محفوظ للتوافق)\n"
             "📋 <code>/help</code> — هذه القائمة",
             chat_id,
         )
