@@ -828,14 +828,32 @@ def get_ohlcv_full(symbol, tf, target):
         batch = min(bin_max, target - fetched)
         start_ms = end_ms - batch * tf_ms
         try:
-            resp = get_session().get(f"{BINANCE_BASE}/api/v3/klines",
-                params={...}, timeout=15).json()
+            r = get_session().get(
+                f"{BINANCE_BASE}/api/v3/klines",
+                params={
+                    "symbol": symbol,
+                    "interval": binance_tf,
+                    "startTime": start_ms,
+                    "endTime": end_ms,
+                    "limit": batch,
+                },
+                timeout=15,
+            )
+
+            if r.status_code in (429, 418):
+                retry_after = int(r.headers.get("Retry-After", 30))
+                log.warning("⏳ Spot rate-limit %s على %s، انتظار %s ثانية", r.status_code, symbol, retry_after)
+                time.sleep(retry_after)
+                continue
+
+            resp = r.json()
             if not isinstance(resp, list) or not resp:
                 retries += 1
                 if retries >= 3:
                     break
                 time.sleep(2 ** retries)
                 continue
+
             df = _parse_binance_klines(resp)
             all_dfs.insert(0, df)
             fetched += len(df)
@@ -844,14 +862,21 @@ def get_ohlcv_full(symbol, tf, target):
             end_ms = first_ts_ms - 1
             if len(df) < batch:
                 break
+
         except requests.RequestException:
             retries += 1
             if retries >= 3:
                 break
             time.sleep(2)
 
-    return (pd.concat(all_dfs).drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
-            if all_dfs else pd.DataFrame())
+    return (
+        pd.concat(all_dfs)
+        .drop_duplicates(subset="ts")
+        .sort_values("ts")
+        .reset_index(drop=True)
+        if all_dfs
+        else pd.DataFrame()
+    )
 
 def validate_binance_symbols(symbols):
     """التحقق من الرموز المتاحة والفعّالة على Binance Spot"""
