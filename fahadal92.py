@@ -2423,6 +2423,7 @@ def main():
             pass
 
     sys.excepthook = handle_exception
+    threading.excepthook = thread_exception_handler
 
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -2431,19 +2432,19 @@ def main():
     delete_webhook()
 
     if MARKET_MODE == "futures":
-        threading.Thread(target=update_symbols_loop_futures, daemon=True).start()
+        run_forever(update_symbols_loop_futures, "update_symbols_loop_futures")
         threading.Thread(target=cache_updater_1m_futures, daemon=True).start()
         threading.Thread(target=cache_updater_60m_futures, daemon=True).start()
         threading.Thread(target=cache_updater_30m_futures, daemon=True).start()
     else:
-        threading.Thread(target=update_symbols_loop, daemon=True).start()
+        run_forever(update_symbols_loop, "update_symbols_loop")
         threading.Thread(target=cache_updater_1m, daemon=True).start()
         threading.Thread(target=cache_updater_60m, daemon=True).start()
         threading.Thread(target=cache_updater_30m, daemon=True).start()
 
-    threading.Thread(target=poll_telegram_commands, daemon=True).start()
-    threading.Thread(target=cascade_watcher, daemon=True).start()
-    threading.Thread(target=quick_check_watcher, daemon=True).start()
+    run_forever(poll_telegram_commands, "poll_telegram_commands")
+    run_forever(cascade_watcher, "cascade_watcher")
+    run_forever(quick_check_watcher, "quick_check_watcher")
 
     send_telegram("🚀 <b>البوت انطلق — استراتيجية مزدوجة (شراء + بيع)</b>")
 
