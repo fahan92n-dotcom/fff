@@ -2381,6 +2381,31 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+def thread_exception_handler(args):
+    msg = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+    thread_name = args.thread.name if args.thread else "unknown"
+    log.error("💥 خطأ في Thread [%s]:\n%s", thread_name, msg)
+    try:
+        send_telegram(f"⚠️ <b>خطأ في Thread {thread_name}:</b>\n<code>{args.exc_value}</code>")
+    except Exception:
+        pass
+
+
+def run_forever(target, name):
+    def wrapper():
+        while True:
+            try:
+                target()
+            except Exception as e:
+                log.error("💥 %s توقف بخطأ، سيُعاد تشغيله خلال 10 ثواني: %s", name, e)
+                try:
+                    send_telegram(f"🔄 <b>{name}</b> توقف وسيُعاد تشغيله تلقائياً.\n<code>{e}</code>")
+                except Exception:
+                    pass
+                time.sleep(10)
+
+    threading.Thread(target=wrapper, name=name, daemon=True).start()
+
 def main():
     def handle_exception(exc_type, exc_value, exc_tb):
         msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
