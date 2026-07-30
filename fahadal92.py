@@ -926,7 +926,7 @@ def prefetch_all(symbols):
             df = get_ohlcv_full(sym, tf, target=n)
             cache_merge(sym, tf, df)
 
-def fetch_sym_full(sym):
+    def fetch_sym_full(sym):
         for tf, n in API_FETCH_CANDLES.items():
             df = get_ohlcv_full(sym, tf, target=n)
             cache_merge(sym, tf, df)
