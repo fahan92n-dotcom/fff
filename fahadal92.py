@@ -143,7 +143,7 @@ def get_ohlcv_full_futures(symbol, tf, target):
         start_ms = end_ms - batch * tf_ms
         try:
             resp = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/klines",
-                params={"symbol": symbol, "interval": binance_tf, "startTime": start_ms, "endTime": end_ms, "limit": batch}, timeout=15).json()
+                params={...}, timeout=15).json()
             if not isinstance(resp, list) or not resp:
                 retries += 1
                 if retries >= 3:
@@ -179,13 +179,13 @@ def prefetch_all_futures(symbols):
             cache_merge(sym, tf, df)
 
     log.info("🚀 بدء التحميل السريع Futures...")
-    with ThreadPoolExecutor(max_workers=15) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(fetch_sym_fast, symbols)
     fast_prefetch_done.set()
     send_telegram("⚡ <b>التحميل السريع Futures اكتمل — البوت يعمل الآن!</b>")
 
     log.info("📦 بدء التحميل الكامل Futures...")
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         executor.map(fetch_sym_full, symbols)
     prefetch_done.set()
     send_telegram("✅ <b>التحميل الكامل Futures اكتمل وجاهز للعمل!</b>")
@@ -803,7 +803,7 @@ def get_ohlcv_full(symbol, tf, target):
         start_ms = end_ms - batch * tf_ms
         try:
             resp = get_session().get(f"{BINANCE_BASE}/api/v3/klines",
-                params={"symbol": symbol, "interval": binance_tf, "startTime": start_ms, "endTime": end_ms, "limit": batch}, timeout=15).json()
+                params={...}, timeout=15).json()
             if not isinstance(resp, list) or not resp:
                 retries += 1
                 if retries >= 3:
@@ -881,13 +881,13 @@ def prefetch_all(symbols):
             cache_merge(sym, tf, df)
 
     log.info("🚀 بدء التحميل السريع بالـ threads...")
-    with ThreadPoolExecutor(max_workers=15) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(fetch_sym_fast, symbols)
     fast_prefetch_done.set()
     send_telegram("⚡ <b>التحميل السريع اكتمل — البوت يعمل الآن!</b>")
 
     log.info("📦 بدء التحميل الكامل...")
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         executor.map(fetch_sym_full, symbols)
     prefetch_done.set()
     send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعمل!</b>")
