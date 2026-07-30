@@ -215,7 +215,7 @@ def prefetch_all_futures(symbols):
         executor.map(fetch_sym_full, symbols)
     prefetch_done.set()
     send_telegram("✅ <b>التحميل الكامل Futures اكتمل وجاهز للعمل!</b>")
-
+    
 def _update_batch_futures(symbols, tf, limit):
     def fetch_one(sym):
         df = get_ohlcv_futures(sym, tf, limit=limit)
