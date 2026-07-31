@@ -2320,6 +2320,7 @@ def cascade_watcher():
                         t2.join()
                         with _ribbon_cache_lock:
                             _ribbon_cache.clear()
+                        trim_memory()
                     finally:
                         _scan_lock.release()
                 else:
