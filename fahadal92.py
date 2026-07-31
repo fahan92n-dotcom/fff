@@ -2340,6 +2340,25 @@ def cleanup_old_symbols_cache():
     if stale_keys:
         log.info("🧹 حذف %d مفتاح كاش قديم", len(stale_keys))
 
+def trim_memory():
+    try:
+        rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except Exception:
+        rss_before = None
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception as e:
+        log.error("malloc_trim error: %s", e)
+
+    if rss_before is not None:
+        try:
+            rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            log.info("🧹 trim_memory: peak RSS قبل=%s KB، بعد=%s KB (peak قد لا يقل حتى مع نجاح trim)", rss_before, rss_after)
+        except Exception:
+            pass
+            
 def update_symbols_loop():
     first_run = True
     while True:
