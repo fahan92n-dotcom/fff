@@ -6,6 +6,7 @@ import threading
 import sys
 import traceback
 import json
+import sqlite3
 import concurrent.futures
 from collections import deque, defaultdict
 from datetime import datetime, timezone, timedelta
@@ -33,6 +34,7 @@ MARKET_MODE = os.environ.get("MARKET_MODE", "futures").lower()  # futures | spot
 TOP_SYMBOLS_LIMIT = 100
 PORT = int(os.environ.get("PORT", "8080"))
 ALERT_EXPIRY_HOURS = 4
+CACHE_DB_PATH = os.environ.get("CACHE_DB_PATH", "ohlcv_cache.db")
 
 # ------------------------------------------
 # Custom Fixed Symbol List (يحل محل أعلى 100 عملة بالحجم)
@@ -65,8 +67,18 @@ def validate_binance_futures_symbols(symbols):
     valid = []
     invalid = []
     try:
-        resp = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/exchangeInfo", timeout=20).json()
+        raw = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/exchangeInfo", timeout=20)
+        if raw.status_code in (429, 418):
+            log.error("🚫 Binance Futures IP محظور أو rate-limit (%s) — إرجاع كل العملات كصالحة", raw.status_code)
+            return list(symbols), []
+        if raw.status_code != 200:
+            log.error("❌ exchangeInfo Futures فشل بكود %s: %s", raw.status_code, raw.text[:200])
+            return list(symbols), []
+        resp = raw.json()
         exchange_symbols = {s["symbol"] for s in resp.get("symbols", []) if s.get("status") == "TRADING"}
+        if not exchange_symbols:
+            log.error("❌ exchangeInfo Futures رجع بدون symbols — استجابة: %s", str(resp)[:200])
+            return list(symbols), []
         for sym in symbols:
             if sym in exchange_symbols:
                 valid.append(sym)
@@ -92,8 +104,20 @@ def validate_symbols_with_reasons(symbols, market="futures"):
             url = f"{BINANCE_SPOT_BASE}/api/v3/exchangeInfo"
             market_tag = "SPOT"
 
-        resp = get_session().get(url, timeout=20).json()
+        raw = get_session().get(url, timeout=20)
+        if raw.status_code in (429, 418):
+            log.error("🚫 Binance %s IP محظور أو rate-limit (%s) — إرجاع كل العملات كصالحة", market_tag, raw.status_code)
+            return list(symbols), [], {}
+        if raw.status_code != 200:
+            log.error("❌ exchangeInfo %s فشل بكود %s: %s", market_tag, raw.status_code, raw.text[:200])
+            return list(symbols), [], {}
+
+        resp = raw.json()
         raw_symbols = resp.get("symbols", [])
+        if not raw_symbols:
+            log.error("❌ exchangeInfo %s رجع بدون symbols — استجابة: %s", market_tag, str(resp)[:200])
+            return list(symbols), [], {}
+
         by_symbol = {s.get("symbol"): s for s in raw_symbols if s.get("symbol")}
 
         for sym in symbols:
@@ -119,6 +143,14 @@ def validate_symbols_with_reasons(symbols, market="futures"):
         return list(symbols), [], {}
 
     return valid, invalid, reasons
+
+def _throttle_on_weight(used_weight):
+    """إبطاء استباقي عند اقتراب استهلاك الـ Weight من حد Binance"""
+    if used_weight > 2000:
+        log.warning("⚠️ Weight مرتفع جداً (%s/2400)، إبطاء 5 ثوانٍ...", used_weight)
+        time.sleep(5)
+    elif used_weight > 1500:
+        time.sleep(1)
 
 def get_ohlcv_futures(symbol, tf, limit=500):
     binance_tf = TF_MAP.get(tf, "1m")
@@ -160,6 +192,8 @@ def get_ohlcv_full_futures(symbol, tf, target):
                 time.sleep(retry_after)
                 continue
 
+            _throttle_on_weight(int(r.headers.get("X-MBX-USED-WEIGHT-1M", 0)))
+
             resp = r.json()
             if not isinstance(resp, list) or not resp:
                 retries += 1
@@ -198,23 +232,14 @@ def prefetch_all_futures(symbols):
         for tf, n in FAST_FETCH_CANDLES.items():
             df = get_ohlcv_full_futures(sym, tf, target=n)
             cache_merge(sym, tf, df)
+        time.sleep(0.5)  # فاصل زمني بين كل عملة لتوزيع الطلبات
 
-    def fetch_sym_full(sym):
-        for tf, n in API_FETCH_CANDLES.items():
-            df = get_ohlcv_full_futures(sym, tf, target=n)
-            cache_merge(sym, tf, df)
-
-    log.info("🚀 بدء التحميل السريع Futures...")
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    log.info("🚀 بدء التحميل الأولي Futures...")
+    with ThreadPoolExecutor(max_workers=2) as executor:
         executor.map(fetch_sym_fast, symbols)
     fast_prefetch_done.set()
-    send_telegram("⚡ <b>التحميل السريع Futures اكتمل — البوت يعمل الآن!</b>")
-
-    log.info("📦 بدء التحميل الكامل Futures...")
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        executor.map(fetch_sym_full, symbols)
     prefetch_done.set()
-    send_telegram("✅ <b>التحميل الكامل Futures اكتمل وجاهز للعمل!</b>")
+    send_telegram("✅ <b>التحميل الأولي Futures اكتمل — البوت جاهز للعمل!</b>")
     
 def _update_batch_futures(symbols, tf, limit):
     def fetch_one(sym):
@@ -338,6 +363,11 @@ invalid_symbols_reason_cache = {}
 invalid_symbols_reason_lock = threading.Lock()
 ohlcv_cache = {}
 ohlcv_cache_lock = threading.Lock()
+
+# متغيرات لتتبع الكاش المتغير ومزامنة الحفظ في SQLite
+_db_dirty_keys = set()
+_db_dirty_lock = threading.Lock()
+_db_dirty = threading.Event()
 
 cascade_results = defaultdict(dict)
 cascade_results_lock = threading.Lock()
@@ -846,6 +876,8 @@ def get_ohlcv_full(symbol, tf, target):
                 time.sleep(retry_after)
                 continue
 
+            _throttle_on_weight(int(r.headers.get("X-MBX-USED-WEIGHT-1M", 0)))
+
             resp = r.json()
             if not isinstance(resp, list) or not resp:
                 retries += 1
@@ -883,11 +915,21 @@ def validate_binance_symbols(symbols):
     valid = []
     invalid = []
     try:
-        resp = get_session().get(f"{BINANCE_BASE}/api/v3/exchangeInfo", timeout=20).json()
+        raw = get_session().get(f"{BINANCE_BASE}/api/v3/exchangeInfo", timeout=20)
+        if raw.status_code in (429, 418):
+            log.error("🚫 Binance Spot IP محظور أو rate-limit (%s) — إرجاع كل العملات كصالحة", raw.status_code)
+            return list(symbols), []
+        if raw.status_code != 200:
+            log.error("❌ exchangeInfo Spot فشل بكود %s: %s", raw.status_code, raw.text[:200])
+            return list(symbols), []
+        resp = raw.json()
         exchange_symbols = {
             s["symbol"] for s in resp.get("symbols", [])
             if s.get("status") == "TRADING"
         }
+        if not exchange_symbols:
+            log.error("❌ exchangeInfo Spot رجع بدون symbols — استجابة: %s", str(resp)[:200])
+            return list(symbols), []
         for sym in symbols:
             if sym in exchange_symbols:
                 valid.append(sym)
@@ -913,6 +955,10 @@ def cache_merge(symbol, tf, new_df):
             ohlcv_cache[key] = merged.tail(maxc).reset_index(drop=True)
         else:
             ohlcv_cache[key] = new_df.tail(maxc).reset_index(drop=True)
+    # تحديد المفتاح كمتغيّر لحفظه لاحقاً في SQLite
+    with _db_dirty_lock:
+        _db_dirty_keys.add(key)
+    _db_dirty.set()
 
 def get_cached(symbol, tf):
     with ohlcv_cache_lock:
@@ -920,28 +966,119 @@ def get_cached(symbol, tf):
     return df.copy() if df is not None else pd.DataFrame()
 
 
+# ------------------------------------------
+# كاش دائم (SQLite)
+# ------------------------------------------
+
+def _init_db():
+    """تهيئة جدول SQLite للكاش الدائم"""
+    try:
+        conn = sqlite3.connect(CACHE_DB_PATH)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ohlcv_cache (
+                symbol TEXT NOT NULL,
+                tf TEXT NOT NULL,
+                ts INTEGER NOT NULL,
+                open REAL, high REAL, low REAL, close REAL, vol REAL,
+                PRIMARY KEY (symbol, tf, ts)
+            )
+        """)
+        conn.commit()
+        conn.close()
+        log.info("✅ قاعدة بيانات الكاش جاهزة: %s", CACHE_DB_PATH)
+    except Exception as e:
+        log.error("❌ فشل تهيئة قاعدة بيانات الكاش: %s", e)
+
+def _load_cache_from_db():
+    """تحميل بيانات الكاش المخزّنة من SQLite إلى الذاكرة عند بدء التشغيل"""
+    try:
+        conn = sqlite3.connect(CACHE_DB_PATH)
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ohlcv_cache'"
+        ).fetchall()
+        if not tables:
+            conn.close()
+            log.info("ℹ️ جدول الكاش غير موجود — سيبدأ التحميل من الصفر")
+            return
+        rows = conn.execute(
+            "SELECT symbol, tf, ts, open, high, low, close, vol FROM ohlcv_cache ORDER BY symbol, tf, ts"
+        ).fetchall()
+        conn.close()
+        if not rows:
+            log.info("ℹ️ قاعدة بيانات الكاش فارغة — سيبدأ التحميل من الصفر")
+            return
+        groups = defaultdict(list)
+        for symbol, tf, ts_ms, open_, high, low, close, vol in rows:
+            groups[(symbol, tf)].append({
+                "ts": pd.Timestamp(ts_ms, unit="ms", tz="UTC"),
+                "open": open_, "high": high, "low": low, "close": close, "vol": vol,
+            })
+        total_candles = 0
+        with ohlcv_cache_lock:
+            for (symbol, tf), candles in groups.items():
+                maxc = CACHE_MAX_CANDLES.get(tf, 5000)
+                df = pd.DataFrame(candles).sort_values("ts").tail(maxc).reset_index(drop=True)
+                ohlcv_cache[(symbol, tf)] = df
+                total_candles += len(df)
+        log.info("✅ تم تحميل %d شمعة لـ %d زوج من الكاش الدائم", total_candles, len(groups))
+    except Exception as e:
+        log.error("❌ فشل تحميل الكاش من SQLite: %s", e)
+
+def _save_cache_to_db():
+    """حفظ المفاتيح المتغيّرة من الكاش في الذاكرة إلى SQLite"""
+    with _db_dirty_lock:
+        keys_to_save = set(_db_dirty_keys)
+        _db_dirty_keys.clear()
+    if not keys_to_save:
+        return
+    try:
+        with ohlcv_cache_lock:
+            snapshot = {k: ohlcv_cache[k].copy() for k in keys_to_save if k in ohlcv_cache}
+        conn = sqlite3.connect(CACHE_DB_PATH)
+        for (symbol, tf), df in snapshot.items():
+            if df.empty:
+                continue
+            ts_ms_list = (df["ts"].astype("int64") // 10 ** 6).tolist()
+            rows = list(zip(
+                [symbol] * len(df), [tf] * len(df), ts_ms_list,
+                df["open"].tolist(), df["high"].tolist(),
+                df["low"].tolist(), df["close"].tolist(), df["vol"].tolist(),
+            ))
+            conn.executemany(
+                "INSERT OR REPLACE INTO ohlcv_cache (symbol, tf, ts, open, high, low, close, vol) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+        conn.commit()
+        conn.close()
+        log.info("💾 تم حفظ %d زوج في SQLite", len(snapshot))
+    except Exception as e:
+        log.error("❌ فشل حفظ الكاش في SQLite: %s", e)
+        # أعد المفاتيح للمحاولة التالية
+        with _db_dirty_lock:
+            _db_dirty_keys.update(keys_to_save)
+
+def _db_saver_loop():
+    """حلقة خلفية: حفظ الكاش في SQLite كل دقيقة (أو عند وجود تغييرات)"""
+    while True:
+        _db_dirty.wait(timeout=60)
+        _db_dirty.clear()
+        _save_cache_to_db()
+
+
 def prefetch_all(symbols):
     def fetch_sym_fast(sym):
         for tf, n in FAST_FETCH_CANDLES.items():
             df = get_ohlcv_full(sym, tf, target=n)
             cache_merge(sym, tf, df)
+        time.sleep(0.5)  # فاصل زمني بين كل عملة لتوزيع الطلبات
 
-    def fetch_sym_full(sym):
-        for tf, n in API_FETCH_CANDLES.items():
-            df = get_ohlcv_full(sym, tf, target=n)
-            cache_merge(sym, tf, df)
-
-    log.info("🚀 بدء التحميل السريع بالـ threads...")
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    log.info("🚀 بدء التحميل الأولي Spot...")
+    with ThreadPoolExecutor(max_workers=2) as executor:
         executor.map(fetch_sym_fast, symbols)
     fast_prefetch_done.set()
-    send_telegram("⚡ <b>التحميل السريع اكتمل — البوت يعمل الآن!</b>")
-
-    log.info("📦 بدء التحميل الكامل...")
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        executor.map(fetch_sym_full, symbols)
     prefetch_done.set()
-    send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعمل!</b>")
+    send_telegram("✅ <b>التحميل الأولي اكتمل — البوت جاهز للعمل!</b>")
 
 def _update_batch(symbols, tf, limit):
     def fetch_one(sym):
@@ -2424,6 +2561,11 @@ def main():
     log.info("✅ Health server شغّال على port %s", PORT)
 
     delete_webhook()
+
+    # تهيئة الكاش الدائم وتحميله قبل بدء حلقات التحديث
+    _init_db()
+    _load_cache_from_db()
+    threading.Thread(target=_db_saver_loop, name="db_saver", daemon=True).start()
 
     if MARKET_MODE == "futures":
         run_forever(update_symbols_loop_futures, "update_symbols_loop_futures")
