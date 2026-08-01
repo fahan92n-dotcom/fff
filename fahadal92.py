@@ -2425,7 +2425,7 @@ def quick_check_watcher():
                     step7_queue = list(last_complete_survivors.get(7, []))
 
                     if step7_queue:
-                    refreshed_step7 = []
+                        refreshed_step7 = []
                     for candidate in step7_queue:
                         candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
                         if candidate2 is not None:
