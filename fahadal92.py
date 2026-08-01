@@ -2435,3 +2435,467 @@ def quick_check_watcher():
                         step8_results_batch = _run_step_batch(refreshed_step7, step8, 8, "LONG")
                         _update_last_complete_step("buy", 8, step8_results_batch)
                         step8_passed = [candidate for candidate, ok
+                                                step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
+
+                        if step8_passed:
+                            _set_step8_survivors("buy", step8_passed)
+                            for candidate in step8_passed:
+                                _fire_signal(
+                                    candidate["sym"],
+                                    candidate["base_frame"],
+                                    candidate["confirm_frame"],
+                                    candidate["triple_frame"],
+                                    candidate["df_base"],
+                                    signal_type="buy",
+                                )
+                            log.info(
+                                "⚡ Quick check (LONG): %d إشارة من %d مرشح محفوظ",
+                                len(step8_passed),
+                                len(refreshed_step7),
+                            )
+
+                # ============ SHORT ============
+                # التحقق من stage 5
+                validated_sell_stage5 = []
+                for candidate in sell_stage5:
+                    refreshed = _refresh_and_validate_step5_short(candidate, get_resampled)
+                    if refreshed:
+                        validated_sell_stage5.append(refreshed)
+                    else:
+                        # فشل إعادة التحقق → احذفه من stage 5
+                        candidate_key = get_candidate_key(candidate)
+                        with last_complete_short_lock:
+                            _remove_stage_candidate(last_complete_short_survivors, 5, candidate_key)
+
+                # استكمل مع البيانات المحدثة والمتحققة - stage 5 → 6
+                if validated_sell_stage5:
+                    step6_results_batch = _run_step_batch(validated_sell_stage5, short_step6, 6, "SHORT")
+                    _update_last_complete_step("sell", 6, step6_results_batch)
+                    step6_passed = [candidate for candidate, ok, _ in step6_results_batch if ok]
+                    if step6_passed:
+                        now_ts = datetime.now(timezone.utc)
+                        for candidate in step6_passed:
+                            ready_key = get_signal_key(
+                                candidate["sym"],
+                                candidate["base_frame"],
+                                candidate["confirm_frame"],
+                                candidate["triple_frame"],
+                                "sell",
+                            )
+                            _set_ready_since(step6_ready_since, step6_ready_since_lock, ready_key, now_ts)
+                        _promote_candidates("sell", 5, 6, step6_passed)
+
+                # stage 6 → 7
+                with last_complete_short_lock:
+                    step6_queue = list(last_complete_short_survivors.get(6, []))
+
+                if step6_queue:
+                    refreshed_step6 = []
+                    for candidate in step6_queue:
+                        candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
+                        if candidate2 is not None:
+                            refreshed_step6.append(candidate2)
+
+                    if refreshed_step6:
+                        step7_results_batch = _run_step_batch(refreshed_step6, short_step7, 7, "SHORT")
+                        _update_last_complete_step("sell", 7, step7_results_batch)
+                        step7_passed = [candidate for candidate, ok, _ in step7_results_batch if ok]
+                        if step7_passed:
+                            now_ts = datetime.now(timezone.utc)
+                            for candidate in step7_passed:
+                                ready_key = get_signal_key(
+                                    candidate["sym"],
+                                    candidate["base_frame"],
+                                    candidate["confirm_frame"],
+                                    candidate["triple_frame"],
+                                    "sell",
+                                )
+                                _set_ready_since(step7_ready_since, step7_ready_since_lock, ready_key, now_ts)
+                            _promote_candidates("sell", 6, 7, step7_passed)
+
+                # stage 7 → 8
+                with last_complete_short_lock:
+                    step7_queue = list(last_complete_short_survivors.get(7, []))
+
+                if step7_queue:
+                    refreshed_step7 = []
+                    for candidate in step7_queue:
+                        candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
+                        if candidate2 is not None:
+                            refreshed_step7.append(candidate2)
+
+                    if refreshed_step7:
+                        step8_results_batch = _run_step_batch(refreshed_step7, short_step8, 8, "SHORT")
+                        _update_last_complete_step("sell", 8, step8_results_batch)
+                        step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
+
+                        if step8_passed:
+                            _set_step8_survivors("sell", step8_passed)
+                            for candidate in step8_passed:
+                                _fire_signal(
+                                    candidate["sym"],
+                                    candidate["base_frame"],
+                                    candidate["confirm_frame"],
+                                    candidate["triple_frame"],
+                                    candidate["df_base"],
+                                    signal_type="sell",
+                                )
+                            log.info(
+                                "⚡ Quick check (SHORT): %d إشارة من %d مرشح محفوظ",
+                                len(step8_passed),
+                                len(refreshed_step7),
+                            )
+
+                # تحديث آخر وقت scan
+                with last_complete_scan_time_lock:
+                    last_complete_scan_time["buy"] = datetime.now(timezone.utc)
+                    last_complete_scan_time["sell"] = datetime.now(timezone.utc)
+
+        except Exception as e:
+            log.error("❌ خطأ في quick_check_watcher: %s", e)
+
+
+def _dispatch_command(txt, chat_id):
+    """معالج أوامر Telegram"""
+    # تقارير الإشارات
+    if txt in ("1", "/today"):
+        send_telegram(get_report("today"), chat_id)
+    elif txt in ("2", "/yesterday"):
+        send_telegram(get_report("yesterday"), chat_id)
+    elif txt in ("3", "/week"):
+        send_telegram(get_report("week"), chat_id)
+
+    # فحص العملة
+    elif txt.startswith("/check5"):
+        parts = txt.split()
+        symbol = parts[1] if len(parts) > 1 else "BTCUSDT"
+        handle_check5(chat_id, symbol)
+
+    # تقارير Cascade
+    elif txt in ("/cascade_diag", "/سبب_شراء", "/diag_buy"):
+        _cmd_cascade_diag(chat_id, "buy")
+    elif txt in ("/cascade_diag_sell", "/سبب_بيع", "/diag_sell"):
+        _cmd_cascade_diag(chat_id, "sell")
+
+    # الناجحون من كل خطوة (شراء)
+    elif txt == "/survivors6":
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy")
+    elif txt == "/survivors7":
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="buy")
+    elif txt == "/survivors8":
+        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="buy")
+
+    # الناجحون من كل خطوة (بيع)
+    elif txt == "/survivors6_sell":
+        _cmd_show_step_survivors(chat_id, step_num=6, signal_type="sell")
+    elif txt == "/survivors7_sell":
+        _cmd_show_step_survivors(chat_id, step_num=7, signal_type="sell")
+    elif txt == "/survivors8_sell":
+        _cmd_show_step_survivors(chat_id, step_num=8, signal_type="sell")
+
+    # دعم /survivors برقم (مثل /survivors 6 أو /survivors 6_sell)
+    elif txt.startswith("/survivors"):
+        parts = txt.split()
+        if "_sell" in txt:
+            num_part = parts[0].replace("/survivors", "").replace("_sell", "")
+            step_num = int(num_part) if num_part.isdigit() else 6
+            _cmd_show_step_survivors(chat_id, step_num=step_num, signal_type="sell")
+        else:
+            step_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 6
+            if 1 <= step_num <= 8:
+                _cmd_show_step_survivors(chat_id, step_num=step_num, signal_type="buy")
+            else:
+                send_telegram("⚠️ رقم الخطوة يجب أن يكون من 1 إلى 8", chat_id)
+
+    # الحالة والفلاتر
+    elif txt == "/invalid_symbols":
+        with invalid_symbols_lock:
+            bad = list(invalid_symbols_cache)
+
+        if bad:
+            with invalid_symbols_reason_lock:
+                reasons = dict(invalid_symbols_reason_cache)
+
+            market_label = "Futures" if MARKET_MODE == "futures" else "Spot"
+            lines = [f"❌ <b>عملات غير متاحة حالياً على Binance {market_label}:</b>"]
+            for s in bad:
+                lines.append(f"• <code>{s}</code> — {reasons.get(s, 'UNKNOWN')}")
+            send_telegram("\n".join(lines), chat_id)
+        else:
+            send_telegram("✅ كل العملات في القائمة متاحة وتعمل بشكل صحيح.", chat_id)
+
+    elif txt == "/status":
+        _cmd_status(chat_id)
+
+    elif txt == "/hard_filters":
+        handle_hard_filters_command(chat_id, "buy")
+
+    elif txt == "/hard_filters_sell":
+        handle_hard_filters_command(chat_id, "sell")
+
+    # المساعدة
+    elif txt == "/help":
+        send_telegram(
+            "📋 <b>الأوامر المتاحة:</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>📊 التقارير:</b>\n"
+            "1️⃣ <code>1</code> أو <code>/today</code> — إشارات اليوم\n"
+            "2️⃣ <code>2</code> أو <code>/yesterday</code> — إشارات أمس\n"
+            "3️⃣ <code>3</code> أو <code>/week</code> — آخر 7 أيام\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>🔍 التحليل:</b>\n"
+            "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
+            "🔴 <code>/cascade_diag_sell</code> أو <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>🎯 الناجحون (شراء):</b>\n"
+            "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"
+            "🟢 <code>/survivors7</code> — الناجحون حتى الخطوة 7\n"
+            "🟢 <code>/survivors8</code> — الناجحون حتى الخطوة 8\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>🎯 الناجحون (بيع):</b>\n"
+            "🔴 <code>/survivors6_sell</code> — الناجحون حتى الخطوة 6\n"
+            "🔴 <code>/survivors7_sell</code> — الناجحون حتى الخطوة 7\n"
+            "🔴 <code>/survivors8_sell</code> — الناجحون حتى الخطوة 8\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>⚠️ الفلاتر القاسية:</b>\n"
+            "⚠️ <code>/hard_filters</code> — أقسى الفلاتر (شراء)\n"
+            "⚠️ <code>/hard_filters_sell</code> — أقسى الفلاتر (بيع)\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>📈 أخرى:</b>\n"
+            "📊 <code>/status</code> — حالة البوت\n"
+            "📛 <code>/invalid_symbols</code> — عرض العملات غير المتاحة حالياً\n"
+            "🔎 <code>/check5 [symbol]</code> — فحص 1m بدلاً من 5m (الاسم محفوظ للتوافق)\n"
+            "📋 <code>/help</code> — هذه القائمة",
+            chat_id,
+        )
+        
+def poll_telegram_commands():
+    last_id = 0
+    while True:
+        try:
+            r = get_session().get(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
+                params={"offset": last_id + 1, "timeout": 30},
+                timeout=35,
+            ).json()
+            for upd in r.get("result", []):
+                last_id = upd["update_id"]
+                txt = upd.get("message", {}).get("text", "").strip()
+                chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
+                if txt and chat_id:
+                    threading.Thread(target=_dispatch_command, args=(txt, chat_id), daemon=True).start()
+        except Exception as e:
+            log.error(f"poll_telegram_commands error: {e}")
+            time.sleep(10)
+
+def next_candle_close():
+    now = datetime.now(timezone.utc)
+    total_seconds = now.minute * 60 + now.second
+    min_wait = 999999
+    for tf in TIMEFRAME_CHAIN:
+        tf_seconds = tf * 60
+        remaining = tf_seconds - (total_seconds % tf_seconds)
+        if remaining < min_wait:
+            min_wait = remaining
+    return min_wait + 1
+_scan_lock = threading.Lock()
+
+def cascade_watcher():
+    while True:
+        try:
+            if fast_prefetch_done.is_set():
+                with ohlcv_cache_lock:
+                    if len(ohlcv_cache) < 200:  # تأكد الكاش فيه بيانات
+                        time.sleep(30)
+                        continue
+                # ✅ fetch مرة واحدة للاثنين — أضفنا 30m لضمان فريش دائمًا
+                with symbols_cache_lock:
+                    syms = list(symbols_cache)
+
+                def fetch_fresh(sym):
+                    for tf in ["1m", "30m", "60m"]:
+                        df = get_ohlcv(sym, tf, limit=3)
+                        if not df.empty:
+                            cache_merge(sym, tf, df)
+
+                with ThreadPoolExecutor(max_workers=30) as executor:
+                    executor.map(fetch_fresh, syms)
+
+                # 🔄 سكان كامل (1-8) — كل استيقاظة (بدون تخطي دورات)
+                # مع قفل يمنع تشغيل سكان جديد قبل انتهاء القديم
+                if _scan_lock.acquire(blocking=False):
+                    try:
+                        t1 = threading.Thread(target=run_cascade_scan, daemon=True)
+                        t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
+                        t1.start()
+                        t2.start()
+                        t1.join()
+                        t2.join()
+                        with _ribbon_cache_lock:
+                            _ribbon_cache.clear()
+                        trim_memory()
+                    finally:
+                        _scan_lock.release()
+                else:
+                    log.warning("⏭️ تخطي السكان — السكان السابق لسه شغال")
+
+            time.sleep(next_candle_close())
+        except Exception as e:
+            log.error("❌ خطأ في cascade_watcher: %s", e)
+            time.sleep(5)
+
+def cleanup_old_symbols_cache():
+    with symbols_cache_lock:
+        active_symbols = set(symbols_cache)
+    with ohlcv_cache_lock:
+        stale_keys = [k for k in ohlcv_cache if k[0] not in active_symbols]
+        for k in stale_keys:
+            del ohlcv_cache[k]
+    if stale_keys:
+        log.info("🧹 حذف %d مفتاح كاش قديم", len(stale_keys))
+
+def trim_memory():
+    try:
+        rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except Exception:
+        rss_before = None
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception as e:
+        log.error("malloc_trim error: %s", e)
+
+    if rss_before is not None:
+        try:
+            rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            log.info("🧹 trim_memory: peak RSS قبل=%s KB، بعد=%s KB (peak قد لا يقل حتى مع نجاح trim)", rss_before, rss_after)
+        except Exception:
+            pass
+            
+def update_symbols_loop():
+    first_run = True
+    while True:
+        try:
+            valid_symbols, invalid_symbols, invalid_reasons = validate_symbols_with_reasons(CUSTOM_SYMBOLS, market="spot")
+
+            with symbols_cache_lock:
+                symbols_cache[:] = valid_symbols
+            with invalid_symbols_lock:
+                invalid_symbols_cache[:] = invalid_symbols
+            with invalid_symbols_reason_lock:
+                invalid_symbols_reason_cache.clear()
+                invalid_symbols_reason_cache.update(invalid_reasons)
+
+            log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
+            if invalid_symbols:
+                log.warning("❌ العملات غير الصالحة: %s", invalid_symbols)
+
+            cleanup_old_symbols_cache()
+
+            if invalid_symbols:
+                msg_lines = ["⚠️ <b>عملات غير متاحة على Binance Spot ولن يتم مسحها:</b>", "━━━━━━━━━━━━━━━━━━━━"]
+                msg_lines += [f"❌ <code>{s}</code>" for s in invalid_symbols]
+                send_telegram("\n".join(msg_lines))
+            elif first_run:
+                send_telegram(f"✅ جميع العملات ({len(valid_symbols)}) صالحة ومتاحة على Binance.")
+
+            if not fast_prefetch_done.is_set():
+                threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()
+
+            first_run = False
+        except Exception as exc:
+            log.error("update_symbols_loop: %s", exc)
+        time.sleep(3600)
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, *_):
+        pass
+
+def thread_exception_handler(args):
+    msg = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+    thread_name = args.thread.name if args.thread else "unknown"
+    log.error("💥 خطأ في Thread [%s]:\n%s", thread_name, msg)
+    try:
+        send_telegram(f"⚠️ <b>خطأ في Thread {thread_name}:</b>\n<code>{args.exc_value}</code>")
+    except Exception:
+        pass
+
+
+def run_forever(target, name):
+    def wrapper():
+        while True:
+            try:
+                target()
+            except Exception as e:
+                log.error("💥 %s توقف بخطأ، سيُعاد تشغيله خلال 10 ثواني: %s", name, e)
+                try:
+                    send_telegram(f"🔄 <b>{name}</b> توقف وسيُعاد تشغيله تلقائياً.\n<code>{e}</code>")
+                except Exception:
+                    pass
+                time.sleep(10)
+
+    threading.Thread(target=wrapper, name=name, daemon=True).start()
+
+
+def main():
+    def handle_exception(exc_type, exc_value, exc_tb):
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        log.error("💥 خطأ غير متوقع أوقف البوت:\n%s", msg)
+        try:
+            send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")
+        except Exception:
+            pass
+
+    sys.excepthook = handle_exception
+    threading.excepthook = thread_exception_handler
+
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log.info("✅ Health server شغّال على port %s", PORT)
+
+    delete_webhook()
+
+    if MARKET_MODE == "futures":
+        run_forever(update_symbols_loop_futures, "update_symbols_loop_futures")
+        threading.Thread(target=cache_updater_1m_futures, daemon=True).start()
+        threading.Thread(target=cache_updater_60m_futures, daemon=True).start()
+        threading.Thread(target=cache_updater_30m_futures, daemon=True).start()
+    else:
+        run_forever(update_symbols_loop, "update_symbols_loop")
+        threading.Thread(target=cache_updater_1m, daemon=True).start()
+        threading.Thread(target=cache_updater_60m, daemon=True).start()
+        threading.Thread(target=cache_updater_30m, daemon=True).start()
+
+    run_forever(poll_telegram_commands, "poll_telegram_commands")
+    run_forever(cascade_watcher, "cascade_watcher")
+    run_forever(quick_check_watcher, "quick_check_watcher")
+
+    send_telegram("🚀 <b>البوت انطلق — استراتيجية مزدوجة (شراء + بيع)</b>")
+
+    while True:
+        try:
+            time.sleep(300)
+            cleanup_alerted_keys()
+            with ohlcv_cache_lock:
+                cache_size = len(ohlcv_cache)
+            with trades_lock:
+                signals_count = len(trades_history)
+            log.info(
+                "💓 البوت يعمل | كاش: %s مفتاح | إشارات: %s | سريع: %s | كامل: %s",
+                cache_size,
+                signals_count,
+                "✅" if fast_prefetch_done.is_set() else "⏳",
+                "✅" if prefetch_done.is_set() else "⏳",
+            )
+        except Exception as exc:
+            log.error("❌ خطأ في main loop: %s\n%s", exc, traceback.format_exc())
+            time.sleep(10)
+            
+if __name__ == "__main__":
+    main()
