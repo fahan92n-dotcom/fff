@@ -531,7 +531,7 @@ def _store_step5_waiters(signal_type, candidates):
             for (sig_type, sym), entry_time in list(step5_entry_time.items()):
                 if sig_type == signal_type:
                     elapsed = (now - entry_time).total_seconds()
-                    if elapsed > STEP5_MAX_WAIT_SECONDS:
+                    if elapsed > STEP5_MAX_WAIT_SECONDS = None
                         to_remove.append(sym)
         
         for sym in to_remove:
