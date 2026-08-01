@@ -382,7 +382,7 @@ step7_ready_since_lock = threading.Lock()
 
 step5_entry_time = {}  # (signal_type, sym) → timestamp
 step5_entry_time_lock = threading.Lock()
-STEP5_MAX_WAIT_SECONDS = 4 * 3600  # 4 ساعات
+STEP5_MAX_WAIT_SECONDS = None  # بدون انتهاء زمني
 
 _ribbon_cache = {}
 _ribbon_cache_lock = threading.Lock()
