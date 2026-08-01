@@ -2426,7 +2426,7 @@ def quick_check_watcher():
 
                     if step7_queue:
                         refreshed_step7 = []
-                    for candidate in step7_queue:
+                        for candidate in step7_queue:
                         candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
                         if candidate2 is not None:
                             refreshed_step7.append(candidate2)
