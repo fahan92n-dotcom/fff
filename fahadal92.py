@@ -2270,7 +2270,7 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 def _refresh_and_validate_step5(candidate, get_resampled):
     """
     تحديث البيانات وإعادة فحص الشروط 2-5 قبل step6 (LONG)
-    إذا تغيّرت أي شرط → حذف المرشح من survivors
+    ✅ إذا خرج من التشبع (-40) ولم يجي دخول → احذف المرشح فوراً
     """
     sym = candidate["sym"]
     
@@ -2284,6 +2284,15 @@ def _refresh_and_validate_step5(candidate, get_resampled):
     
     if df_base.empty or df_confirm.empty or len(df_base) < MIN_CANDLES:
         return None
+    
+    # ✅ فحص جديد: هل خرج من التشبع SMI؟
+    smi, _, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
+    current_smi = float(smi.iloc[-1])
+    
+    # لو الـ SMI الحالي > -40 (خرج من التشبع) → احذف فوراً
+    # لأن الفرصة انتهت بدون دخول
+    if current_smi > -40:
+        return None  # ❌ خرج من التشبع بدون دخول = انتهت الفرصة
     
     # ✅ الشرط 2: MACD أحمر + MACD Line منخفض
     if not check_macd_red(df_base) or not check_macd_line_long(df_base):
@@ -2315,7 +2324,7 @@ def _refresh_and_validate_step5(candidate, get_resampled):
 def _refresh_and_validate_step5_short(candidate, get_resampled):
     """
     تحديث البيانات وإعادة فحص الشروط 2-5 قبل step6 (SHORT)
-    إذا تغيّرت أي شرط → حذف المرشح من survivors
+    ✅ إذا خرج من التشبع (+40) ولم يجي دخول → احذف المرشح فوراً
     """
     sym = candidate["sym"]
     
@@ -2329,6 +2338,15 @@ def _refresh_and_validate_step5_short(candidate, get_resampled):
     
     if df_base.empty or df_confirm.empty or len(df_base) < MIN_CANDLES:
         return None
+    
+    # ✅ فحص جديد: هل خرج من التشبع SMI؟
+    smi, _, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
+    current_smi = float(smi.iloc[-1])
+    
+    # لو الـ SMI الحالي < 40 (خرج من التشبع) → احذف فوراً
+    # لأن الفرصة انتهت بدون دخول
+    if current_smi < 40:
+        return None  # ❌ خرج من التشبع بدون دخول = انتهت الفرصة
     
     # ✅ الشرط 2: MACD أخضر + MACD Line مرتفع
     if not check_macd_green(df_base) or not check_macd_line_short(df_base):
@@ -2355,7 +2373,6 @@ def _refresh_and_validate_step5_short(candidate, get_resampled):
     candidate["get_resampled"] = get_resampled
     
     return candidate
-
         
 # ------------------------------------------
 # QUICK CHECK - Steps 6-8 on saved Step5/6/7 survivors
