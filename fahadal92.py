@@ -2469,12 +2469,11 @@ def quick_check_watcher():
                     if refreshed:
                         validated_buy_stage5.append(refreshed)
                     else:
-                        # فشل إعادة التحقق → احذفه من stage 5
                         candidate_key = get_candidate_key(candidate)
                         with last_complete_lock:
                             _remove_stage_candidate(last_complete_survivors, 5, candidate_key)
 
-                # استكمل مع البيانات المحدثة والمتحققة - stage 5 → 6
+                # stage 5 -> 6
                 if validated_buy_stage5:
                     step6_results_batch = _run_step_batch(validated_buy_stage5, step6, 6, "LONG")
                     _update_last_complete_step("buy", 6, step6_results_batch)
@@ -2492,7 +2491,7 @@ def quick_check_watcher():
                             _set_ready_since(step6_ready_since, step6_ready_since_lock, ready_key, now_ts)
                         _promote_candidates("buy", 5, 6, step6_passed)
 
-                # stage 6 → 7
+                # stage 6 -> 7
                 with last_complete_lock:
                     step6_queue = list(last_complete_survivors.get(6, []))
 
@@ -2502,6 +2501,10 @@ def quick_check_watcher():
                         candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
                         if candidate2 is not None:
                             refreshed_step6.append(candidate2)
+                        else:
+                            candidate_key = get_candidate_key(candidate)
+                            with last_complete_lock:
+                                _remove_stage_candidate(last_complete_survivors, 6, candidate_key)
 
                     if refreshed_step6:
                         step7_results_batch = _run_step_batch(refreshed_step6, step7, 7, "LONG")
@@ -2520,38 +2523,42 @@ def quick_check_watcher():
                                 _set_ready_since(step7_ready_since, step7_ready_since_lock, ready_key, now_ts)
                             _promote_candidates("buy", 6, 7, step7_passed)
 
-                # stage 7 → 8
+                # stage 7 -> 8 (gated)
                 with last_complete_lock:
                     step7_queue = list(last_complete_survivors.get(7, []))
 
-                    if step7_queue:
-                        refreshed_step7 = []
-                        for candidate in step7_queue:
-                            candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
-                            if candidate2 is not None:
-                                refreshed_step7.append(candidate2)
+                refreshed_step7 = []
+                if step7_queue:
+                    for candidate in step7_queue:
+                        candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
+                        if candidate2 is not None:
+                            refreshed_step7.append(candidate2)
+                        else:
+                            candidate_key = get_candidate_key(candidate)
+                            with last_complete_lock:
+                                _remove_stage_candidate(last_complete_survivors, 7, candidate_key)
 
-                    if refreshed_step7:
-                        step8_results_batch = _run_step_batch(refreshed_step7, step8, 8, "LONG")
-                        _update_last_complete_step("buy", 8, step8_results_batch)
-                        step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
+                if refreshed_step7:
+                    step8_results_batch = _run_step_batch(refreshed_step7, step8, 8, "LONG")
+                    _update_last_complete_step("buy", 8, step8_results_batch)
+                    step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
 
-                        if step8_passed:
-                            _set_step8_survivors("buy", step8_passed)
-                            for candidate in step8_passed:
-                                _fire_signal(
-                                    candidate["sym"],
-                                    candidate["base_frame"],
-                                    candidate["confirm_frame"],
-                                    candidate["triple_frame"],
-                                    candidate["df_base"],
-                                    signal_type="buy",
-                                )
-                            log.info(
-                                "⚡ Quick check (LONG): %d إشارة من %d مرشح محفوظ",
-                                len(step8_passed),
-                                len(refreshed_step7),
+                    if step8_passed:
+                        _set_step8_survivors("buy", step8_passed)
+                        for candidate in step8_passed:
+                            _fire_signal(
+                                candidate["sym"],
+                                candidate["base_frame"],
+                                candidate["confirm_frame"],
+                                candidate["triple_frame"],
+                                candidate["df_base"],
+                                signal_type="buy",
                             )
+                        log.info(
+                            "⚡ Quick check (LONG): %d إشارة من %d مرشح محفوظ",
+                            len(step8_passed),
+                            len(refreshed_step7),
+                        )
 
                 # ============ SHORT ============
                 # التحقق من stage 5
@@ -2561,12 +2568,11 @@ def quick_check_watcher():
                     if refreshed:
                         validated_sell_stage5.append(refreshed)
                     else:
-                        # فشل إعادة التحقق → احذفه من stage 5
                         candidate_key = get_candidate_key(candidate)
                         with last_complete_short_lock:
                             _remove_stage_candidate(last_complete_short_survivors, 5, candidate_key)
 
-                # استكمل مع البيانات المحدثة والمتحققة - stage 5 → 6
+                # stage 5 -> 6
                 if validated_sell_stage5:
                     step6_results_batch = _run_step_batch(validated_sell_stage5, short_step6, 6, "SHORT")
                     _update_last_complete_step("sell", 6, step6_results_batch)
@@ -2584,7 +2590,7 @@ def quick_check_watcher():
                             _set_ready_since(step6_ready_since, step6_ready_since_lock, ready_key, now_ts)
                         _promote_candidates("sell", 5, 6, step6_passed)
 
-                # stage 6 → 7
+                # stage 6 -> 7
                 with last_complete_short_lock:
                     step6_queue = list(last_complete_short_survivors.get(6, []))
 
@@ -2594,6 +2600,10 @@ def quick_check_watcher():
                         candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
                         if candidate2 is not None:
                             refreshed_step6.append(candidate2)
+                        else:
+                            candidate_key = get_candidate_key(candidate)
+                            with last_complete_short_lock:
+                                _remove_stage_candidate(last_complete_short_survivors, 6, candidate_key)
 
                     if refreshed_step6:
                         step7_results_batch = _run_step_batch(refreshed_step6, short_step7, 7, "SHORT")
@@ -2612,38 +2622,42 @@ def quick_check_watcher():
                                 _set_ready_since(step7_ready_since, step7_ready_since_lock, ready_key, now_ts)
                             _promote_candidates("sell", 6, 7, step7_passed)
 
-                # stage 7 → 8
+                # stage 7 -> 8 (gated)
                 with last_complete_short_lock:
                     step7_queue = list(last_complete_short_survivors.get(7, []))
 
+                refreshed_step7 = []
                 if step7_queue:
-                    refreshed_step7 = []
                     for candidate in step7_queue:
                         candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
                         if candidate2 is not None:
                             refreshed_step7.append(candidate2)
+                        else:
+                            candidate_key = get_candidate_key(candidate)
+                            with last_complete_short_lock:
+                                _remove_stage_candidate(last_complete_short_survivors, 7, candidate_key)
 
-                    if refreshed_step7:
-                        step8_results_batch = _run_step_batch(refreshed_step7, short_step8, 8, "SHORT")
-                        _update_last_complete_step("sell", 8, step8_results_batch)
-                        step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
+                if refreshed_step7:
+                    step8_results_batch = _run_step_batch(refreshed_step7, short_step8, 8, "SHORT")
+                    _update_last_complete_step("sell", 8, step8_results_batch)
+                    step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
 
-                        if step8_passed:
-                            _set_step8_survivors("sell", step8_passed)
-                            for candidate in step8_passed:
-                                _fire_signal(
-                                    candidate["sym"],
-                                    candidate["base_frame"],
-                                    candidate["confirm_frame"],
-                                    candidate["triple_frame"],
-                                    candidate["df_base"],
-                                    signal_type="sell",
-                                )
-                            log.info(
-                                "⚡ Quick check (SHORT): %d إشارة من %d مرشح محفوظ",
-                                len(step8_passed),
-                                len(refreshed_step7),
+                    if step8_passed:
+                        _set_step8_survivors("sell", step8_passed)
+                        for candidate in step8_passed:
+                            _fire_signal(
+                                candidate["sym"],
+                                candidate["base_frame"],
+                                candidate["confirm_frame"],
+                                candidate["triple_frame"],
+                                candidate["df_base"],
+                                signal_type="sell",
                             )
+                        log.info(
+                            "⚡ Quick check (SHORT): %d إشارة من %d مرشح محفوظ",
+                            len(step8_passed),
+                            len(refreshed_step7),
+                        )
 
                 # تحديث آخر وقت scan
                 with last_complete_scan_time_lock:
