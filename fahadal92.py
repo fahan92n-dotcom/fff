@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 # Main Settings
 # ------------------------------------------
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003968771145")
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
