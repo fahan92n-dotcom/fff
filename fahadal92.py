@@ -2424,7 +2424,7 @@ def quick_check_watcher():
                 with last_complete_lock:
                     step7_queue = list(last_complete_survivors.get(7, []))
 
-                if step7_queue:
+                    if step7_queue:
                     refreshed_step7 = []
                     for candidate in step7_queue:
                         candidate2 = _refresh_waiting_candidate(candidate, get_resampled, need_triple=True)
@@ -2434,8 +2434,7 @@ def quick_check_watcher():
                     if refreshed_step7:
                         step8_results_batch = _run_step_batch(refreshed_step7, step8, 8, "LONG")
                         _update_last_complete_step("buy", 8, step8_results_batch)
-                        step8_passed = [candidate for candidate, ok
-                                                step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
+                        step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
 
                         if step8_passed:
                             _set_step8_survivors("buy", step8_passed)
