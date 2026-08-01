@@ -1606,10 +1606,29 @@ def step1(c):
     return True, "passed"
 
 def step2(c):
-    if not check_macd_red(c["df_base"]):
-        return False, "macd_red"
-    if not check_macd_line_long(c["df_base"]):
-        return False, "macd_red"
+    """✅ MACD الفريم الأساسي - كل الشروط مرتبطة (LONG)"""
+    macd_line, signal_line, histogram = _calc_macd_full(c["df_base"]["close"])
+    
+    current_hist = float(histogram.iloc[-1])
+    current_macd = float(macd_line.iloc[-1])
+    
+    # ✅ الشرط 1: Histogram أحمر (< 0)
+    if current_hist >= 0:
+        return False, "macd_histogram_not_red"
+    
+    # ✅ الشرط 2: الخط الأزرق فوق الهوستقرام
+    if current_macd < current_hist:
+        return False, "macd_line_not_above_histogram"
+    
+    # ✅ الشرط 3: الخط الأزرق ≤ 40% من أقصى ارتفاع (من 0)
+    today_candles = 1440  # آخر 24 ساعة
+    macd_today = macd_line.iloc[-today_candles:] if len(macd_line) >= today_candles else macd_line
+    max_24h = float(macd_today.max())
+    threshold = max_24h * 0.40
+    
+    if current_macd > threshold:
+        return False, "macd_line_exceeds_40_percent"
+    
     return True, "passed"
 
 def step3(c):
