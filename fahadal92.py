@@ -2340,6 +2340,104 @@ def run_quick_step78(signal_type="buy"):
 
 def run_quick_step78_short():
     run_quick_step78(signal_type="sell")
+    
+    
+def _refresh_and_validate_step5(candidate, get_resampled):
+    """
+    تحديث البيانات وإعادة فحص الشروط 2-5 قبل step6
+    إذا تغيّرت أي شرط → حذف المرشح من survivors
+    """
+    sym = candidate["sym"]
+    
+    # تحديث البيانات
+    raw_base = get_cached(sym, candidate["base_api"])
+    if raw_base.empty:
+        return None  # فشل جلب البيانات
+    
+    df_base = get_resampled(raw_base, sym, candidate["base_api"], candidate["base_frame"])
+    df_confirm = get_resampled(raw_base, sym, candidate["base_api"], candidate["confirm_frame"])
+    
+    if df_base.empty or df_confirm.empty or len(df_base) < MIN_CANDLES:
+        return None
+    
+    # ✅ إعادة فحص الشروط 2-5
+    # الشرط 2: MACD أحمر (LONG) / أخضر (SHORT)
+    if not check_macd_red(df_base):
+        return None
+    
+    if not check_macd_line_long(df_base):
+        return None
+    
+    # الشرط 3: Donchian Base أخضر (LONG) / أحمر (SHORT)
+    key3 = (sym, candidate["base_api"], candidate["base_frame"])
+    if not check_donchian_trend_ribbon(df_base, "green", cache_key=key3):
+        return None
+    
+    # الشرط 4: Donchian Confirm أخضر (LONG) / أحمر (SHORT)
+    key4 = (sym, candidate["base_api"], candidate["confirm_frame"])
+    if not check_donchian_trend_ribbon(df_confirm, "green", cache_key=key4):
+        return None
+    
+    # الشرط 5: MACD Confirm أخضر (LONG) / أحمر (SHORT)
+    if not check_macd_green(df_confirm):
+        return None
+    
+    # ✅ كل شيء بخير، حدّث البيانات
+    candidate["df_base"] = df_base
+    candidate["df_confirm"] = df_confirm
+    candidate["raw_base"] = raw_base
+    candidate["get_resampled"] = get_resampled
+    
+    return candidate
+
+
+def _refresh_and_validate_step5_short(candidate, get_resampled):
+    """
+    تحديث البيانات وإعادة فحص الشروط 2-5 للـ SHORT قبل step6
+    إذا تغيّرت أي شرط → حذف المرشح من survivors
+    """
+    sym = candidate["sym"]
+    
+    # تحديث البيانات
+    raw_base = get_cached(sym, candidate["base_api"])
+    if raw_base.empty:
+        return None
+    
+    df_base = get_resampled(raw_base, sym, candidate["base_api"], candidate["base_frame"])
+    df_confirm = get_resampled(raw_base, sym, candidate["base_api"], candidate["confirm_frame"])
+    
+    if df_base.empty or df_confirm.empty or len(df_base) < MIN_CANDLES:
+        return None
+    
+    # ✅ إعادة فحص الشروط 2-5 للـ SHORT
+    # الشرط 2: MACD أخضر
+    if not check_macd_green(df_base):
+        return None
+    
+    if not check_macd_line_short(df_base):
+        return None
+    
+    # الشرط 3: Donchian Base أحمر
+    key3 = (sym, candidate["base_api"], candidate["base_frame"])
+    if not check_donchian_trend_ribbon(df_base, "red", cache_key=key3):
+        return None
+    
+    # الشرط 4: Donchian Confirm أحمر
+    key4 = (sym, candidate["base_api"], candidate["confirm_frame"])
+    if not check_donchian_trend_ribbon(df_confirm, "red", cache_key=key4):
+        return None
+    
+    # الشرط 5: MACD Confirm أحمر
+    if not check_macd_red(df_confirm):
+        return None
+    
+    # ✅ كل شيء بخير، حدّث البيانات
+    candidate["df_base"] = df_base
+    candidate["df_confirm"] = df_confirm
+    candidate["raw_base"] = raw_base
+    candidate["get_resampled"] = get_resampled
+    
+    return candidate
 
 
 # ⬇️ أضف هنا
