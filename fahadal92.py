@@ -375,6 +375,8 @@ cache_updated_event = threading.Event()
 
 step6_ready_since = {}
 step6_ready_since_lock = threading.Lock()
+step1_ready_since = {}
+step1_ready_since_lock = threading.Lock()
 step7_ready_since = {}
 step7_ready_since_lock = threading.Lock()
 
@@ -491,11 +493,7 @@ def _store_step5_waiters(signal_type, candidates):
     survivors_dict, surv_lock = _get_stage_maps(signal_type)
     with surv_lock:
         blocked = _candidate_keys_in_stages(survivors_dict, (6, 7))
-        stage5 = {
-            get_candidate_key(candidate): candidate
-            for candidate in survivors_dict.get(5, [])
-            if get_candidate_key(candidate) not in blocked
-        }
+        stage5 = {}
         for candidate in candidates:
             key = get_candidate_key(candidate)
             if key in blocked:
@@ -533,6 +531,8 @@ def _clear_waiting_candidate(symbol, base_frame, confirm_frame, triple_frame, si
             _remove_stage_candidate(survivors_dict, stage_num, candidate_key)
     with step6_ready_since_lock:
         step6_ready_since.pop(ready_key, None)
+    with step1_ready_since_lock:
+        step1_ready_since.pop(ready_key, None)
     with step7_ready_since_lock:
         step7_ready_since.pop(ready_key, None)
 
@@ -1455,10 +1455,29 @@ def check_rsi_touched_since(df, since_ts, threshold=35, direction="long"):
         return bool((rsi >= threshold).any())
 
 
+def check_smi_touched_since(df, since_ts, threshold=-40, direction="long"):
+    if df.empty or since_ts is None or len(df) < WARMUP_SMI:
+        return False
+    window = df[df["ts"] >= since_ts].copy()
+    if window.empty:
+        return False
+    smi, _, _ = calc_smi(window["high"], window["low"], window["close"])
+    if direction == "long":
+        return bool((smi <= threshold).any())
+    else:
+        return bool((smi >= threshold).any())
+
+
 def get_ready_since(symbol, base_frame, confirm_frame, triple_frame, signal_type="buy"):
     key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
     with step7_ready_since_lock:
         return step7_ready_since.get(key)
+
+
+def get_step1_ready_since(symbol, base_frame, confirm_frame, triple_frame, signal_type="buy"):
+    key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
+    with step1_ready_since_lock:
+        return step1_ready_since.get(key)
 
 def check_rsi_closed_overbought(df, threshold=65):
     if len(df) < WARMUP_RSI:
@@ -1584,7 +1603,9 @@ def step7(c):
     return True, "passed"
 
 def step8(c):
-    since_ts = get_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "buy")
+    since_ts = get_step1_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "buy")
+    if not check_smi_touched_since(c["df_triple"], since_ts, threshold=-40, direction="long"):
+        return False, "smi_touch_since_ready"
     if not check_rsi_touched_since(c["df_triple"], since_ts, threshold=35, direction="long"):
         return False, "rsi_touch_since_ready"
     if not check_rsi_stoch(c["df_triple"], since_ts, max_gap=3):
@@ -1647,7 +1668,9 @@ def short_step7(c):
     return True, "passed"
 
 def short_step8(c):
-    since_ts = get_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
+    since_ts = get_step1_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
+    if not check_smi_touched_since(c["df_triple"], since_ts, threshold=40, direction="short"):
+        return False, "smi_touch_since_ready_short"
     if not check_rsi_touched_since(c["df_triple"], since_ts, threshold=65, direction="short"):
         return False, "rsi_touch_since_ready_short"
     if not check_rsi_stoch_short(c["df_triple"], since_ts, max_gap=3):
@@ -1757,6 +1780,15 @@ def run_cascade_scan():
                 cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
                 if ok:
                     cascade_stats[step_num]["passed"] += 1
+                    if step_num == 1:
+                        ready_key = get_signal_key(
+                            c["sym"],
+                            c["base_frame"],
+                            c["confirm_frame"],
+                            c["triple_frame"],
+                            "buy",
+                        )
+                        _set_ready_since(step1_ready_since, step1_ready_since_lock, ready_key)
                     passed.append(c)
     
                 log.info("📍 خطوة %d (LONG): %d/%d نجحوا", step_num, len(passed), len(results))
@@ -1884,6 +1916,15 @@ def run_short_cascade_scan():
                     short_cascade_results[step_num][key] = {"passed": ok, "reason": reason, "time": now}
                     if ok:
                         short_cascade_stats[step_num]["passed"] += 1
+                        if step_num == 1:
+                            ready_key = get_signal_key(
+                                c["sym"],
+                                c["base_frame"],
+                                c["confirm_frame"],
+                                c["triple_frame"],
+                                "sell",
+                            )
+                            _set_ready_since(step1_ready_since, step1_ready_since_lock, ready_key)
                         passed.append(c)
 
             log.info("📍 خطوة %d (SHORT): %d/%d نجحوا", step_num, len(passed), len(results))
