@@ -495,15 +495,51 @@ def _candidate_keys_in_stages(survivors_dict, stages):
 
 def _store_step5_waiters(signal_type, candidates):
     survivors_dict, surv_lock = _get_stage_maps(signal_type)
+    now = datetime.now(timezone.utc)
+    
     with surv_lock:
         blocked = _candidate_keys_in_stages(survivors_dict, (6, 7))
-        stage5 = {}
+        
+        # استراتيجية: لكل عملة + نوع frame واحد بس (الأكبر)
+        stage5_by_symbol = {}
+        
         for candidate in candidates:
             key = get_candidate_key(candidate)
             if key in blocked:
                 continue
-            stage5[key] = candidate
-        survivors_dict[5] = list(stage5.values())
+            
+            sym = candidate["sym"]
+            base_frame = candidate["base_frame"]
+            
+            # لو أول مرة للعملة دي
+            if sym not in stage5_by_symbol:
+                stage5_by_symbol[sym] = candidate
+                # سجل وقت دخول هذا المرشح
+                with step5_entry_time_lock:
+                    step5_entry_time[(signal_type, sym)] = now
+            else:
+                # لو الجديد أكبر من القديم → استبدل (احذف الأصغر)
+                if base_frame > stage5_by_symbol[sym]["base_frame"]:
+                    stage5_by_symbol[sym] = candidate
+                    # حدّث الوقت (frame جديد)
+                    with step5_entry_time_lock:
+                        step5_entry_time[(signal_type, sym)] = now
+        
+        # ✅ احذف المرشحات اللي تجاوزت 4 ساعات
+        to_remove = []
+        with step5_entry_time_lock:
+            for (sig_type, sym), entry_time in list(step5_entry_time.items()):
+                if sig_type == signal_type:
+                    elapsed = (now - entry_time).total_seconds()
+                    if elapsed > STEP5_MAX_WAIT_SECONDS:
+                        to_remove.append(sym)
+        
+        for sym in to_remove:
+            stage5_by_symbol.pop(sym, None)
+            with step5_entry_time_lock:
+                step5_entry_time.pop((signal_type, sym), None)
+        
+        survivors_dict[5] = list(stage5_by_symbol.values())
 
 def _promote_candidates(signal_type, from_stage, to_stage, candidates):
     if not candidates:
