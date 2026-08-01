@@ -1303,8 +1303,8 @@ def check_rsi_closed_overbought(df, threshold=65):
     rsi = calc_rsi_tv(df["close"], period=14)
     return bool(rsi.iloc[-1] >= threshold)
 
-def check_rsi_stoch_short(df, lookback=10, max_gap=3):
-    if len(df) < WARMUP_RSI + lookback:
+def check_rsi_stoch_short(df, since_ts, max_gap=3):
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     rsi_sig = rsi.rolling(14).mean()
@@ -1320,10 +1320,15 @@ def check_rsi_stoch_short(df, lookback=10, max_gap=3):
         return False
     if current_rsi > float(rsi_sig.iloc[-1]):  # ارتد لفوق ❌ ارفض!
         return False
+
+    start_positions = df.index[df["ts"] >= since_ts]
+    if len(start_positions) < 2:
+        return False
+    start_pos = max(int(start_positions[0]), 1)
     
     stoch_crosses = []
     rsi_crosses = []
-    for i in range(-lookback, 0):
+    for i in range(start_pos, len(df)):
         try:
             if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
                 stoch_crosses.append(i)
@@ -1418,7 +1423,7 @@ def step8(c):
     since_ts = get_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "buy")
     if not check_rsi_touched_since(c["df_triple"], since_ts, threshold=35, direction="long"):
         return False, "rsi_touch_since_ready"
-    if not check_rsi_stoch(c["df_triple"]):
+    if not check_rsi_stoch(c["df_triple"], since_ts, max_gap=3):
         return False, "rsi_stoch"
     return True, "passed"
 
@@ -1481,7 +1486,7 @@ def short_step8(c):
     since_ts = get_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
     if not check_rsi_touched_since(c["df_triple"], since_ts, threshold=65, direction="short"):
         return False, "rsi_touch_since_ready_short"
-    if not check_rsi_stoch_short(c["df_triple"]):
+    if not check_rsi_stoch_short(c["df_triple"], since_ts, max_gap=3):
         return False, "rsi_stoch_short"
     return True, "passed"
 
@@ -1817,8 +1822,8 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
 
-def check_rsi_stoch(df, lookback=10, max_gap=3):
-    if len(df) < WARMUP_RSI + lookback:
+def check_rsi_stoch(df, since_ts, max_gap=3):
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     rsi_sig = rsi.rolling(14).mean()
@@ -1834,10 +1839,15 @@ def check_rsi_stoch(df, lookback=10, max_gap=3):
         return False
     if current_rsi < float(rsi_sig.iloc[-1]):  # ارتد ❌ ارفض!
         return False
+
+    start_positions = df.index[df["ts"] >= since_ts]
+    if len(start_positions) < 2:
+        return False
+    start_pos = max(int(start_positions[0]), 1)
     
     stoch_crosses = []
     rsi_crosses = []
-    for i in range(-lookback, 0):
+    for i in range(start_pos, len(df)):
         try:
             if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
                 stoch_crosses.append(i)
