@@ -525,14 +525,15 @@ def _store_step5_waiters(signal_type, candidates):
                     with step5_entry_time_lock:
                         step5_entry_time[(signal_type, sym)] = now
         
-        # ✅ احذف المرشحات اللي تجاوزت 4 ساعات
+        # ✅ احذف المرشحات اللي تجاوزت الحد الزمني (إن كان مضبوطاً)
         to_remove = []
-        with step5_entry_time_lock:
-            for (sig_type, sym), entry_time in list(step5_entry_time.items()):
-                if sig_type == signal_type:
-                    elapsed = (now - entry_time).total_seconds()
-                    if elapsed > STEP5_MAX_WAIT_SECONDS = None
-                        to_remove.append(sym)
+        if STEP5_MAX_WAIT_SECONDS is not None:
+            with step5_entry_time_lock:
+                for (sig_type, sym), entry_time in list(step5_entry_time.items()):
+                    if sig_type == signal_type:
+                        elapsed = (now - entry_time).total_seconds()
+                        if elapsed > STEP5_MAX_WAIT_SECONDS:
+                            to_remove.append(sym)
         
         for sym in to_remove:
             stage5_by_symbol.pop(sym, None)
@@ -2310,6 +2311,36 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 # تحديث الدوال - التحقق من الشروط 2-5
 # ------------------------------------------
 
+def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
+    """
+    ✅ يتحقق هل يوجد فريم أعلى من base_frame دخل تشبع (بيعي/شرائي حسب النوع).
+    ❌ إذا نعم، يجب إلغاء هذا المرشح فورًا لصالح الفريم الأكبر.
+    المقارنة اتجاه واحد فقط: الفريم الصغير يُلغى، الفريم الأكبر لا يتأثر أبداً.
+    """
+    sym = candidate["sym"]
+    base_frame = candidate["base_frame"]
+    base_api = candidate["base_api"]
+    raw_base = candidate.get("raw_base")
+    if raw_base is None or raw_base.empty:
+        raw_base = get_cached(sym, base_api)
+        if raw_base.empty:
+            return False
+
+    for tf in TIMEFRAME_CHAIN:
+        if tf <= base_frame:
+            continue
+        df_higher = get_resampled(raw_base, sym, base_api, tf)
+        if df_higher.empty:
+            continue
+        if signal_type == "buy":
+            if check_smi_oversold(df_higher):
+                return True
+        else:
+            if check_smi_overbought(df_higher, threshold=40):
+                return True
+    return False
+
+
 def _refresh_and_validate_step5(candidate, get_resampled):
     """
     تحديث البيانات وإعادة فحص الشروط 2-5 قبل step6 (LONG)
@@ -2336,7 +2367,12 @@ def _refresh_and_validate_step5(candidate, get_resampled):
     # لأن الفرصة انتهت بدون دخول
     if current_smi > -40:
         return None  # ❌ خرج من التشبع بدون دخول = انتهت الفرصة
-    
+
+    # ✅ فحص الأولوية: هل يوجد فريم أكبر دخل تشبعًا الآن؟ إن نعم، ألغِ الفريم الأصغر فورًا
+    candidate["raw_base"] = raw_base
+    if _has_higher_tf_saturation(candidate, "buy", get_resampled):
+        return None  # ❌ فريم أكبر دخل تشبع بيعي = الفريم الأصغر ملغى
+
     # ✅ الشرط 2: MACD أحمر + MACD Line منخفض
     if not check_macd_red(df_base) or not check_macd_line_long(df_base):
         return None
@@ -2358,7 +2394,6 @@ def _refresh_and_validate_step5(candidate, get_resampled):
     # ✅ كل شيء تمام، حدّث البيانات
     candidate["df_base"] = df_base
     candidate["df_confirm"] = df_confirm
-    candidate["raw_base"] = raw_base
     candidate["get_resampled"] = get_resampled
     
     return candidate
@@ -2390,7 +2425,12 @@ def _refresh_and_validate_step5_short(candidate, get_resampled):
     # لأن الفرصة انتهت بدون دخول
     if current_smi < 40:
         return None  # ❌ خرج من التشبع بدون دخول = انتهت الفرصة
-    
+
+    # ✅ فحص الأولوية: هل يوجد فريم أكبر دخل تشبعًا شرائيًا الآن؟ إن نعم، ألغِ الفريم الأصغر فورًا
+    candidate["raw_base"] = raw_base
+    if _has_higher_tf_saturation(candidate, "sell", get_resampled):
+        return None  # ❌ فريم أكبر دخل تشبع شرائي = الفريم الأصغر ملغى
+
     # ✅ الشرط 2: MACD أخضر + MACD Line مرتفع
     if not check_macd_green(df_base) or not check_macd_line_short(df_base):
         return None
@@ -2412,7 +2452,6 @@ def _refresh_and_validate_step5_short(candidate, get_resampled):
     # ✅ كل شيء تمام، حدّث البيانات
     candidate["df_base"] = df_base
     candidate["df_confirm"] = df_confirm
-    candidate["raw_base"] = raw_base
     candidate["get_resampled"] = get_resampled
     
     return candidate
@@ -2507,6 +2546,17 @@ def quick_check_watcher():
                                 _remove_stage_candidate(last_complete_survivors, 6, candidate_key)
 
                     if refreshed_step6:
+                        # ✅ فحص الأولوية: أزل أي مرشح يوجد فريم أكبر منه دخل تشبع الآن (Stage 6→7)
+                        filtered_step6 = []
+                        for c in refreshed_step6:
+                            if _has_higher_tf_saturation(c, "buy", get_resampled):
+                                candidate_key = get_candidate_key(c)
+                                with last_complete_lock:
+                                    _remove_stage_candidate(last_complete_survivors, 6, candidate_key)
+                            else:
+                                filtered_step6.append(c)
+                        refreshed_step6 = filtered_step6
+
                         step7_results_batch = _run_step_batch(refreshed_step6, step7, 7, "LONG")
                         _update_last_complete_step("buy", 7, step7_results_batch)
                         step7_passed = [candidate for candidate, ok, _ in step7_results_batch if ok]
@@ -2539,6 +2589,17 @@ def quick_check_watcher():
                                 _remove_stage_candidate(last_complete_survivors, 7, candidate_key)
 
                 if refreshed_step7:
+                    # ✅ حارس أخير: أزل أي مرشح يوجد فريم أكبر منه دخل تشبع (Stage 7→8، قبل الإطلاق)
+                    final_step7 = []
+                    for c in refreshed_step7:
+                        if _has_higher_tf_saturation(c, "buy", get_resampled):
+                            candidate_key = get_candidate_key(c)
+                            with last_complete_lock:
+                                _remove_stage_candidate(last_complete_survivors, 7, candidate_key)
+                        else:
+                            final_step7.append(c)
+                    refreshed_step7 = final_step7
+
                     step8_results_batch = _run_step_batch(refreshed_step7, step8, 8, "LONG")
                     _update_last_complete_step("buy", 8, step8_results_batch)
                     step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
@@ -2606,6 +2667,17 @@ def quick_check_watcher():
                                 _remove_stage_candidate(last_complete_short_survivors, 6, candidate_key)
 
                     if refreshed_step6:
+                        # ✅ فحص الأولوية: أزل أي مرشح يوجد فريم أكبر منه دخل تشبع الآن (Stage 6→7)
+                        filtered_step6 = []
+                        for c in refreshed_step6:
+                            if _has_higher_tf_saturation(c, "sell", get_resampled):
+                                candidate_key = get_candidate_key(c)
+                                with last_complete_short_lock:
+                                    _remove_stage_candidate(last_complete_short_survivors, 6, candidate_key)
+                            else:
+                                filtered_step6.append(c)
+                        refreshed_step6 = filtered_step6
+
                         step7_results_batch = _run_step_batch(refreshed_step6, short_step7, 7, "SHORT")
                         _update_last_complete_step("sell", 7, step7_results_batch)
                         step7_passed = [candidate for candidate, ok, _ in step7_results_batch if ok]
@@ -2638,6 +2710,17 @@ def quick_check_watcher():
                                 _remove_stage_candidate(last_complete_short_survivors, 7, candidate_key)
 
                 if refreshed_step7:
+                    # ✅ حارس أخير: أزل أي مرشح يوجد فريم أكبر منه دخل تشبع (Stage 7→8، قبل الإطلاق)
+                    final_step7 = []
+                    for c in refreshed_step7:
+                        if _has_higher_tf_saturation(c, "sell", get_resampled):
+                            candidate_key = get_candidate_key(c)
+                            with last_complete_short_lock:
+                                _remove_stage_candidate(last_complete_short_survivors, 7, candidate_key)
+                        else:
+                            final_step7.append(c)
+                    refreshed_step7 = final_step7
+
                     step8_results_batch = _run_step_batch(refreshed_step7, short_step8, 8, "SHORT")
                     _update_last_complete_step("sell", 8, step8_results_batch)
                     step8_passed = [candidate for candidate, ok, _ in step8_results_batch if ok]
