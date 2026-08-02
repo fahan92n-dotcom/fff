@@ -2556,6 +2556,10 @@ def quick_check_watcher():
     """يفحص الخطوات 6 و7 و8 كل 3 ثوانٍ على الناجحين المحفوظين تراتبياً"""
     while True:
         time.sleep(QUICK_CHECK_INTERVAL_SECONDS)
+        # مسح كاش Donchian Ribbon لإعادة حساب القيم من جديد في كل دورة
+        # (القيم القديمة قد تعكس شمعة سابقة وتُفسد نتائج step3/step4/step7)
+        with _ribbon_cache_lock:
+            _ribbon_cache.clear()
         try:
             if fast_prefetch_done.is_set():
                 with last_complete_lock:
@@ -2573,10 +2577,19 @@ def quick_check_watcher():
                     refresh_items.add((candidate["sym"], candidate["base_api"]))
                 for candidate in buy_stage6 + buy_stage7 + sell_stage6 + sell_stage7:
                     refresh_items.add((candidate["sym"], candidate["triple_api"]))
+                # إضافة بيانات الفريم الأعلى المباشر (NEXT_TF) لكل مرشح في المراحل 5/6/7
+                # حتى تكون بياناته محدّثة قبل استدعاء _has_higher_tf_saturation
+                for candidate in buy_stage5 + buy_stage6 + buy_stage7 + sell_stage5 + sell_stage6 + sell_stage7:
+                    next_tf = NEXT_TF.get(candidate["base_frame"])
+                    if next_tf is not None:
+                        native_api = TF_TO_API.get(next_tf, candidate["base_api"])
+                        refresh_items.add((candidate["sym"], native_api))
 
                 def fetch_tf(item):
                     sym, tf = item
-                    df = get_ohlcv(sym, tf, limit=3)
+                    # إصلاح: استخدام الدالة الصحيحة حسب MARKET_MODE لتجنب خلط بيانات Spot/Futures
+                    fetch_fn = get_ohlcv_futures if MARKET_MODE == "futures" else get_ohlcv
+                    df = fetch_fn(sym, tf, limit=3)
                     if not df.empty:
                         cache_merge(sym, tf, df)
 
@@ -3001,8 +3014,10 @@ def cascade_watcher():
                     syms = list(symbols_cache)
 
                 def fetch_fresh(sym):
+                    # إصلاح: استخدام الدالة الصحيحة حسب MARKET_MODE لتجنب خلط بيانات Spot/Futures
+                    fetch_fn = get_ohlcv_futures if MARKET_MODE == "futures" else get_ohlcv
                     for tf in ["1m", "30m", "60m"]:
-                        df = get_ohlcv(sym, tf, limit=3)
+                        df = fetch_fn(sym, tf, limit=3)
                         if not df.empty:
                             cache_merge(sym, tf, df)
 
