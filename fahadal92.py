@@ -26,8 +26,12 @@ log = logging.getLogger(__name__)
 # Main Settings
 # ------------------------------------------
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003968771145")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("❌ متغير البيئة TELEGRAM_TOKEN غير موجود — يجب تعيينه قبل تشغيل البوت")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+if not TELEGRAM_CHAT_ID:
+    raise RuntimeError("❌ متغير البيئة TELEGRAM_CHAT_ID غير موجود — يجب تعيينه قبل تشغيل البوت")
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 BINANCE_SPOT_BASE = "https://api.binance.com"
@@ -64,25 +68,6 @@ CUSTOM_SYMBOLS = [
 
 ]
 
-def validate_binance_futures_symbols(symbols):
-    valid = []
-    invalid = []
-    try:
-        resp = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/exchangeInfo", timeout=20).json()
-        exchange_symbols = {s["symbol"] for s in resp.get("symbols", []) if s.get("status") == "TRADING"}
-        for sym in symbols:
-            if sym in exchange_symbols:
-                valid.append(sym)
-            else:
-                invalid.append(sym)
-    except requests.RequestException as e:
-        log.error("❌ فشل التحقق من Futures: %s", e)
-        return list(symbols), []
-    except Exception as e:
-        log.error("❌ خطأ في validate_binance_futures_symbols: %s", e)
-        return list(symbols), []
-    return valid, invalid
-    
 def validate_symbols_with_reasons(symbols, market="futures"):
     valid, invalid = [], []
     reasons = {}
@@ -123,18 +108,24 @@ def validate_symbols_with_reasons(symbols, market="futures"):
 
     return valid, invalid, reasons
 
-def get_ohlcv_futures(symbol, tf, limit=500):
+def _get_ohlcv_impl(symbol, tf, limit, klines_url):
     binance_tf = TF_MAP.get(tf, "1m")
     try:
-        resp = get_session().get(f"{BINANCE_FUTURES_BASE}/fapi/v1/klines",
-            params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)}, timeout=10).json()
+        resp = get_session().get(
+            klines_url,
+            params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)},
+            timeout=10,
+        ).json()
         if isinstance(resp, list) and resp:
             return _parse_binance_klines(resp)
     except requests.RequestException as exc:
-        log.error("get_ohlcv_futures %s %s: %s", symbol, tf, exc)
+        log.error("get_ohlcv %s %s: %s", symbol, tf, exc)
     return pd.DataFrame()
 
-def get_ohlcv_full_futures(symbol, tf, target):
+def get_ohlcv_futures(symbol, tf, limit=500):
+    return _get_ohlcv_impl(symbol, tf, limit, f"{BINANCE_FUTURES_BASE}/fapi/v1/klines")
+
+def _get_ohlcv_full_impl(symbol, tf, target, klines_url, market_label):
     binance_tf = TF_MAP.get(tf, "1m")
     tf_ms_map = {"1m": 60_000, "30m": 1_800_000, "60m": 3_600_000}
     tf_ms = tf_ms_map.get(tf, 60_000)
@@ -146,7 +137,7 @@ def get_ohlcv_full_futures(symbol, tf, target):
         start_ms = end_ms - batch * tf_ms
         try:
             r = get_session().get(
-                f"{BINANCE_FUTURES_BASE}/fapi/v1/klines",
+                klines_url,
                 params={
                     "symbol": symbol,
                     "interval": binance_tf,
@@ -159,7 +150,7 @@ def get_ohlcv_full_futures(symbol, tf, target):
 
             if r.status_code in (429, 418):
                 retry_after = int(r.headers.get("Retry-After", 30))
-                log.warning("⏳ Futures rate-limit %s على %s، انتظار %s ثانية", r.status_code, symbol, retry_after)
+                log.warning("⏳ %s rate-limit %s على %s، انتظار %s ثانية", market_label, r.status_code, symbol, retry_after)
                 time.sleep(retry_after)
                 continue
 
@@ -194,40 +185,48 @@ def get_ohlcv_full_futures(symbol, tf, target):
         if all_dfs
         else pd.DataFrame()
     )
-    
 
-def prefetch_all_futures(symbols):
+def get_ohlcv_full_futures(symbol, tf, target):
+    return _get_ohlcv_full_impl(symbol, tf, target, f"{BINANCE_FUTURES_BASE}/fapi/v1/klines", "Futures")
+
+def _prefetch_all_impl(symbols, get_full_fn, fast_msg, full_msg):
     def fetch_sym_fast(sym):
         for tf, n in FAST_FETCH_CANDLES.items():
-            df = get_ohlcv_full_futures(sym, tf, target=n)
+            df = get_full_fn(sym, tf, target=n)
             cache_merge(sym, tf, df)
 
     def fetch_sym_full(sym):
         for tf, n in API_FETCH_CANDLES.items():
-            df = get_ohlcv_full_futures(sym, tf, target=n)
+            df = get_full_fn(sym, tf, target=n)
             cache_merge(sym, tf, df)
 
-    log.info("🚀 بدء التحميل السريع Futures...")
+    log.info("🚀 بدء التحميل السريع %s...", fast_msg)
     with ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(fetch_sym_fast, symbols)
     fast_prefetch_done.set()
-    send_telegram("⚡ <b>التحميل السريع Futures اكتمل — البوت يعمل الآن!</b>")
+    send_telegram(f"⚡ <b>التحميل السريع {fast_msg} اكتمل — البوت يعمل الآن!</b>")
 
-    log.info("📦 بدء التحميل الكامل Futures...")
+    log.info("📦 بدء التحميل الكامل %s...", full_msg)
     with ThreadPoolExecutor(max_workers=3) as executor:
         executor.map(fetch_sym_full, symbols)
     prefetch_done.set()
-    send_telegram("✅ <b>التحميل الكامل Futures اكتمل وجاهز للعمل!</b>")
-    
-def _update_batch_futures(symbols, tf, limit):
+    send_telegram(f"✅ <b>التحميل الكامل {full_msg} اكتمل وجاهز للعمل!</b>")
+
+def prefetch_all_futures(symbols):
+    _prefetch_all_impl(symbols, get_ohlcv_full_futures, "Futures", "Futures")
+
+def _update_batch_impl(symbols, tf, limit, fetch_fn):
     def fetch_one(sym):
-        df = get_ohlcv_futures(sym, tf, limit=limit)
+        df = fetch_fn(sym, tf, limit=limit)
         if not df.empty:
             cache_merge(sym, tf, df)
     with ThreadPoolExecutor(max_workers=30) as executor:
         executor.map(fetch_one, symbols)
 
-def cache_updater_1m_futures():
+def _update_batch_futures(symbols, tf, limit):
+    _update_batch_impl(symbols, tf, limit, get_ohlcv_futures)
+
+def _cache_updater_1m_impl(update_batch_fn):
     while True:
         if not fast_prefetch_done.is_set():
             time.sleep(5)
@@ -235,11 +234,14 @@ def cache_updater_1m_futures():
         with symbols_cache_lock:
             syms = list(symbols_cache)
         if syms:
-            _update_batch_futures(syms, "1m", limit=5)
+            update_batch_fn(syms, "1m", limit=5)
             cache_updated_event.set()
         time.sleep(55)
 
-def cache_updater_30m_futures():
+def cache_updater_1m_futures():
+    _cache_updater_1m_impl(_update_batch_futures)
+
+def _cache_updater_30m_impl(update_batch_fn):
     while True:
         if not fast_prefetch_done.is_set():
             time.sleep(5)
@@ -247,17 +249,23 @@ def cache_updater_30m_futures():
         with symbols_cache_lock:
             syms = list(symbols_cache)
         if syms:
-            _update_batch_futures(syms, "30m", limit=5)
+            update_batch_fn(syms, "30m", limit=5)
         time.sleep(UPDATER_30M_INTERVAL_SECONDS)
 
-def cache_updater_60m_futures():
+def cache_updater_30m_futures():
+    _cache_updater_30m_impl(_update_batch_futures)
+
+def _cache_updater_60m_impl(update_batch_fn):
     while True:
         time.sleep(3600)
         if fast_prefetch_done.is_set():
             with symbols_cache_lock:
                 syms = list(symbols_cache)
             if syms:
-                _update_batch_futures(syms, "60m", limit=5)
+                update_batch_fn(syms, "60m", limit=5)
+
+def cache_updater_60m_futures():
+    _cache_updater_60m_impl(_update_batch_futures)
 
 def update_symbols_loop_futures():
     first_run = True
@@ -387,9 +395,20 @@ step1_ready_since_lock = threading.Lock()
 step7_ready_since = {}
 step7_ready_since_lock = threading.Lock()
 
-step5_entry_time = {}  # (signal_type, sym) → timestamp
+step5_entry_time = {}  # (signal_type, sym, base_frame) → timestamp
 step5_entry_time_lock = threading.Lock()
 STEP5_MAX_WAIT_SECONDS = None  # بدون انتهاء زمني
+
+# الحد الأدنى لنسبة الفريمين حتى يُعدّا "مستقلَّين" ويتعايشا معاً في المرحلة 5.
+# مثال: 12m و240m → 240/12 = 20x ≥ 4 → يتعايشان.
+#         60m و90m   →  90/60 = 1.5x < 4  → يُحتفظ بالأكبر فقط.
+STAGE5_COEXIST_MIN_RATIO = 4.0
+
+def _frames_far_apart(frame1: int, frame2: int) -> bool:
+    """هل الفريمان بعيدان بما يكفي للتعايش معاً في المرحلة 5؟"""
+    larger, smaller = max(frame1, frame2), min(frame1, frame2)
+    return larger / smaller >= STAGE5_COEXIST_MIN_RATIO
+
 
 _ribbon_cache = {}
 _ribbon_cache_lock = threading.Lock()
@@ -507,8 +526,11 @@ def _store_step5_waiters(signal_type, candidates):
     with surv_lock:
         blocked = _candidate_keys_in_stages(survivors_dict, (6, 7))
         
-        # استراتيجية: لكل عملة + نوع frame واحد بس (الأكبر)
-        stage5_by_symbol = {}
+        # استراتيجية جديدة: لكل عملة، يُحتفظ بعدة فريمات إذا كانت بعيدة بما يكفي
+        # (نسبة الأكبر / الأصغر >= STAGE5_COEXIST_MIN_RATIO).
+        # مثال: 12m و240m يتعايشان. أما 60m و90m فيُحتفظ بالأكبر فقط.
+        # stage5_by_symbol: sym → {base_frame: candidate}
+        stage5_by_symbol: dict = {}
         
         for candidate in candidates:
             key = get_candidate_key(candidate)
@@ -518,36 +540,54 @@ def _store_step5_waiters(signal_type, candidates):
             sym = candidate["sym"]
             base_frame = candidate["base_frame"]
             
-            # لو أول مرة للعملة دي
             if sym not in stage5_by_symbol:
-                stage5_by_symbol[sym] = candidate
-                # سجل وقت دخول هذا المرشح
+                stage5_by_symbol[sym] = {base_frame: candidate}
                 with step5_entry_time_lock:
-                    step5_entry_time[(signal_type, sym)] = now
+                    if (signal_type, sym, base_frame) not in step5_entry_time:
+                        step5_entry_time[(signal_type, sym, base_frame)] = now
             else:
-                # لو الجديد أكبر من القديم → استبدل (احذف الأصغر)
-                if base_frame > stage5_by_symbol[sym]["base_frame"]:
-                    stage5_by_symbol[sym] = candidate
-                    # حدّث الوقت (frame جديد)
+                # ابحث عن فريم "قريب" موجود مسبقاً لنفس العملة
+                close_frame = None
+                for existing_frame in list(stage5_by_symbol[sym].keys()):
+                    if not _frames_far_apart(base_frame, existing_frame):
+                        close_frame = existing_frame
+                        break
+                
+                if close_frame is not None:
+                    # الفريمان قريبان → احتفظ بالأكبر فقط
+                    if base_frame > close_frame:
+                        with step5_entry_time_lock:
+                            step5_entry_time.pop((signal_type, sym, close_frame), None)
+                        del stage5_by_symbol[sym][close_frame]
+                        stage5_by_symbol[sym][base_frame] = candidate
+                        with step5_entry_time_lock:
+                            step5_entry_time[(signal_type, sym, base_frame)] = now
+                    # else: الموجود أكبر بالفعل، لا تغيير
+                else:
+                    # الفريمان بعيدان → يتعايشان
+                    stage5_by_symbol[sym][base_frame] = candidate
                     with step5_entry_time_lock:
-                        step5_entry_time[(signal_type, sym)] = now
+                        if (signal_type, sym, base_frame) not in step5_entry_time:
+                            step5_entry_time[(signal_type, sym, base_frame)] = now
         
         # ✅ احذف المرشحات اللي تجاوزت الحد الزمني (إن كان مضبوطاً)
-        to_remove = []
         if STEP5_MAX_WAIT_SECONDS is not None:
+            to_remove = []
             with step5_entry_time_lock:
-                for (sig_type, sym), entry_time in list(step5_entry_time.items()):
+                for (sig_type, sym, base_frame), entry_time in list(step5_entry_time.items()):
                     if sig_type == signal_type:
                         elapsed = (now - entry_time).total_seconds()
                         if elapsed > STEP5_MAX_WAIT_SECONDS:
-                            to_remove.append(sym)
+                            to_remove.append((sym, base_frame))
+            for sym, base_frame in to_remove:
+                if sym in stage5_by_symbol:
+                    stage5_by_symbol[sym].pop(base_frame, None)
+                    if not stage5_by_symbol[sym]:
+                        stage5_by_symbol.pop(sym, None)
+                with step5_entry_time_lock:
+                    step5_entry_time.pop((signal_type, sym, base_frame), None)
         
-        for sym in to_remove:
-            stage5_by_symbol.pop(sym, None)
-            with step5_entry_time_lock:
-                step5_entry_time.pop((signal_type, sym), None)
-        
-        survivors_dict[5] = list(stage5_by_symbol.values())
+        survivors_dict[5] = [c for frames in stage5_by_symbol.values() for c in frames.values()]
 
 def _promote_candidates(signal_type, from_stage, to_stage, candidates):
     if not candidates:
@@ -583,6 +623,8 @@ def _clear_waiting_candidate(symbol, base_frame, confirm_frame, triple_frame, si
         step1_ready_since.pop(ready_key, None)
     with step7_ready_since_lock:
         step7_ready_since.pop(ready_key, None)
+    with step5_entry_time_lock:
+        step5_entry_time.pop((signal_type, symbol, base_frame), None)
 
 def _update_last_complete_step(signal_type, step_num, evaluations):
     if signal_type == "buy":
@@ -643,13 +685,21 @@ def _run_step_batch(candidates, step_fn, step_num, signal_label):
             log.error("❌ خطأ في الخطوة %d (%s): %s", step_num, signal_label, exc)
             return candidate, False, str(exc)
 
+    executor = ThreadPoolExecutor(max_workers=20)
     try:
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            futures = [executor.submit(run_one, candidate) for candidate in candidates]
-            return [future.result() for future in concurrent.futures.as_completed(futures, timeout=120)]
+        futures = [executor.submit(run_one, candidate) for candidate in candidates]
+        results = []
+        try:
+            for future in concurrent.futures.as_completed(futures, timeout=120):
+                results.append(future.result())
+        except concurrent.futures.TimeoutError:
+            log.warning("⚠️ بعض المهام لم تكتمل خلال المهلة المحددة في الخطوة %d (%s)", step_num, signal_label)
+        return results
     except Exception as exc:
         log.error("❌ خطأ في الخطوة %d (%s): %s", step_num, signal_label, exc)
         return []
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 def save_signal(symbol, price, base_frame, confirm_frame, triple_frame, signal_type="buy"):
     with trades_lock:
@@ -1020,100 +1070,10 @@ def _parse_binance_klines(resp):
     return df.sort_values("ts").reset_index(drop=True)[["ts", "open", "high", "low", "close", "vol"]]
 
 def get_ohlcv(symbol, tf, limit=500):
-    binance_tf = TF_MAP.get(tf, "1m")
-    try:
-        resp = get_session().get(f"{BINANCE_BASE}/api/v3/klines",
-            params={"symbol": symbol, "interval": binance_tf, "limit": min(limit, 1000)}, timeout=10).json()
-        if isinstance(resp, list) and resp:
-            return _parse_binance_klines(resp)
-    except requests.RequestException as exc:
-        log.error("get_ohlcv %s %s: %s", symbol, tf, exc)
-    return pd.DataFrame()
+    return _get_ohlcv_impl(symbol, tf, limit, f"{BINANCE_SPOT_BASE}/api/v3/klines")
 
-    
 def get_ohlcv_full(symbol, tf, target):
-    binance_tf = TF_MAP.get(tf, "1m")
-    tf_ms_map = {"1m": 60_000, "30m": 1_800_000, "60m": 3_600_000}
-    tf_ms = tf_ms_map.get(tf, 60_000)
-    bin_max = 1000
-    all_dfs, end_ms, fetched, retries = [], int(time.time() * 1000), 0, 0
-
-    while fetched < target:
-        batch = min(bin_max, target - fetched)
-        start_ms = end_ms - batch * tf_ms
-        try:
-            r = get_session().get(
-                f"{BINANCE_BASE}/api/v3/klines",
-                params={
-                    "symbol": symbol,
-                    "interval": binance_tf,
-                    "startTime": start_ms,
-                    "endTime": end_ms,
-                    "limit": batch,
-                },
-                timeout=15,
-            )
-
-            if r.status_code in (429, 418):
-                retry_after = int(r.headers.get("Retry-After", 30))
-                log.warning("⏳ Spot rate-limit %s على %s، انتظار %s ثانية", r.status_code, symbol, retry_after)
-                time.sleep(retry_after)
-                continue
-
-            resp = r.json()
-            if not isinstance(resp, list) or not resp:
-                retries += 1
-                if retries >= 3:
-                    break
-                time.sleep(2 ** retries)
-                continue
-
-            df = _parse_binance_klines(resp)
-            all_dfs.insert(0, df)
-            fetched += len(df)
-            retries = 0
-            first_ts_ms = int(df["ts"].iloc[0].timestamp() * 1000)
-            end_ms = first_ts_ms - 1
-            if len(df) < batch:
-                break
-
-        except requests.RequestException:
-            retries += 1
-            if retries >= 3:
-                break
-            time.sleep(2)
-
-    return (
-        pd.concat(all_dfs)
-        .drop_duplicates(subset="ts")
-        .sort_values("ts")
-        .reset_index(drop=True)
-        if all_dfs
-        else pd.DataFrame()
-    )
-
-def validate_binance_symbols(symbols):
-    """التحقق من الرموز المتاحة والفعّالة على Binance Spot"""
-    valid = []
-    invalid = []
-    try:
-        resp = get_session().get(f"{BINANCE_BASE}/api/v3/exchangeInfo", timeout=20).json()
-        exchange_symbols = {
-            s["symbol"] for s in resp.get("symbols", [])
-            if s.get("status") == "TRADING"
-        }
-        for sym in symbols:
-            if sym in exchange_symbols:
-                valid.append(sym)
-            else:
-                invalid.append(sym)
-    except requests.RequestException as e:
-        log.error("❌ فشل التحقق من العملات (شبكة): %s", e)
-        return list(symbols), []
-    except Exception as e:
-        log.error("❌ فشل التحقق من العملات: %s", e)
-        return list(symbols), []
-    return valid, invalid
+    return _get_ohlcv_full_impl(symbol, tf, target, f"{BINANCE_SPOT_BASE}/api/v3/klines", "Spot")
 
 def cache_merge(symbol, tf, new_df):
     if new_df.empty:
@@ -1135,67 +1095,19 @@ def get_cached(symbol, tf):
 
 
 def prefetch_all(symbols):
-    def fetch_sym_fast(sym):
-        for tf, n in FAST_FETCH_CANDLES.items():
-            df = get_ohlcv_full(sym, tf, target=n)
-            cache_merge(sym, tf, df)
-
-    def fetch_sym_full(sym):
-        for tf, n in API_FETCH_CANDLES.items():
-            df = get_ohlcv_full(sym, tf, target=n)
-            cache_merge(sym, tf, df)
-
-    log.info("🚀 بدء التحميل السريع بالـ threads...")
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        executor.map(fetch_sym_fast, symbols)
-    fast_prefetch_done.set()
-    send_telegram("⚡ <b>التحميل السريع اكتمل — البوت يعمل الآن!</b>")
-
-    log.info("📦 بدء التحميل الكامل...")
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        executor.map(fetch_sym_full, symbols)
-    prefetch_done.set()
-    send_telegram("✅ <b>التحميل الكامل اكتمل وجاهز للعمل!</b>")
+    _prefetch_all_impl(symbols, get_ohlcv_full, "Spot", "Spot")
 
 def _update_batch(symbols, tf, limit):
-    def fetch_one(sym):
-        df = get_ohlcv(sym, tf, limit=limit)
-        if not df.empty:
-            cache_merge(sym, tf, df)
-    with ThreadPoolExecutor(max_workers=30) as executor:
-        executor.map(fetch_one, symbols)
+    _update_batch_impl(symbols, tf, limit, get_ohlcv)
 
 def cache_updater_1m():
-    while True:
-        if not fast_prefetch_done.is_set():
-            time.sleep(5)
-            continue
-        with symbols_cache_lock:
-            syms = list(symbols_cache)
-        if syms:
-            _update_batch(syms, "1m", limit=5)
-            cache_updated_event.set()
-        time.sleep(55)
+    _cache_updater_1m_impl(_update_batch)
 
 def cache_updater_60m():
-    while True:
-        time.sleep(3600)
-        if fast_prefetch_done.is_set():
-            with symbols_cache_lock:
-                syms = list(symbols_cache)
-            if syms:
-                _update_batch(syms, "60m", limit=5)
-                
+    _cache_updater_60m_impl(_update_batch)
+
 def cache_updater_30m():
-    while True:
-        if not fast_prefetch_done.is_set():
-            time.sleep(5)
-            continue
-        with symbols_cache_lock:
-            syms = list(symbols_cache)
-        if syms:
-            _update_batch(syms, "30m", limit=5)
-        time.sleep(UPDATER_30M_INTERVAL_SECONDS)
+    _cache_updater_30m_impl(_update_batch)
 
 # ------------------------------------------
 # Technical Indicators
@@ -1863,8 +1775,6 @@ def short_step8(c):
 short_steps = [short_step1, short_step2, short_step3, short_step4,
                short_step5, short_step6, short_step7, short_step8]
 
-long_steps = steps
-
 def run_cascade_scan():
     with symbols_cache_lock:
         symbols = list(symbols_cache)
@@ -1941,17 +1851,26 @@ def run_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
                 return c, False, str(e)
 
+        results = []
+        step_error = False
+        executor = ThreadPoolExecutor(max_workers=15)
         try:
-            with ThreadPoolExecutor(max_workers=15) as executor:
-                futures = [executor.submit(run_one, candidate) for candidate in candidates]
-                results = []
+            futures = [executor.submit(run_one, candidate) for candidate in candidates]
+            try:
                 for future in concurrent.futures.as_completed(futures, timeout=120):
                     try:
                         results.append(future.result())
                     except Exception as e:
                         log.error("❌ خطأ: %s", e)
+            except concurrent.futures.TimeoutError:
+                log.warning("⚠️ بعض المهام لم تكتمل خلال المهلة المحددة في الخطوة %d (LONG)", step_num)
         except Exception as e:
             log.error("❌ خطأ في الخطوة %d (LONG): %s", step_num, e)
+            step_error = True
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        if step_error:
             break
 
         passed = []
@@ -2068,22 +1987,27 @@ def run_short_cascade_scan():
                 log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
                 return c, False, str(e)
 
+        results = []
+        step_error = False
+        executor = ThreadPoolExecutor(max_workers=15)
         try:
-            with ThreadPoolExecutor(max_workers=15) as executor:
-                futures = [executor.submit(run_one, candidate) for candidate in candidates]
-                results = []
-
+            futures = [executor.submit(run_one, candidate) for candidate in candidates]
+            try:
                 for future in concurrent.futures.as_completed(futures, timeout=120):
                     try:
                         result = future.result()
                         results.append(result)
-                    except concurrent.futures.TimeoutError:
-                        log.warning("⚠️  timeout في الخطوة %d (SHORT)", step_num)
                     except Exception as e:
                         log.error("❌ خطأ: %s", e)
-
+            except concurrent.futures.TimeoutError:
+                log.warning("⚠️ بعض المهام لم تكتمل خلال المهلة المحددة في الخطوة %d (SHORT)", step_num)
         except Exception as e:
             log.error("❌ خطأ في الخطوة %d (SHORT): %s", step_num, e)
+            step_error = True
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        if step_error:
             break
 
         passed = []
@@ -2411,26 +2335,37 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 # ------------------------------------------
 
 def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
+    """
+    يتحقق من أن أيًا من الفريمات الأعلى في TIMEFRAME_CHAIN دخل تشبعًا.
+    يستخدم API المصدر الصحيح لكل فريم (من TF_TO_API) بدلاً من مصدر المرشح دائمًا.
+    يعيد True بمجرد إيجاد أول فريم أعلى في تشبع (short-circuit).
+    """
     sym = candidate["sym"]
     base_frame = candidate["base_frame"]
 
-    next_tf = NEXT_TF.get(base_frame)
-    if next_tf is None:
+    try:
+        base_idx = TIMEFRAME_CHAIN.index(base_frame)
+    except ValueError:
         return False
 
-    native_api = TF_TO_API.get(next_tf, candidate["base_api"])
-    raw_native = get_cached(sym, native_api)
-    if raw_native.empty:
-        return False
+    for higher_tf in TIMEFRAME_CHAIN[base_idx + 1:]:
+        native_api = TF_TO_API.get(higher_tf, candidate["base_api"])
+        raw_native = get_cached(sym, native_api)
+        if raw_native.empty:
+            continue
 
-    df_higher = get_resampled(raw_native, sym, native_api, next_tf)
-    if df_higher.empty:
-        return False
+        df_higher = get_resampled(raw_native, sym, native_api, higher_tf)
+        if df_higher.empty:
+            continue
 
-    if signal_type == "buy":
-        return check_smi_oversold(df_higher)
-    else:
-        return check_smi_overbought(df_higher, threshold=40)
+        if signal_type == "buy":
+            if check_smi_oversold(df_higher):
+                return True
+        else:
+            if check_smi_overbought(df_higher, threshold=40):
+                return True
+
+    return False
 
 
 def _refresh_and_validate_step5(candidate, get_resampled):
@@ -2577,13 +2512,18 @@ def quick_check_watcher():
                     refresh_items.add((candidate["sym"], candidate["base_api"]))
                 for candidate in buy_stage6 + buy_stage7 + sell_stage6 + sell_stage7:
                     refresh_items.add((candidate["sym"], candidate["triple_api"]))
-                # إضافة بيانات الفريم الأعلى المباشر (NEXT_TF) لكل مرشح في المراحل 5/6/7
-                # حتى تكون بياناته محدّثة قبل استدعاء _has_higher_tf_saturation
+                # إضافة بيانات كل الفريمات الأعلى لكل مرشح في المراحل 5/6/7
+                # حتى تكون بياناتها محدّثة قبل استدعاء _has_higher_tf_saturation
+                # (الدالة تفحص الآن كل الفريمات الأعلى وليس فقط NEXT_TF)
                 for candidate in buy_stage5 + buy_stage6 + buy_stage7 + sell_stage5 + sell_stage6 + sell_stage7:
-                    next_tf = NEXT_TF.get(candidate["base_frame"])
-                    if next_tf is not None:
-                        native_api = TF_TO_API.get(next_tf, candidate["base_api"])
-                        refresh_items.add((candidate["sym"], native_api))
+                    sym = candidate["sym"]
+                    base_frame = candidate["base_frame"]
+                    try:
+                        base_idx = TIMEFRAME_CHAIN.index(base_frame)
+                    except ValueError:
+                        continue
+                    for higher_tf in TIMEFRAME_CHAIN[base_idx + 1:]:
+                        refresh_items.add((sym, TF_TO_API.get(higher_tf, candidate["base_api"])))
 
                 def fetch_tf(item):
                     sym, tf = item
@@ -2972,6 +2912,11 @@ def _dispatch_command(txt, chat_id):
         
 def poll_telegram_commands():
     last_id = 0
+    allowed_ids = {
+        cid.strip()
+        for cid in os.environ.get("ALLOWED_CHAT_IDS", TELEGRAM_CHAT_ID).split(",")
+        if cid.strip()
+    }
     while True:
         try:
             r = get_session().get(
@@ -2984,9 +2929,15 @@ def poll_telegram_commands():
                 txt = upd.get("message", {}).get("text", "").strip()
                 chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
                 if txt and chat_id:
-                    threading.Thread(target=_dispatch_command, args=(txt, chat_id), daemon=True).start()
+                    if chat_id in allowed_ids:
+                        threading.Thread(target=_dispatch_command, args=(txt, chat_id), daemon=True).start()
+                    else:
+                        log.warning("⚠️ رسالة من chat_id غير مصرح به: %s — تم تجاهلها", chat_id)
+        except requests.RequestException as e:
+            log.error("poll_telegram_commands network error: %s", e)
+            time.sleep(10)
         except Exception as e:
-            log.error(f"poll_telegram_commands error: {e}")
+            log.error("poll_telegram_commands error: %s", e)
             time.sleep(10)
 
 def next_candle_close():
