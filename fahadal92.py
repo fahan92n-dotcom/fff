@@ -2424,9 +2424,10 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     sym = candidate["sym"]
     base_frame = candidate["base_frame"]
 
-    for tf in TIMEFRAME_CHAIN:
-        if tf <= base_frame:
-            continue
+    next_tf = NEXT_TF.get(base_frame)
+    if next_tf is None:
+        return False
+    
         # استخدم المصدر الصحيح لكل فريم حسب TF_TO_API بدلاً من مصدر المرشح دائماً
         native_api = TF_TO_API.get(tf, candidate["base_api"])
         raw_native = get_cached(sym, native_api)
