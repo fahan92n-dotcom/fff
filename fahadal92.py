@@ -1290,63 +1290,118 @@ def check_macd_line_short(df, pct=0.40):
     return True
 
 
-def calc_donchian_trend_vectorized(close_arr, high_arr, low_arr, length):
+DONCHIAN_DLEN = 20  # Pine's default dlen (matches dlen = input(defval = 20, ...))
+
+
+def calc_donchian_trend_pine(close_arr, high_arr, low_arr, length):
     """
-    Vectorized Donchian trend with shift(1) + forward-fill to keep last non-zero trend.
-    Returns 1 (breakout up), -1 (breakout down) or 0.
+    Pine-exact Donchian trend replicating dchannel(len) from the Pine Script:
+
+        hh = highest(len)          -- rolling max of high INCLUDING current bar
+        ll = lowest(len)           -- rolling min of low  INCLUDING current bar
+        trend := close > hh[1] ? 1 : close < ll[1] ? -1 : nz(trend[1])
+
+    hh[1] / ll[1] in Pine = prior bar's rolling max/min, implemented here as
+    rolling(length).max/min().shift(1).  Trend is carried forward via ffill
+    (equivalent to nz(trend[1])).  Only closed-candle data should be passed.
+
+    Returns 1 (bullish), -1 (bearish), or 0 (insufficient data).
     """
     n = len(close_arr)
-    # نحتاج length شموع سابقة كاملة + الشمعة الحالية
     if n < length + 1:
         return 0
 
-    high_s = pd.Series(high_arr)
-    low_s = pd.Series(low_arr)
-    close_s = pd.Series(close_arr)
+    high_s = pd.Series(high_arr, dtype=float)
+    low_s = pd.Series(low_arr, dtype=float)
+    close_s = pd.Series(close_arr, dtype=float)
 
-    # أعلى/أدنى للنافذة السابقة فقط (بدون الشمعة الحالية)
+    # hh[1] / ll[1]: rolling max/min over `length` bars, shifted back 1 bar
     hh = high_s.rolling(length, min_periods=length).max().shift(1)
     ll = low_s.rolling(length, min_periods=length).min().shift(1)
 
-    # مواقع breakout (Boolean series)
-    breakout_up = close_s > hh
-    breakout_down = close_s < ll
+    raw = pd.Series(np.nan, index=close_s.index, dtype=float)
+    raw[close_s.gt(hh).fillna(False)] = 1.0
+    raw[close_s.lt(ll).fillna(False)] = -1.0
 
-    # سلسلة أولية بقيم NaN، نضع 1/-1 عند حالات الـ breakout
-    raw = pd.Series(np.nan, index=close_s.index)
-    raw[breakout_up.fillna(False)] = 1
-    raw[breakout_down.fillna(False)] = -1
-
-    # ffill يرث آخر قيمة معروفة (مثل nz(trend[1]) في Pine)
+    # nz(trend[1]): carry the last known trend forward
     trend = raw.ffill().fillna(0)
-
-    # نعيد قيمة آخر عنصر كحالة الاتجاه الحالية
     try:
         return int(trend.iloc[-1])
     except Exception:
         return 0
 
+
+def _calc_donchian_ribbon_result(close, high, low):
+    """
+    Evaluate the full 10-band Donchian Trend Ribbon matching the Pine plot ladder:
+
+        plot( 5, color = dchannelalt(dlen - 0, maintrend), ...)
+        plot(10, color = dchannelalt(dlen - 1, maintrend), ...)
+        ...
+        plot(50, color = dchannelalt(dlen - 9, maintrend), ...)
+
+    Band 0 (length = dlen)     sets maintrend.
+    Bands 1-9 (lengths dlen-1 .. dlen-9) are sub-trends that must agree with
+    maintrend for the ribbon to be fully solid green or fully solid red.
+
+    Returns:
+         1  when maintrend == 1  and all 10 sub-trends == 1  (fully green ribbon)
+        -1  when maintrend == -1 and all 10 sub-trends == -1 (fully red ribbon)
+         0  otherwise (mixed, neutral, or insufficient data)
+    """
+    dlen = DONCHIAN_DLEN
+    n = len(close)
+
+    high_s = pd.Series(high, dtype=float)
+    low_s = pd.Series(low, dtype=float)
+    close_s = pd.Series(close, dtype=float)
+
+    maintrend = 0
+    for i in range(10):
+        length = dlen - i  # 20, 19, 18, ..., 11
+        if n < length + 1:
+            return 0
+        hh = high_s.rolling(length, min_periods=length).max().shift(1)
+        ll = low_s.rolling(length, min_periods=length).min().shift(1)
+        raw = pd.Series(np.nan, index=close_s.index, dtype=float)
+        raw[close_s.gt(hh).fillna(False)] = 1.0
+        raw[close_s.lt(ll).fillna(False)] = -1.0
+        t = int(raw.ffill().fillna(0).iloc[-1])
+        if i == 0:
+            maintrend = t
+            if maintrend == 0:
+                return 0
+        elif t != maintrend:
+            return 0
+
+    return maintrend  # all 10 bands agree with maintrend
+
+
 # ------------------ Donchian check + cache ------------------
 def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
     """
-    Uses calc_donchian_trend_vectorized(length=20) and caches the result per cache_key.
+    Evaluates the full Donchian Trend Ribbon (Pine-exact) and caches the result.
+
+    Replicates the Pine Script's ten dchannelalt() plot calls using the ladder
+    of lengths dlen-0 through dlen-9 (20 down to 11).
+
+    direction="green" → True only when all 10 bands agree on bullish  (result == 1)
+    direction="red"   → True only when all 10 bands agree on bearish  (result == -1)
+
     Thread-safe via _ribbon_cache_lock.
-    direction: "green" => check == 1, "red" => check == -1
     """
-    length = 20
-    if df.empty or len(df) < length + 1:
+    if df.empty or len(df) < DONCHIAN_DLEN + 1:
         return False
 
     if cache_key is not None:
-        # قراءة سريعة من الكاش
         with _ribbon_cache_lock:
             cached = _ribbon_cache.get(cache_key)
         if cached is None:
             close = df["close"].values
             high = df["high"].values
             low = df["low"].values
-            result = calc_donchian_trend_vectorized(close, high, low, length=length)
-            # تأكد قبل الكتابة أن خيط آخر لم يخزن النتيجة (double-checked locking)
+            result = _calc_donchian_ribbon_result(close, high, low)
+            # double-checked locking: another thread may have stored it already
             with _ribbon_cache_lock:
                 cached = _ribbon_cache.get(cache_key)
                 if cached is None:
@@ -1356,7 +1411,7 @@ def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
         close = df["close"].values
         high = df["high"].values
         low = df["low"].values
-        cached = calc_donchian_trend_vectorized(close, high, low, length=length)
+        cached = _calc_donchian_ribbon_result(close, high, low)
 
     return (cached == 1) if direction == "green" else (cached == -1)
 
