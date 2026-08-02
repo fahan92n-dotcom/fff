@@ -2411,39 +2411,26 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 # ------------------------------------------
 
 def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
-    """
-    ✅ يتحقق هل يوجد فريم أعلى من base_frame دخل تشبع (بيعي/شرائي حسب النوع).
-    ❌ إذا نعم، يجب إلغاء هذا المرشح فورًا لصالح الفريم الأكبر.
-    المقارنة اتجاه واحد فقط: الفريم الصغير يُلغى، الفريم الأكبر لا يتأثر أبداً.
-
-    ✅ لكل فريم أعلى نستخدم مصدره الحقيقي من TF_TO_API (لا مصدر المرشح):
-      - فريمات 9-45 → 1m ، فريم 60 → 60m ، فريمات 90/120/150 → 30m
-      - فريمات 180/210/240 → 60m
-    هذا يضمن توفر عدد شموع كافٍ ونتائج مطابقة لبيانات Binance الأصلية.
-    """
     sym = candidate["sym"]
     base_frame = candidate["base_frame"]
 
     next_tf = NEXT_TF.get(base_frame)
     if next_tf is None:
         return False
-    
-        # استخدم المصدر الصحيح لكل فريم حسب TF_TO_API بدلاً من مصدر المرشح دائماً
-        native_api = TF_TO_API.get(tf, candidate["base_api"])
-        raw_native = get_cached(sym, native_api)
-        if raw_native.empty:
-            # لا بيانات لهذا المصدر → تخطَّ (لا تفترض غياب التشبع)
-            continue
-        df_higher = get_resampled(raw_native, sym, native_api, tf)
-        if df_higher.empty:
-            continue
-        if signal_type == "buy":
-            if check_smi_oversold(df_higher):
-                return True
-        else:
-            if check_smi_overbought(df_higher, threshold=40):
-                return True
-    return False
+
+    native_api = TF_TO_API.get(next_tf, candidate["base_api"])
+    raw_native = get_cached(sym, native_api)
+    if raw_native.empty:
+        return False
+
+    df_higher = get_resampled(raw_native, sym, native_api, next_tf)
+    if df_higher.empty:
+        return False
+
+    if signal_type == "buy":
+        return check_smi_oversold(df_higher)
+    else:
+        return check_smi_overbought(df_higher, threshold=40)
 
 
 def _refresh_and_validate_step5(candidate, get_resampled):
