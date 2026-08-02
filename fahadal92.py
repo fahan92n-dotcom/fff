@@ -1271,7 +1271,14 @@ def check_macd_green(df):
         return False
     return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
     
-def check_macd_line_long(df, pct=0.40):
+def _get_macd_window_hours(base_frame_minutes):
+    """إرجاع عدد ساعات نافذة المشاهدة حسب حجم الفريم:
+    - فريم ≤ 60 دقيقة → 24 ساعة
+    - فريم > 60 دقيقة → 72 ساعة (3 أيام)
+    """
+    return 24 if base_frame_minutes <= 60 else 72
+
+def check_macd_line_long(df, pct=0.40, base_frame=60):
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
@@ -1280,21 +1287,25 @@ def check_macd_line_long(df, pct=0.40):
     if current_hist < 0 and current_macd < current_hist:
         return False
     
-    # آخر 24 ساعة فقط (1440 شمعة = 24 ساعة × 60 دقيقة)
-    today_candles = 1440
-    macd_today = macd_line.iloc[-today_candles:]
+    # نافذة زمنية ديناميكية: 24 ساعة للفريمات ≤ 60 دقيقة، 72 ساعة للفريمات > 60 دقيقة
+    window_hours = _get_macd_window_hours(base_frame)
+    last_ts = df["ts"].iloc[-1]
+    cutoff_ts = last_ts - timedelta(hours=window_hours)
+    macd_today = macd_line[df["ts"].values >= np.datetime64(cutoff_ts)]
+    if macd_today.empty:
+        macd_today = macd_line
     
-    # أعلى وأدنى قيمة في آخر 24 ساعة
-    max_24h = float(macd_today.max())
+    # أعلى قيمة في النافذة الزمنية المحددة
+    max_window = float(macd_today.max())
     
     # 40% من أعلى قيمة
-    threshold = max_24h * pct
+    threshold = max_window * pct
     
     if current_macd > threshold:
         return False
     return True
 
-def check_macd_line_short(df, pct=0.40):
+def check_macd_line_short(df, pct=0.40, base_frame=60):
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
@@ -1303,15 +1314,19 @@ def check_macd_line_short(df, pct=0.40):
     if current_hist > 0 and current_macd > current_hist:
         return False
     
-    # آخر 24 ساعة فقط
-    today_candles = 1440
-    macd_today = macd_line.iloc[-today_candles:]
+    # نافذة زمنية ديناميكية: 24 ساعة للفريمات ≤ 60 دقيقة، 72 ساعة للفريمات > 60 دقيقة
+    window_hours = _get_macd_window_hours(base_frame)
+    last_ts = df["ts"].iloc[-1]
+    cutoff_ts = last_ts - timedelta(hours=window_hours)
+    macd_today = macd_line[df["ts"].values >= np.datetime64(cutoff_ts)]
+    if macd_today.empty:
+        macd_today = macd_line
     
-    # أدنى قيمة في آخر 24 ساعة
-    min_24h = float(macd_today.min())
+    # أدنى قيمة في النافذة الزمنية المحددة
+    min_window = float(macd_today.min())
     
     # 40% من أدنى قيمة
-    threshold = min_24h * pct
+    threshold = min_window * pct
     
     if current_macd < threshold:
         return False
@@ -1702,11 +1717,15 @@ def step2(c):
     if current_macd < current_hist:
         return False, "macd_line_not_above_histogram"
 
-    # ✅ الشرط 3: الخط الأزرق ≤ 40% من أقصى ارتفاع (من 0، آخر 24 ساعة)
-    today_candles = 1440
-    macd_today = macd_line.iloc[-today_candles:] if len(macd_line) >= today_candles else macd_line
-    max_24h = float(macd_today.max())
-    threshold = max_24h * 0.40
+    # ✅ الشرط 3: الخط الأزرق ≤ 40% من أقصى ارتفاع (نافذة ديناميكية: 24 ساعة لفريم ≤60 د، 72 ساعة لفريم >60 د)
+    window_hours = _get_macd_window_hours(c["base_frame"])
+    last_ts = c["df_base"]["ts"].iloc[-1]
+    cutoff_ts = last_ts - timedelta(hours=window_hours)
+    macd_today = macd_line[c["df_base"]["ts"].values >= np.datetime64(cutoff_ts)]
+    if macd_today.empty:
+        macd_today = macd_line
+    max_window = float(macd_today.max())
+    threshold = max_window * 0.40
 
     if current_macd > threshold:
         return False, "macd_line_exceeds_40_percent"
@@ -1786,11 +1805,15 @@ def short_step2(c):
     if current_macd > current_hist:
         return False, "macd_line_not_below_histogram"
 
-    # ✅ الشرط 3: الخط الأزرق ≥ 40% من أدنى مستوى (من 0، آخر 24 ساعة)
-    today_candles = 1440
-    macd_today = macd_line.iloc[-today_candles:] if len(macd_line) >= today_candles else macd_line
-    min_24h = float(macd_today.min())
-    threshold = min_24h * 0.40
+    # ✅ الشرط 3: الخط الأزرق ≥ 40% من أدنى مستوى (نافذة ديناميكية: 24 ساعة لفريم ≤60 د، 72 ساعة لفريم >60 د)
+    window_hours = _get_macd_window_hours(c["base_frame"])
+    last_ts = c["df_base"]["ts"].iloc[-1]
+    cutoff_ts = last_ts - timedelta(hours=window_hours)
+    macd_today = macd_line[c["df_base"]["ts"].values >= np.datetime64(cutoff_ts)]
+    if macd_today.empty:
+        macd_today = macd_line
+    min_window = float(macd_today.min())
+    threshold = min_window * 0.40
 
     if current_macd < threshold:
         return False, "macd_line_below_40_percent"
@@ -2455,7 +2478,7 @@ def _refresh_and_validate_step5(candidate, get_resampled):
         return None  # ❌ فريم أكبر دخل تشبع بيعي = الفريم الأصغر ملغى
 
     # ✅ الشرط 2: MACD أحمر + MACD Line منخفض
-    if not check_macd_red(df_base) or not check_macd_line_long(df_base):
+    if not check_macd_red(df_base) or not check_macd_line_long(df_base, base_frame=candidate["base_frame"]):
         return None
     
     # ✅ الشرط 3: Donchian Base أخضر
@@ -2513,7 +2536,7 @@ def _refresh_and_validate_step5_short(candidate, get_resampled):
         return None  # ❌ فريم أكبر دخل تشبع شرائي = الفريم الأصغر ملغى
 
     # ✅ الشرط 2: MACD أخضر + MACD Line مرتفع
-    if not check_macd_green(df_base) or not check_macd_line_short(df_base):
+    if not check_macd_green(df_base) or not check_macd_line_short(df_base, base_frame=candidate["base_frame"]):
         return None
     
     # ✅ الشرط 3: Donchian Base أحمر
