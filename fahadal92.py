@@ -322,6 +322,7 @@ API_FETCH_CANDLES  = {"1m": 45_000, "30m": 5_500, "60m": 4_500}
 FAST_FETCH_CANDLES = {"1m": 45_000, "30m": 5_500, "60m": 4_500}
 UPDATE_BUFFER_SECONDS = 20  # small safety buffer before next 30m boundary (API/network jitter)
 UPDATER_30M_INTERVAL_SECONDS = 30 * 60 - UPDATE_BUFFER_SECONDS
+QUICK_CHECK_INTERVAL_SECONDS = 3
 
 WARMUP_EMA = 200
 WARMUP_MACD = 200
@@ -2541,9 +2542,9 @@ def _refresh_and_validate_step5_short(candidate, get_resampled):
 # ------------------------------------------
 
 def quick_check_watcher():
-    """يفحص الخطوات 6 و7 و8 كل 15 ثانية على الناجحين المحفوظين تراتبياً"""
+    """يفحص الخطوات 6 و7 و8 كل 3 ثوانٍ على الناجحين المحفوظين تراتبياً"""
     while True:
-        time.sleep(15)
+        time.sleep(QUICK_CHECK_INTERVAL_SECONDS)
         try:
             if fast_prefetch_done.is_set():
                 with last_complete_lock:

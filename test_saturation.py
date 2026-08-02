@@ -310,5 +310,18 @@ class TestResampleOrigin(unittest.TestCase):
                               f"حد الشمعة {ts} غير متوافق مع epoch UTC")
 
 
+class TestQuickCheckWatcherInterval(unittest.TestCase):
+    """يتحقق أن quick_check_watcher يفحص بسرعة كافية لحذف المرشحات الصغيرة فورًا."""
+
+    def test_quick_check_interval_is_three_seconds(self):
+        self.assertEqual(bot.QUICK_CHECK_INTERVAL_SECONDS, 3)
+
+    def test_quick_check_watcher_uses_configured_interval(self):
+        with patch.object(bot.time, "sleep", side_effect=SystemExit) as mock_sleep:
+            with self.assertRaises(SystemExit):
+                bot.quick_check_watcher()
+        mock_sleep.assert_called_once_with(bot.QUICK_CHECK_INTERVAL_SECONDS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
