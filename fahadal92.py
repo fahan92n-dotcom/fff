@@ -26,12 +26,8 @@ log = logging.getLogger(__name__)
 # Main Settings
 # ------------------------------------------
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-if not TELEGRAM_TOKEN:
-    raise RuntimeError("❌ متغير البيئة TELEGRAM_TOKEN غير موجود — يجب تعيينه قبل تشغيل البوت")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-if not TELEGRAM_CHAT_ID:
-    raise RuntimeError("❌ متغير البيئة TELEGRAM_CHAT_ID غير موجود — يجب تعيينه قبل تشغيل البوت")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003968771145")
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 BINANCE_SPOT_BASE = "https://api.binance.com"
