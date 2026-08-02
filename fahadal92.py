@@ -311,6 +311,12 @@ TRIPLING_PAIRS = [
 TIMEFRAME_CHAIN = [9, 12, 15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150, 180, 210, 240]
 NEXT_TF = {TIMEFRAME_CHAIN[i]: TIMEFRAME_CHAIN[i + 1] for i in range(len(TIMEFRAME_CHAIN) - 1)}
 
+# خريطة: base_frame → base_api الصحيح المحدد في TRIPLING_PAIRS لكل فريم.
+# تُستخدم في _has_higher_tf_saturation لضمان جلب بيانات الفريم الأعلى
+# من مصدره الحقيقي (30m أو 60m) لا من مصدر المرشح نفسه.
+# مثال: فريم 90/120/150 → 30m ، فريم 180/210/240 → 60m
+TF_TO_API = {p[0]: p[3] for p in TRIPLING_PAIRS}
+
 CACHE_MAX_CANDLES = {"1m": 45_000, "30m": 5_500, "60m": 4_500}
 API_FETCH_CANDLES  = {"1m": 45_000, "30m": 5_500, "60m": 4_500}
 FAST_FETCH_CANDLES = {"1m": 45_000, "30m": 5_500, "60m": 4_500}
@@ -1195,6 +1201,18 @@ def cache_updater_30m():
 # ------------------------------------------
 
 def resample_ohlcv(df, minutes):
+    """
+    يُعيد تجميع (resample) بيانات OHLCV إلى فريم زمني محدد بالدقائق.
+
+    نقطة البداية origin=datetime(1970,1,1,UTC) هي نقطة أصل Unix القياسية (epoch).
+    بما أن كل الفريمات في TIMEFRAME_CHAIN (9،12،15،18،21،24،27،30،45،60،90،120،150،180،210،240 دقيقة)
+    هي مضاعفات صحيحة تنقسم على 1440 دقيقة (يوم) أو تتوافق مع حدود UTC اليومية،
+    فإن epoch ينتج حدود شموع مطابقة تمامًا لما تعرضه Binance وTradingView.
+    ⚠️ لا تُغيّر origin أو تُضِف offset دون التحقق من التوافق مع جميع الفريمات أعلاه.
+
+    هذه الدالة تحذف الشمعة الأخيرة إذا لم تُغلق بعد (شمعة جارية).
+    استخدم هذه الدالة حصرًا في مسارات تقييم الإشارات (step1-step8 وما شابه).
+    """
     if df.empty:
         return pd.DataFrame()
     now = datetime.now(timezone.utc)
@@ -1211,6 +1229,15 @@ def resample_ohlcv(df, minutes):
     return resampled
 
 def resample_ohlcv_closed(df, minutes):
+    """
+    يُعيد تجميع (resample) بيانات OHLCV إلى فريم زمني محدد بالدقائق دون حذف الشمعة الأخيرة.
+
+    نفس origin=datetime(1970,1,1,UTC) المستخدمة في resample_ohlcv — راجع تعليق تلك الدالة
+    للتفصيل حول سبب اختيار epoch وتوافقه مع Binance/TradingView.
+
+    ⚠️ هذه الدالة لا تحذف الشمعة الجارية غير المغلقة.
+    يجب عدم استخدامها في مسارات تقييم الإشارات (step1-step8 وما شابه) لتجنب الحساب على شمعة غير مكتملة.
+    """
     if df.empty:
         return pd.DataFrame()
     return (df.copy().set_index("ts").resample(f"{minutes}min", closed="left", label="left", origin=datetime(1970, 1, 1, tzinfo=timezone.utc))
@@ -1651,14 +1678,10 @@ def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_typ
 def step1(c):
     if not check_smi_oversold(c["df_base"]):
         return False, "smi_oversold"
-    base_frame = c["base_frame"]
-    raw_base = c["raw_base"]
-    for tf in TIMEFRAME_CHAIN:
-        if tf <= base_frame:
-            continue
-        df_higher = c["get_resampled"](c["raw_base"], c["sym"], c["base_api"], tf)
-        if not df_higher.empty and check_smi_oversold(df_higher):
-            return False, "active_skip"
+    # ✅ فحص الأولوية: لو فريم أكبر دخل تشبع بيعي → ألغِ هذا المرشح
+    # يستخدم TF_TO_API داخلياً لضمان المصدر الصحيح لكل فريم
+    if _has_higher_tf_saturation(c, "buy", c["get_resampled"]):
+        return False, "active_skip"
     return True, "passed"
 
 def step2(c):
@@ -1738,13 +1761,10 @@ steps = [step1, step2, step3, step4, step5, step6, step7, step8]
 def short_step1(c):
     if not check_smi_overbought(c["df_base"], threshold=40):
         return False, "smi_overbought"
-    base_frame = c["base_frame"]
-    for tf in TIMEFRAME_CHAIN:
-        if tf <= base_frame:
-            continue
-        df_higher = c["get_resampled"](c["raw_base"], c["sym"], c["base_api"], tf)
-        if not df_higher.empty and check_smi_overbought(df_higher, threshold=40):
-            return False, "active_skip"
+    # ✅ فحص الأولوية: لو فريم أكبر دخل تشبع شرائي → ألغِ هذا المرشح
+    # يستخدم TF_TO_API داخلياً لضمان المصدر الصحيح لكل فريم
+    if _has_higher_tf_saturation(c, "sell", c["get_resampled"]):
+        return False, "active_skip"
     return True, "passed"
 
 
@@ -2371,20 +2391,25 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     ✅ يتحقق هل يوجد فريم أعلى من base_frame دخل تشبع (بيعي/شرائي حسب النوع).
     ❌ إذا نعم، يجب إلغاء هذا المرشح فورًا لصالح الفريم الأكبر.
     المقارنة اتجاه واحد فقط: الفريم الصغير يُلغى، الفريم الأكبر لا يتأثر أبداً.
+
+    ✅ لكل فريم أعلى نستخدم مصدره الحقيقي من TF_TO_API (لا مصدر المرشح):
+      - فريمات 9-45 → 1m ، فريم 60 → 60m ، فريمات 90/120/150 → 30m
+      - فريمات 180/210/240 → 60m
+    هذا يضمن توفر عدد شموع كافٍ ونتائج مطابقة لبيانات Binance الأصلية.
     """
     sym = candidate["sym"]
     base_frame = candidate["base_frame"]
-    base_api = candidate["base_api"]
-    raw_base = candidate.get("raw_base")
-    if raw_base is None or raw_base.empty:
-        raw_base = get_cached(sym, base_api)
-        if raw_base.empty:
-            return False
 
     for tf in TIMEFRAME_CHAIN:
         if tf <= base_frame:
             continue
-        df_higher = get_resampled(raw_base, sym, base_api, tf)
+        # استخدم المصدر الصحيح لكل فريم حسب TF_TO_API بدلاً من مصدر المرشح دائماً
+        native_api = TF_TO_API.get(tf, candidate["base_api"])
+        raw_native = get_cached(sym, native_api)
+        if raw_native.empty:
+            # لا بيانات لهذا المصدر → تخطَّ (لا تفترض غياب التشبع)
+            continue
+        df_higher = get_resampled(raw_native, sym, native_api, tf)
         if df_higher.empty:
             continue
         if signal_type == "buy":
