@@ -2501,8 +2501,8 @@ def quick_check_watcher():
                 for candidate in buy_stage5 + sell_stage5:
                     refresh_items.add((candidate["sym"], candidate["base_api"]))
                 for candidate in buy_stage6 + buy_stage7 + sell_stage6 + sell_stage7:
-                    refresh_items.add((candidate["sym"], candidate["triple_api"]))
-                # إضافة بيانات كل الفريمات الأعلى لكل مرشح في المراحل 5/6/7                # جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF) — هو ما تحتاجه                # جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF) — هو ما تحتاجه
+                    refresh_items.add((candidate["sym"], candidate["triple_                 فقط (NEXT_TF) — هو ما 
+                # جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF)
                 # _has_higher_tf_saturation فعليًا بنسختها الحالية
                 for candidate in buy_stage5 + buy_stage6 + buy_stage7 + sell_stage5 + sell_stage6 + sell_stage7:
                     sym = candidate["sym"]
