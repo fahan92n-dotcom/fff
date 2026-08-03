@@ -2332,36 +2332,30 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
 
 def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     """
-    يتحقق من أن أيًا من الفريمات الأعلى في TIMEFRAME_CHAIN دخل تشبعًا.
-    يستخدم API المصدر الصحيح لكل فريم (من TF_TO_API) بدلاً من مصدر المرشح دائمًا.
-    يعيد True بمجرد إيجاد أول فريم أعلى في تشبع (short-circuit).
+    يتحقق من أن الفريم الذي يليه مباشرة في TIMEFRAME_CHAIN فقط (وليس كل الفريمات الأعلى)
+    دخل تشبعًا. يستخدم API المصدر الصحيح لهذا الفريم (من TF_TO_API) بدلاً من مصدر المرشح دائمًا.
+    مثال: 24 تُفحص فقط ضد 27 (وليس 30، 45، ... إلخ).
     """
     sym = candidate["sym"]
     base_frame = candidate["base_frame"]
 
-    try:
-        base_idx = TIMEFRAME_CHAIN.index(base_frame)
-    except ValueError:
+    higher_tf = NEXT_TF.get(base_frame)
+    if higher_tf is None:
+        return False  # لا يوجد فريم أعلى تالٍ في السلسلة
+
+    native_api = TF_TO_API.get(higher_tf, candidate["base_api"])
+    raw_native = get_cached(sym, native_api)
+    if raw_native.empty:
         return False
 
-    for higher_tf in TIMEFRAME_CHAIN[base_idx + 1:]:
-        native_api = TF_TO_API.get(higher_tf, candidate["base_api"])
-        raw_native = get_cached(sym, native_api)
-        if raw_native.empty:
-            continue
+    df_higher = get_resampled(raw_native, sym, native_api, higher_tf)
+    if df_higher.empty:
+        return False
 
-        df_higher = get_resampled(raw_native, sym, native_api, higher_tf)
-        if df_higher.empty:
-            continue
-
-        if signal_type == "buy":
-            if check_smi_oversold(df_higher):
-                return True
-        else:
-            if check_smi_overbought(df_higher, threshold=40):
-                return True
-
-    return False
+    if signal_type == "buy":
+        return check_smi_oversold(df_higher)
+    else:
+        return check_smi_overbought(df_higher, threshold=40)
 
 
 def _refresh_and_validate_step5(candidate, get_resampled):
