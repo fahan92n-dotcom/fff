@@ -2496,39 +2496,27 @@ def quick_check_watcher():
                     sell_stage6 = list(last_complete_short_survivors.get(6, []))
                     sell_stage7 = list(last_complete_short_survivors.get(7, []))
 
-                # جلب البيانات الطازة# جلب البيانات الطازة
-refresh_items = {
-    (candidate["sym"], candidate["base_api"])
-    for candidate in (
-        buy_stage5 + buy_stage6 + buy_stage7 +
-        sell_stage5 + sell_stage6 + sell_stage7
-    )
-}
+                # جلب البيانات الطازة
+                refresh_items = {
+                    (candidate["sym"], candidate["base_api"])
+                    for candidate in (
+                        buy_stage5 + buy_stage6 + buy_stage7 +
+                        sell_stage5 + sell_stage6 + sell_stage7
+                    )
+                }
 
-# جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF)
-# _has_higher_tf_saturation فعليًا بنسختها الحالية
-for candidate in (
-    buy_stage5 + buy_stage6 + buy_stage7 +
-    sell_stage5 + sell_stage6 + sell_stage7
-):
-    sym = candidate["sym"]
-    base_frame = candidate["base_frame"]
-    higher_tf = NEXT_TF.get(base_frame)
-    if higher_tf is None:
-        continue
-    refresh_items.add((sym, TF_TO_API.get(higher_tf, candidate["base_api"])))
-
-def fetch_tf(item):
-    sym, tf = item
-    # لتجنب خلط بيانات Spot/Futures حسب MARKET_MODE
-    fetch_fn = get_ohlcv_futures if MARKET_MODE == "futures" else get_ohlcv
-    df = fetch_fn(sym, tf, 300)
-    if not df.empty:
-        cache_merge(sym, tf, df)
-
-if refresh_items:
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        executor.map(fetch_tf, refresh_items)
+                # جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF)
+                # _has_higher_tf_saturation فعليًا بنسختها الحالية
+                for candidate in (
+                    buy_stage5 + buy_stage6 + buy_stage7 +
+                    sell_stage5 + sell_stage6 + sell_stage7
+                ):
+                    sym = candidate["sym"]
+                    base_frame = candidate["base_frame"]
+                    higher_tf = NEXT_TF.get(base_frame)
+                    if higher_tf is None:
+                        continue
+                    refresh_items.add((sym, TF_TO_API.get(higher_tf, candidate["base_api"])))
 
                 def fetch_tf(item):
                     sym, tf = item
