@@ -2502,18 +2502,15 @@ def quick_check_watcher():
                     refresh_items.add((candidate["sym"], candidate["base_api"]))
                 for candidate in buy_stage6 + buy_stage7 + sell_stage6 + sell_stage7:
                     refresh_items.add((candidate["sym"], candidate["triple_api"]))
-                # إضافة بيانات كل الفريمات الأعلى لكل مرشح في المراحل 5/6/7
-                # حتى تكون بياناتها محدّثة قبل استدعاء _has_higher_tf_saturation
-                # (الدالة تفحص الآن كل الفريمات الأعلى وليس فقط NEXT_TF)
+                # إضافة بيانات كل الفريمات الأعلى لكل مرشح في المراحل 5/6/7                # جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF) — هو ما تحتاجه
+                # _has_higher_tf_saturation فعليًا بنسختها الحالية
                 for candidate in buy_stage5 + buy_stage6 + buy_stage7 + sell_stage5 + sell_stage6 + sell_stage7:
                     sym = candidate["sym"]
                     base_frame = candidate["base_frame"]
-                    try:
-                        base_idx = TIMEFRAME_CHAIN.index(base_frame)
-                    except ValueError:
+                    higher_tf = NEXT_TF.get(base_frame)
+                    if higher_tf is None:
                         continue
-                    for higher_tf in TIMEFRAME_CHAIN[base_idx + 1:]:
-                        refresh_items.add((sym, TF_TO_API.get(higher_tf, candidate["base_api"])))
+                    refresh_items.add((sym, TF_TO_API.get(higher_tf, candidate["base_api"])))
 
                 def fetch_tf(item):
                     sym, tf = item
