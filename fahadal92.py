@@ -2498,19 +2498,21 @@ def quick_check_watcher():
 
                 # جلب البيانات الطازة
                 refresh_items = set()
-                for candidate in buy_stage5 + sell_stage5:
-                    refresh_items.add((candidate["sym"], candidate["base_api"]))
-                for candidate in buy_stage6 + buy_stage7 + sell_stage6 + sell_stage7:
-                    refresh_items.add((candidate["sym"], candidate["triple_
-                # جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF)
-                # _has_higher_tf_saturation فعليًا بنسختها الحالية
-                for candidate in buy_stage5 + buy_stage6 + buy_stage7 + sell_stage5 + sell_stage6 + sell_stage7:
-                    sym = candidate["sym"]
-                    base_frame = candidate["base_frame"]
-                    higher_tf = NEXT_TF.get(base_frame)
-                    if higher_tf is None:
-                        continue
-                    refresh_items.add((sym, TF_TO_API.get(higher_tf, candidate["base_api"])))
+for candidate in buy_stage5 + sell_stage5:
+    refresh_items.add((candidate["sym"], candidate["base_api"]))
+
+for candidate in buy_stage6 + buy_stage7 + sell_stage6 + sell_stage7:
+    refresh_items.add((candidate["sym"], candidate["base_api"]))
+
+# جلب بيانات الفريم التالي مباشرة فقط (NEXT_TF)
+# _has_higher_tf_saturation فعليًا بنسختها الحالية
+for candidate in buy_stage5 + buy_stage6 + buy_stage7 + sell_stage5 + sell_stage6 + sell_stage7:
+    sym = candidate["sym"]
+    base_frame = candidate["base_frame"]
+    higher_tf = NEXT_TF.get(base_frame)
+    if higher_tf is None:
+        continue
+    refresh_items.add((sym, TF_TO_API.get(higher_tf, candidate["base_api"])))
 
                 def fetch_tf(item):
                     sym, tf = item
