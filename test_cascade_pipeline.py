@@ -224,7 +224,7 @@ class TestResolveEntrySignalCandle(CascadePipelineTestCase):
             return_value=ts[0],
         ), patch.object(
             pipeline,
-            "find_rsi_stoch_entry_index",
+            "find_step8_entry_index",
             return_value=2,
         ):
             frame, price, candle_ts = pipeline._resolve_entry_signal_candle(

@@ -483,21 +483,87 @@ def check_rsi_touched_since(df, since_ts, threshold=35, direction="long"):
     return bool((rsi_window >= threshold).any())
 
 
+def find_smi_touch_index(df, since_ts, threshold=-40, direction="long"):
+    """
+    أول شمعة لمس فيها SMI مستوى التشبع منذ since_ts.
+
+    direction:
+      - "long"  => SMI <= threshold (افتراضي -40)
+      - "short" => SMI >= threshold (افتراضي +40)
+    """
+    if df.empty or since_ts is None or len(df) < WARMUP_SMI:
+        return None
+    if direction not in ("long", "short"):
+        raise ValueError(f"Unsupported direction: {direction}")
+
+    mask = df["ts"] >= since_ts
+    if not mask.any():
+        return None
+
+    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
+    for index in df.index[mask]:
+        value = float(smi.iloc[index])
+        if direction == "long" and value <= threshold:
+            return int(index)
+        if direction == "short" and value >= threshold:
+            return int(index)
+    return None
+
+
 def check_smi_touched_since(df, since_ts, threshold=-40, direction="long"):
     """
     يفحص هل SMI لمس المستوى المطلوب منذ since_ts.
     يُحسب SMI على السلسلة الكاملة ثم تُفلتر النافذة الزمنية للحفاظ على الـ warmup.
     """
-    if df.empty or since_ts is None or len(df) < WARMUP_SMI:
-        return False
-    mask = df["ts"] >= since_ts
-    if not mask.any():
-        return False
-    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
-    smi_window = smi[mask]
-    if direction == "long":
-        return bool((smi_window <= threshold).any())
-    return bool((smi_window >= threshold).any())
+    return find_smi_touch_index(
+        df,
+        since_ts,
+        threshold=threshold,
+        direction=direction,
+    ) is not None
+
+
+def find_step8_entry_index(
+    df,
+    since_ts,
+    *,
+    smi_threshold,
+    rsi_threshold,
+    direction="long",
+    max_gap=3,
+):
+    """
+    ترتيب Step 8 الإلزامي على فريم الثلث:
+    1) تشبع SMI أولًا
+    2) بعدها فقط لمس RSI + تقاطع RSI/Stochastic
+
+    تُرجع فهرس شمعة إكمال RSI/Stoch، أو None.
+    """
+    smi_index = find_smi_touch_index(
+        df,
+        since_ts,
+        threshold=smi_threshold,
+        direction=direction,
+    )
+    if smi_index is None:
+        return None
+
+    after_smi_ts = df["ts"].iloc[smi_index]
+    if not check_rsi_touched_since(
+        df,
+        after_smi_ts,
+        threshold=rsi_threshold,
+        direction=direction,
+    ):
+        return None
+
+    side = "long" if direction == "long" else "short"
+    return find_rsi_stoch_entry_index(
+        df,
+        after_smi_ts,
+        max_gap=max_gap,
+        side=side,
+    )
 
 
 def find_rsi_stoch_entry_index(df, since_ts, max_gap=3, side="long"):
