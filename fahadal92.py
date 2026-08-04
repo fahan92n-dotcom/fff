@@ -903,6 +903,13 @@ def step7(c):
     return True, "passed"
 
 def step8(c):
+    """
+    دخول LONG على فريم الثلث:
+    1) SMI لمس تشبع بيعي (-40)
+    2) RSI لمس 35 أو أقل
+    3) بعد تقاطع RSI لفوق متوسطه، وخلال ±3 شموع يطلع Stochastic %K فوق 20
+       (لا يُشترط بقاؤهما على الشمعة الحالية)
+    """
     since_ts = get_step1_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "buy")
     if not check_smi_touched_since(c["df_triple"], since_ts, threshold=-40, direction="long"):
         return False, "smi_touch_since_ready"
@@ -991,6 +998,13 @@ def short_step7(c):
     return True, "passed"
 
 def short_step8(c):
+    """
+    دخول SHORT على فريم الثلث:
+    1) SMI لمس تشبع شرائي (+40)
+    2) RSI لمس 65 أو أعلى
+    3) بعد تقاطع RSI لتحت متوسطه، وخلال ±3 شموع ينزل Stochastic %K تحت 80
+       (لا يُشترط بقاؤهما على الشمعة الحالية)
+    """
     since_ts = get_step1_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
     if not check_smi_touched_since(c["df_triple"], since_ts, threshold=40, direction="short"):
         return False, "smi_touch_since_ready_short"

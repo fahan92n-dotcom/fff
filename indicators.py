@@ -474,81 +474,80 @@ def check_smi_touched_since(df, since_ts, threshold=-40, direction="long"):
 
 
 def check_rsi_stoch(df, since_ts, max_gap=3):
+    """
+    شرط الدخول LONG على فريم الثلث:
+    - بعد أن يلمس RSI قيمة 35 أو أقل (يُفحص منفصلاً في step8)،
+    - يتحقق تقاطع RSI لفوق متوسطه (SMA 14)،
+    - وخلال ±max_gap شمعة من هذا التقاطع يطلع Stochastic %K (الخط الأزرق فقط) فوق 20.
+
+    لا يُشترط أن يبقى Stochastic فوق 20 أو RSI فوق متوسطه على الشمعة الحالية.
+    """
     if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     rsi_sig = rsi.rolling(14).mean()
-    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-    
-    # ✅ الحالة الحالية يجب تكون آمنة
-    current_k = float(k.iloc[-1])
-    current_rsi = float(rsi.iloc[-1])
-    
-    if current_k <= 20:  # تشبع بيعي
-        return False
-    if current_k >= 80:  # تشبع شرائي ❌ ارفض!
-        return False
-    if current_rsi < float(rsi_sig.iloc[-1]):  # ارتد ❌ ارفض!
-        return False
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])  # %K فقط — بدون %D
 
     start_positions = df.index[df["ts"] >= since_ts]
     if len(start_positions) < 2:
         return False
     start_pos = max(int(start_positions[0]), 1)
-    
-    stoch_crosses = []
+
     rsi_crosses = []
+    stoch_crosses = []
     for i in range(start_pos, len(df)):
         try:
-            if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
-                stoch_crosses.append(i)
+            # تقاطع RSI لفوق متوسطه
             if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
                 rsi_crosses.append(i)
-        except (ValueError, IndexError):
+            # Stochastic %K يطلع فوق 20
+            if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
+                stoch_crosses.append(i)
+        except (ValueError, IndexError, TypeError):
             continue
-    
-    for sc in stoch_crosses:
-        for rc in rsi_crosses:
+
+    for rc in rsi_crosses:
+        for sc in stoch_crosses:
             if abs(sc - rc) <= max_gap:
                 return True
     return False
 
+
 def check_rsi_stoch_short(df, since_ts, max_gap=3):
+    """
+    شرط الدخول SHORT على فريم الثلث:
+    - بعد أن يلمس RSI قيمة 65 أو أعلى (يُفحص منفصلاً في short_step8)،
+    - يتحقق تقاطع RSI لتحت متوسطه (SMA 14)،
+    - وخلال ±max_gap شمعة من هذا التقاطع ينزل Stochastic %K تحت 80.
+
+    لا يُشترط أن يبقى Stochastic تحت 80 أو RSI تحت متوسطه على الشمعة الحالية.
+    """
     if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return False
     rsi = calc_rsi_tv(df["close"], period=14)
     rsi_sig = rsi.rolling(14).mean()
-    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
-    
-    # ✅ الحالة الحالية يجب تكون آمنة (بين 20 و 80)
-    current_k = float(k.iloc[-1])
-    current_rsi = float(rsi.iloc[-1])
-    
-    if current_k >= 80:  # تشبع شرائي
-        return False
-    if current_k <= 20:  # تشبع بيعي ❌ ارفض!
-        return False
-    if current_rsi > float(rsi_sig.iloc[-1]):  # ارتد لفوق ❌ ارفض!
-        return False
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])  # %K فقط — بدون %D
 
     start_positions = df.index[df["ts"] >= since_ts]
     if len(start_positions) < 2:
         return False
     start_pos = max(int(start_positions[0]), 1)
-    
-    stoch_crosses = []
+
     rsi_crosses = []
+    stoch_crosses = []
     for i in range(start_pos, len(df)):
         try:
-            if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
-                stoch_crosses.append(i)
+            # تقاطع RSI لتحت متوسطه
             if float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) <= float(rsi_sig.iloc[i]):
                 rsi_crosses.append(i)
-        except (ValueError, IndexError):
+            # Stochastic %K ينزل تحت 80
+            if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
+                stoch_crosses.append(i)
+        except (ValueError, IndexError, TypeError):
             continue
-    
-    for sc in stoch_crosses:
-        for rc in rsi_crosses:
+
+    for rc in rsi_crosses:
+        for sc in stoch_crosses:
             if abs(sc - rc) <= max_gap:
                 return True
     return False
