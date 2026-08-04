@@ -229,7 +229,7 @@ def calc_donchian_trend_pine(close_arr, high_arr, low_arr, length):
     trend = raw.ffill().fillna(0)
     try:
         return int(trend.iloc[-1])
-    except Exception:
+    except (IndexError, TypeError, ValueError):
         return 0
 
 

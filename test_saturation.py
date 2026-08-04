@@ -3,8 +3,8 @@
 
 تتحقق هذه الاختبارات من:
 1. أن TF_TO_API يربط كل فريم بمصدره الصحيح المحدد في TRIPLING_PAIRS.
-2. أن _has_higher_tf_saturation تجلب البيانات من المصدر الصحيح لكل فريم أعلى
-   (30m لفريمات 90/120/150، و60m لفريمات 60/180/210/240) وليس دائماً من مصدر المرشح.
+2. أن _has_higher_tf_saturation تفحص الفريم التالي مباشرة وتستخدم مصدره الصحيح
+   (مثل 30m لفريم 90، و60m لفريم 180) وليس دائماً مصدر المرشح.
 3. أن الفريمات ذات البيانات الكافية يتم تقييمها بشكل صحيح (لا ترجع False بسبب بيانات وهمية ناقصة).
 """
 import unittest
@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 
 # تحميل الوحدة بدون تشغيل main()
+import cascade_pipeline as pipeline
 import fahadal92 as bot
 
 
@@ -100,11 +101,11 @@ class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
             "base_api": base_api,
         }
 
-    def test_uses_30m_source_for_90m_frame(self):
+    def test_uses_30m_source_for_immediate_90m_frame(self):
         """
         لمرشح base_api='1m'، عند فحص الفريم 90m يجب استدعاء get_cached بـ '30m' لا '1m'.
         """
-        candidate = self._make_candidate(base_frame=9, base_api="1m")
+        candidate = self._make_candidate(base_frame=60, base_api="60m")
         calls = []
 
         def mock_get_cached(sym, api):
@@ -114,19 +115,17 @@ class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
         def mock_get_resampled(raw_df, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(bot, "get_cached", side_effect=mock_get_cached):
+        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         apis_called = [api for _, api in calls]
-        # يجب أن نرى '30m' في الاستدعاءات (للفريمات 90/120/150)
-        self.assertIn("30m", apis_called,
-                      "يجب استدعاء get_cached('TESTUSDT', '30m') للفريمات 90/120/150")
+        self.assertEqual(apis_called, ["30m"])
 
-    def test_uses_60m_source_for_180m_frame(self):
+    def test_uses_60m_source_for_immediate_180m_frame(self):
         """
         لمرشح base_api='1m'، عند فحص الفريم 180m يجب استدعاء get_cached بـ '60m' لا '1m'.
         """
-        candidate = self._make_candidate(base_frame=9, base_api="1m")
+        candidate = self._make_candidate(base_frame=150, base_api="30m")
         calls = []
 
         def mock_get_cached(sym, api):
@@ -136,57 +135,30 @@ class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
         def mock_get_resampled(raw_df, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(bot, "get_cached", side_effect=mock_get_cached):
+        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         apis_called = [api for _, api in calls]
-        self.assertIn("60m", apis_called,
-                      "يجب استدعاء get_cached('TESTUSDT', '60m') للفريمات 180/210/240")
+        self.assertEqual(apis_called, ["60m"])
 
-    def test_no_duplicate_1m_calls_for_large_frames(self):
+    def test_checks_only_the_immediate_next_frame(self):
         """
         يجب عدم استدعاء get_cached بـ '1m' للفريمات 90/120/150/180/210/240.
         """
         candidate = self._make_candidate(base_frame=9, base_api="1m")
         calls_per_api_per_tf = []
 
-        def mock_get_cached(sym, api):
-            return pd.DataFrame()
-
-        tf_api_pairs = []
-
         def mock_get_resampled(raw_df, _sym, _api, tf):
-            tf_api_pairs.append((_api, tf))
             return pd.DataFrame()
-
-        # تتبع الـ api لكل فريم عبر get_cached
-        call_map = {}  # tf → api used
-
-        original_get_cached = bot.get_cached
 
         def tracking_get_cached(sym, api):
-            # نسجل الـ api لكل استدعاء
             calls_per_api_per_tf.append(api)
             return pd.DataFrame()
 
-        with patch.object(bot, "get_cached", side_effect=tracking_get_cached):
+        with patch.object(pipeline, "get_cached", side_effect=tracking_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
-        # نحسب عدد مرات استدعاء '1m' — يجب أن يكون فقط للفريمات 12-45
-        # وليس للفريمات الكبيرة
-        # عدد الفريمات من 12 إلى 45 دقيقة التي تستخدم 1m = 12,15,18,21,24,27,30,45 = 8 فريمات
-        one_m_calls = calls_per_api_per_tf.count("1m")
-        thirty_m_calls = calls_per_api_per_tf.count("30m")
-        sixty_m_calls = calls_per_api_per_tf.count("60m")
-
-        # 12,15,18,21,24,27,30,45,60 → 8 فريمات تستخدم 1m (12-45) + فريم 60 يستخدم 60m
-        # لكن هنا base_frame=9 فنفحص 12,15,18,21,24,27,30,45 (1m) + 60 (60m) + 90,120,150 (30m) + 180,210,240 (60m)
-        self.assertEqual(one_m_calls, 8,  # 12,15,18,21,24,27,30,45
-                         f"المتوقع 8 استدعاء بـ 1m، حصلنا على {one_m_calls}")
-        self.assertEqual(thirty_m_calls, 3,  # 90,120,150
-                         f"المتوقع 3 استدعاء بـ 30m، حصلنا على {thirty_m_calls}")
-        self.assertEqual(sixty_m_calls, 4,  # 60,180,210,240
-                         f"المتوقع 4 استدعاء بـ 60m، حصلنا على {sixty_m_calls}")
+        self.assertEqual(calls_per_api_per_tf, ["1m"])
 
 
 class TestHasHigherTFSaturationLogic(unittest.TestCase):
@@ -213,7 +185,7 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
         def mock_get_resampled(raw, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(bot, "get_cached", side_effect=mock_get_cached):
+        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
             result = bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         self.assertFalse(result)
@@ -229,21 +201,21 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
             return large_df.copy()
 
         def mock_get_resampled(raw, sym, api, tf):
-            # نرجع df كافي فقط للفريم 60 (أول فريم أعلى من 9 في TIMEFRAME_CHAIN)
-            if tf == 60:
+            # base=9 يفحص الفريم التالي 12 فقط.
+            if tf == 12:
                 return large_df.copy()
             return pd.DataFrame()
 
-        with patch.object(bot, "get_cached", side_effect=mock_get_cached):
+        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
             # check_smi_oversold يحتاج SMI ≤ -40 — لضمان التحقق نُغلف الدالة
-            with patch.object(bot, "check_smi_oversold", return_value=True):
+            with patch.object(pipeline, "check_smi_oversold", return_value=True):
                 result = bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         self.assertTrue(result)
 
     def test_returns_true_when_higher_tf_overbought(self):
         """ترجع True عندما يكون فريم أعلى في تشبع شرائي (check_smi_overbought = True) لإشارة بيع."""
-        candidate = self._make_candidate(base_frame=9)
+        candidate = self._make_candidate(base_frame=60)
 
         large_df = _make_ohlcv(n=500, smi_value=50.0)
 
@@ -255,8 +227,8 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
                 return large_df.copy()
             return pd.DataFrame()
 
-        with patch.object(bot, "get_cached", side_effect=mock_get_cached):
-            with patch.object(bot, "check_smi_overbought", return_value=True):
+        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
+            with patch.object(pipeline, "check_smi_overbought", return_value=True):
                 result = bot._has_higher_tf_saturation(candidate, "sell", mock_get_resampled)
 
         self.assertTrue(result)
@@ -273,7 +245,7 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
         def mock_get_resampled(raw, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(bot, "get_cached", side_effect=mock_get_cached):
+        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         # base_frame = 240 وهو أكبر فريم في TIMEFRAME_CHAIN → لا استدعاءات
