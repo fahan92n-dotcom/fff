@@ -126,220 +126,220 @@ def get_report(period="today", signal_type=None):
         lines.append(f"{icon} {t['symbol']} | {t['timeframe']} | {t['price']:.4g} | {t['time'].strftime('%H:%M UTC')}")
     return "\n".join(lines)
 
+def _diag_reason(
+    reason,
+    severity,
+    description,
+    solution,
+    why="",
+    percentage=0.0,
+    total_failed=0,
+    total=0,
+    rank=1,
+):
+    """Build one diagnostics reason with a stable schema for Telegram formatting."""
+    return {
+        "rank": rank,
+        "reason": reason,
+        "severity": severity,
+        "percentage": float(percentage),
+        "total_failed": int(total_failed),
+        "total": int(total),
+        "description": description,
+        "solution": solution,
+        "why": why,
+    }
+
+
 def diagnose_signal_failures():
     """
     تشخيص أهم 3 أسباب لعدم مجيء إشارات
     ترتيب من الأقوى فشل إلى الأضعف
     """
-    
     if not fast_prefetch_done.is_set():
         return [
-            {
-                "rank": 1,
-                "reason": "❌ البيانات لم تحمل بعد",
-                "severity": "CRITICAL",
-                "description": "البوت ما زال يحمل البيانات الأولية",
-                "solution": "انتظر 5-30 دقيقة للتحميل الكامل"
-            }
+            _diag_reason(
+                reason="❌ البيانات لم تحمل بعد",
+                severity="CRITICAL",
+                percentage=100.0,
+                description="البوت ما زال يحمل البيانات الأولية",
+                solution="انتظر 5-30 دقيقة للتحميل الكامل",
+                why="التشخيص يحتاج كاش مكتمل قبل حساب نسب الفشل",
+            )
         ]
-    
+
     with symbols_cache_lock:
         symbols = list(symbols_cache)
-    
+
     if not symbols:
         return [
-            {
-                "rank": 1,
-                "reason": "❌ لا توجد عملات محملة",
-                "severity": "CRITICAL",
-                "description": "قائمة العملات فارغة",
-                "solution": "تحقق من Binance API"
-            }
+            _diag_reason(
+                reason="❌ لا توجد عملات محملة",
+                severity="CRITICAL",
+                percentage=100.0,
+                description="قائمة العملات فارغة",
+                solution="تحقق من Binance API وإعداد MARKET_MODE",
+                why="بدون عملات لا يمكن تشغيل خطوات الـ Cascade",
+            )
         ]
-    
-    failures = []
-    
+
     # ─────────────────────────────────────────────
-    # السبب #1: فشل MIN_CANDLES (الأهم!)
+    # السبب #1: فشل MIN_CANDLES
     # ─────────────────────────────────────────────
-    
     min_candles_failures = 0
     total_candidates = 0
-    
+
     for sym in symbols[:10]:  # فحص أول 10 عملات
         raw_by_tf = {
             "1m": get_cached(sym, "1m"),
             "30m": get_cached(sym, "30m"),
             "60m": get_cached(sym, "60m"),
         }
-        
+
         for base_frame, confirm_frame, triple_frame, base_api, triple_api in TRIPLING_PAIRS:
             total_candidates += 1
             raw_base = raw_by_tf.get(base_api, pd.DataFrame())
-            
+
             if raw_base.empty:
                 continue
-            
+
             df_base = resample_ohlcv(raw_base, base_frame)
-            
+
             if len(df_base) < MIN_CANDLES:
                 min_candles_failures += 1
-    
-    min_candles_percentage = (min_candles_failures / total_candidates * 100) if total_candidates > 0 else 0
-    
+
+    min_candles_percentage = (
+        (min_candles_failures / total_candidates * 100) if total_candidates > 0 else 0.0
+    )
+
     # ─────────────────────────────────────────────
-    # السبب #2: فشل Step 6 (حماية RSI)
+    # السبب #2: فشل Step 6 (EMA50)
     # ─────────────────────────────────────────────
-    
     step6_failures = 0
     step6_total = 0
-    
+
     with last_complete_lock:
-        for step_num in [6]:
-            stats = last_complete_stats.get(step_num, {})
-            total = stats.get("total", 0)
-            passed = stats.get("passed", 0)
-            
-            if total > 0:
-                step6_failures = total - passed
-                step6_total = total
-    
-    step6_percentage = (step6_failures / step6_total * 100) if step6_total > 0 else 0
-    
+        stats = last_complete_stats.get(6, {})
+        total = stats.get("total", 0)
+        passed = stats.get("passed", 0)
+        if total > 0:
+            step6_failures = total - passed
+            step6_total = total
+
+    step6_percentage = (
+        (step6_failures / step6_total * 100) if step6_total > 0 else 0.0
+    )
+
     # ─────────────────────────────────────────────
     # السبب #3: فشل Step 1 (SMI Oversold)
     # ─────────────────────────────────────────────
-    
     step1_failures = 0
     step1_total = 0
-    
+
     with last_complete_lock:
-        for step_num in [1]:
-            stats = last_complete_stats.get(step_num, {})
-            total = stats.get("total", 0)
-            passed = stats.get("passed", 0)
-            
-            if total > 0:
-                step1_failures = total - passed
-                step1_total = total
-    
-    step1_percentage = (step1_failures / step1_total * 100) if step1_total > 0 else 0
-    
-    # ─────────────────────────────────────────────
-    # ترتيب الأسباب من الأقوى فشل
-    # ─────────────────────────────────────────────
-    
+        stats = last_complete_stats.get(1, {})
+        total = stats.get("total", 0)
+        passed = stats.get("passed", 0)
+        if total > 0:
+            step1_failures = total - passed
+            step1_total = total
+
+    step1_percentage = (
+        (step1_failures / step1_total * 100) if step1_total > 0 else 0.0
+    )
+
     reasons = [
-        {
-            "rank": 1,
-            "reason": "❌ فشل MIN_CANDLES (الحد الأدنى من الشموات)",
-            "severity": "CRITICAL" if min_candles_percentage > 50 else "HIGH",
-            "percentage": min_candles_percentage,
-            "total_failed": min_candles_failures,
-            "total": total_candidates,
-            "description": f"{min_candles_failures} مرشح من {total_candidates} فشلوا في اختبار الحد الأدنى (250 شمعة)",
-            "solution": "زيادة API_FETCH_CANDLES من 15_000 إلى 100_000",
-            "why": "الأطر الكبيرة (180m, 240m) تحتاج بيانات أكثر"
-        },
-        {
-            "rank": 2,
-            "reason": "⚠️ فشل Step 6 (حماية RSI القاسية)",
-            "severity": "HIGH" if step6_percentage > 50 else "MEDIUM",
-            "percentage": step6_percentage,
-            "total_failed": step6_failures,
-            "total": step6_total,
-            "description": f"{step6_failures} مرشح من {step6_total} فشلوا في خطوة RSI",
-            "solution": "تقليل متطلبات RSI (تغيير threshold من 35 إلى 40)",
-            "why": "شروط RSI معقدة جداً ومتقاطعة"
-        },
-        {
-            "rank": 3,
-            "reason": "⚡ فشل Step 1 (SMI Oversold ≤ -40)",
-            "severity": "MEDIUM" if step1_percentage > 70 else "LOW",
-            "percentage": step1_percentage,
-            "total_failed": step1_failures,
-            "total": step1_total,
-            "description": f"{step1_failures} مرشح من {step1_total} لم يصلوا لتشبع SMI بيعي",
-            "solution": "تخفيف عتبة SMI من -40 إلى -30",
-            "why": "السوق لا يدخل تشبع بيعي في كل وقت"
-        }
+        _diag_reason(
+            reason="❌ فشل MIN_CANDLES (الحد الأدنى من الشموع)",
+            severity="CRITICAL" if min_candles_percentage > 50 else "HIGH",
+            percentage=min_candles_percentage,
+            total_failed=min_candles_failures,
+            total=total_candidates,
+            description=(
+                f"{min_candles_failures} مرشح من {total_candidates} "
+                f"فشلوا في اختبار الحد الأدنى ({MIN_CANDLES} شمعة)"
+            ),
+            solution="زيادة API_FETCH_CANDLES أو تقليل عدد الأطر الكبيرة",
+            why="الأطر الكبيرة (180m, 240m) تحتاج بيانات أكثر",
+        ),
+        _diag_reason(
+            reason="⚠️ فشل Step 6 (شرط EMA50)",
+            severity="HIGH" if step6_percentage > 50 else "MEDIUM",
+            percentage=step6_percentage,
+            total_failed=step6_failures,
+            total=step6_total,
+            description=(
+                f"{step6_failures} مرشح من {step6_total} "
+                "فشلوا في شرط السعر مقابل EMA50 منذ تشبع الفريم الأساسي"
+            ),
+            solution="راجع اتجاه السعر بالنسبة لـ EMA50 بعد تشبع Step 1",
+            why="Step 6 يتحقق من لمس/اختراق EMA50 منذ لحظة التشبع وليس من RSI",
+        ),
+        _diag_reason(
+            reason="⚡ فشل Step 1 (SMI Oversold ≤ -40)",
+            severity="MEDIUM" if step1_percentage > 70 else "LOW",
+            percentage=step1_percentage,
+            total_failed=step1_failures,
+            total=step1_total,
+            description=(
+                f"{step1_failures} مرشح من {step1_total} "
+                "لم يصلوا لتشبع SMI بيعي"
+            ),
+            solution="تخفيف عتبة SMI من -40 إلى -30",
+            why="السوق لا يدخل تشبع بيعي في كل وقت",
+        ),
     ]
-    
-    # ترتيب حسب الفشل (من الأكثر للأقل)
-    reasons.sort(key=lambda x: x["percentage"], reverse=True)
-    
-    # إعادة ترقيم
-    for i, reason in enumerate(reasons, 1):
-        reason["rank"] = i
-    
+
+    reasons.sort(key=lambda item: item["percentage"], reverse=True)
+    for index, reason in enumerate(reasons, 1):
+        reason["rank"] = index
     return reasons
 
 
-def send_diagnostics_report():
-    """إرسال تقرير التشخيص عبر Telegram"""
-    reasons = diagnose_signal_failures()
-    
+def _format_diagnostics_report(reasons, title):
+    """Format diagnostics reasons into one Telegram-ready message."""
     lines = [
-        "🔍 <b>تقرير تشخيص فشل الإشارات</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        f"🔍 <b>{title}</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     ]
-    
     for reason in reasons:
-        rank = reason["rank"]
-        reason_text = reason["reason"]
         severity = reason["severity"]
-        percentage = reason["percentage"]
-        total_failed = reason["total_failed"]
-        total = reason["total"]
-        description = reason["description"]
-        solution = reason["solution"]
-        why = reason["why"]
-        
-        icon = "🔴" if severity == "CRITICAL" else ("🟠" if severity == "HIGH" else "🟡")
-        
-        lines.append(f"""
-{icon} <b>السبب #{rank}: {reason_text}</b>
+        icon = (
+            "🔴"
+            if severity == "CRITICAL"
+            else ("🟠" if severity == "HIGH" else "🟡")
+        )
+        lines.append(
+            f"""
+{icon} <b>السبب #{reason['rank']}: {reason['reason']}</b>
 ├─ الشدة: {severity}
-├─ نسبة الفشل: <b>{percentage:.1f}%</b> ({total_failed}/{total})
-├─ التفاصيل: {description}
-├─ الحل: <code>{solution}</code>
-└─ السبب: {why}
-""")
-    
-    msg = "\n".join(lines)
-    send_telegram(msg)
+├─ نسبة الفشل: <b>{reason['percentage']:.1f}%</b> ({reason['total_failed']}/{reason['total']})
+├─ التفاصيل: {reason['description']}
+├─ الحل: <code>{reason['solution']}</code>
+└─ السبب: {reason['why']}
+"""
+        )
+    return "\n".join(lines)
+
+
+def send_diagnostics_report(chat_id=None):
+    """إرسال تقرير التشخيص عبر Telegram"""
+    msg = _format_diagnostics_report(
+        diagnose_signal_failures(),
+        "تقرير تشخيص فشل الإشارات",
+    )
+    send_telegram(msg, chat_id)
 
 
 def handle_diag_command(chat_id):
     """معالج أمر /diag_failures"""
-    reasons = diagnose_signal_failures()
-    
-    lines = [
-        "🔍 <b>تشخيص أسباب فشل الإشارات</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        ""
-    ]
-    
-    for reason in reasons:
-        rank = reason["rank"]
-        reason_text = reason["reason"]
-        percentage = f"{reason['percentage']:.1f}%"
-        description = reason["description"]
-        solution = reason["solution"]
-        
-        lines.append(f"""
-<b>#{rank}: {reason_text}</b>
-📊 نسبة الفشل: <b>{percentage}</b>
-📝 الوصف: {description}
-✅ الحل: {solution}
-""")
-    
-    msg = "\n".join(lines)
-    
-    # تقسيم الرسالة إلى أجزاء إذا كانت طويلة جداً
+    msg = _format_diagnostics_report(
+        diagnose_signal_failures(),
+        "تشخيص أسباب فشل الإشارات",
+    )
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
-        
+
 def get_top_hard_filters(signal_type="buy", top_n=3, max_pass_pct=10.0):
     """
     يرجع أكثر N فلاتر قسوة (نسبة نجاح < max_pass_pct%)
@@ -693,6 +693,9 @@ def _dispatch_command(txt, chat_id):
     elif txt == "/hard_filters_sell":
         handle_hard_filters_command(chat_id, "sell")
 
+    elif txt in ("/diag_failures", "/diag"):
+        handle_diag_command(chat_id)
+
     # المساعدة
     elif txt == "/help":
         send_telegram(
@@ -706,6 +709,7 @@ def _dispatch_command(txt, chat_id):
             "<b>🔍 التحليل:</b>\n"
             "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
             "🔴 <code>/cascade_diag_sell</code> أو <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
+            "🧪 <code>/diag_failures</code> أو <code>/diag</code> — تشخيص أسباب ضعف الإشارات\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>🎯 الناجحون (شراء):</b>\n"
             "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"
