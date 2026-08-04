@@ -1,51 +1,45 @@
 """Thread-safe shared state for cascade scans, stage transitions, and alerts."""
 
-import threading
-from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
+
+from state_store import STATE
 
 
 ALERT_EXPIRY_HOURS = 4
 STEP5_MAX_WAIT_SECONDS = None
 STAGE5_COEXIST_MIN_RATIO = 4.0
 
-alerted_keys = {}
-alerted_keys_lock = threading.Lock()
-trades_history = deque(maxlen=2000)
-trades_lock = threading.Lock()
-
-cascade_results = defaultdict(dict)
-cascade_results_lock = threading.Lock()
-cascade_stats = {i: {"total": 0, "passed": 0} for i in range(1, 9)}
-cascade_stats_lock = threading.Lock()
-
-last_complete_stats = {i: {"total": 0, "passed": 0} for i in range(1, 9)}
-last_complete_results = defaultdict(dict)
-last_complete_survivors = {}
-last_complete_lock = threading.Lock()
-
-short_cascade_results = defaultdict(dict)
-short_cascade_results_lock = threading.Lock()
-short_cascade_stats = {i: {"total": 0, "passed": 0} for i in range(1, 9)}
-short_cascade_stats_lock = threading.Lock()
-
-last_complete_short_stats = {i: {"total": 0, "passed": 0} for i in range(1, 9)}
-last_complete_short_results = defaultdict(dict)
-last_complete_short_survivors = {}
-last_complete_short_lock = threading.Lock()
-
-last_complete_scan_time = {"buy": None, "sell": None}
-last_complete_scan_time_lock = threading.Lock()
-
-step1_ready_since = {}
-step1_ready_since_lock = threading.Lock()
-step6_ready_since = {}
-step6_ready_since_lock = threading.Lock()
-step7_ready_since = {}
-step7_ready_since_lock = threading.Lock()
-
-step5_entry_time = {}
-step5_entry_time_lock = threading.Lock()
+# Compatibility aliases.  Storage ownership remains in ``state_store.STATE``.
+alerted_keys = STATE.alerted_keys
+alerted_keys_lock = STATE.alerted_keys_lock
+trades_history = STATE.trades_history
+trades_lock = STATE.trades_lock
+cascade_results = STATE.cascade_results
+cascade_results_lock = STATE.cascade_results_lock
+cascade_stats = STATE.cascade_stats
+cascade_stats_lock = STATE.cascade_stats_lock
+last_complete_stats = STATE.last_complete_stats
+last_complete_results = STATE.last_complete_results
+last_complete_survivors = STATE.last_complete_survivors
+last_complete_lock = STATE.last_complete_lock
+short_cascade_results = STATE.short_cascade_results
+short_cascade_results_lock = STATE.short_cascade_results_lock
+short_cascade_stats = STATE.short_cascade_stats
+short_cascade_stats_lock = STATE.short_cascade_stats_lock
+last_complete_short_stats = STATE.last_complete_short_stats
+last_complete_short_results = STATE.last_complete_short_results
+last_complete_short_survivors = STATE.last_complete_short_survivors
+last_complete_short_lock = STATE.last_complete_short_lock
+last_complete_scan_time = STATE.last_complete_scan_time
+last_complete_scan_time_lock = STATE.last_complete_scan_time_lock
+step1_ready_since = STATE.step1_ready_since
+step1_ready_since_lock = STATE.step1_ready_since_lock
+step6_ready_since = STATE.step6_ready_since
+step6_ready_since_lock = STATE.step6_ready_since_lock
+step7_ready_since = STATE.step7_ready_since
+step7_ready_since_lock = STATE.step7_ready_since_lock
+step5_entry_time = STATE.step5_entry_time
+step5_entry_time_lock = STATE.step5_entry_time_lock
 
 
 def cleanup_alerted_keys(expiry_hours=ALERT_EXPIRY_HOURS):
