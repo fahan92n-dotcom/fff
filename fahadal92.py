@@ -79,7 +79,7 @@ from indicators import (
     DONCHIAN_DLEN,
     _ribbon_cache, _ribbon_cache_lock,
     resample_ohlcv, resample_ohlcv_closed,
-    wilder_rma, _calc_macd_hist, _calc_macd_full, _get_macd_window_hours,
+    wilder_rma, _calc_macd_hist, _calc_macd_full,
     check_macd_line_long, check_macd_line_short, check_macd_red, check_macd_green,
     calc_donchian_trend_pine, _calc_donchian_ribbon_result, check_donchian_trend_ribbon,
     check_ema50_below, check_ema50_above,
@@ -841,35 +841,19 @@ def step1(c):
     return True, "passed"
 
 def step2(c):
-    """✅ MACD الفريم الأساسي - كل الشروط مرتبطة (LONG)"""
+    """
+    MACD الفريم الأساسي (LONG):
+    1) هيستوجرام أحمر (نزول تصحيحي)
+    2) الخط الأزرق فوق الهوستقرام أو يلامسه
+    3) الخط الأزرق ≤ 40% من أقصى ارتفاع فوق خط الصفر
+       (يوم للفريمات ≤60د، 3 أيام للأكبر)
+    """
     if len(c["df_base"]) < WARMUP_MACD:
         return False, "warmup"
-    macd_line, signal_line, histogram = _calc_macd_full(c["df_base"]["close"])
-
-    current_hist = float(histogram.iloc[-1])
-    current_macd = float(macd_line.iloc[-1])
-
-    # ✅ الشرط 1: Histogram أحمر (< 0)
-    if current_hist >= 0:
+    if not check_macd_red(c["df_base"]):
         return False, "macd_histogram_not_red"
-
-    # ✅ الشرط 2: الخط الأزرق فوق الهوستقرام
-    if current_macd < current_hist:
-        return False, "macd_line_not_above_histogram"
-
-    # ✅ الشرط 3: الخط الأزرق ≤ 40% من أقصى ارتفاع (نافذة ديناميكية: 24 ساعة لفريم ≤60 د، 72 ساعة لفريم >60 د)
-    window_hours = _get_macd_window_hours(c["base_frame"])
-    last_ts = c["df_base"]["ts"].iloc[-1]
-    cutoff_ts = last_ts - timedelta(hours=window_hours)
-    macd_today = macd_line[c["df_base"]["ts"].values >= np.datetime64(cutoff_ts)]
-    if macd_today.empty:
-        macd_today = macd_line
-    max_window = float(macd_today.max())
-    threshold = max_window * 0.40
-
-    if current_macd > threshold:
-        return False, "macd_line_exceeds_40_percent"
-
+    if not check_macd_line_long(c["df_base"], pct=0.40, base_frame=c["base_frame"]):
+        return False, "macd_line_band"
     return True, "passed"
 
 def step3(c):
@@ -936,35 +920,19 @@ def short_step1(c):
 
 
 def short_step2(c):
-    """✅ MACD الفريم الأساسي - كل الشروط مرتبطة (SHORT)"""
+    """
+    MACD الفريم الأساسي (SHORT):
+    1) هيستوجرام أخضر
+    2) الخط الأزرق تحت الهوستقرام أو يلامسه
+    3) الخط الأزرق ≥ 40% من أقصى نزول تحت خط الصفر
+       (يوم للفريمات ≤60د، 3 أيام للأكبر)
+    """
     if len(c["df_base"]) < WARMUP_MACD:
         return False, "warmup"
-    macd_line, signal_line, histogram = _calc_macd_full(c["df_base"]["close"])
-
-    current_hist = float(histogram.iloc[-1])
-    current_macd = float(macd_line.iloc[-1])
-
-    # ✅ الشرط 1: Histogram أخضر (> 0)
-    if current_hist <= 0:
+    if not check_macd_green(c["df_base"]):
         return False, "macd_histogram_not_green"
-
-    # ✅ الشرط 2: الخط الأزرق تحت الهوستقرام
-    if current_macd > current_hist:
-        return False, "macd_line_not_below_histogram"
-
-    # ✅ الشرط 3: الخط الأزرق ≥ 40% من أدنى مستوى (نافذة ديناميكية: 24 ساعة لفريم ≤60 د، 72 ساعة لفريم >60 د)
-    window_hours = _get_macd_window_hours(c["base_frame"])
-    last_ts = c["df_base"]["ts"].iloc[-1]
-    cutoff_ts = last_ts - timedelta(hours=window_hours)
-    macd_today = macd_line[c["df_base"]["ts"].values >= np.datetime64(cutoff_ts)]
-    if macd_today.empty:
-        macd_today = macd_line
-    min_window = float(macd_today.min())
-    threshold = min_window * 0.40
-
-    if current_macd < threshold:
-        return False, "macd_line_below_40_percent"
-
+    if not check_macd_line_short(c["df_base"], pct=0.40, base_frame=c["base_frame"]):
+        return False, "macd_line_band"
     return True, "passed"
 
 def short_step3(c):
