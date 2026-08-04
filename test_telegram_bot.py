@@ -69,8 +69,14 @@ class TestTelegramDispatch(unittest.TestCase):
 
 class TestSignalNotification(unittest.TestCase):
     def test_signal_is_claimed_saved_cleared_and_sent(self):
-        ready_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        frame = pd.DataFrame({"close": [123.45]})
+        ready_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        candle_ts = datetime(2024, 1, 1, 11, 57, 0, tzinfo=timezone.utc)
+        frame = pd.DataFrame(
+            {
+                "ts": [candle_ts, ready_at],
+                "close": [12.5, 14.0],
+            }
+        )
         with patch.object(
             telegram_bot,
             "claim_signal",
@@ -87,32 +93,38 @@ class TestSignalNotification(unittest.TestCase):
             return_value=True,
         ) as send:
             emitted = telegram_bot._fire_signal(
-                "BTCUSDT",
+                "BATUSDT",
                 9,
                 27,
                 3,
                 frame,
                 signal_type="buy",
+                price=12.5,
+                candle_ts=candle_ts,
             )
 
         self.assertTrue(emitted)
-        claim.assert_called_once_with(("BTCUSDT", 9, 27, 3, "buy"))
+        claim.assert_called_once_with(("BATUSDT", 9, 27, 3, "buy"))
         save.assert_called_once_with(
-            "BTCUSDT",
-            123.45,
+            "BATUSDT",
+            12.5,
             9,
             27,
             3,
             signal_type="buy",
         )
         clear.assert_called_once_with(
-            "BTCUSDT",
+            "BATUSDT",
             9,
             27,
             3,
             signal_type="buy",
         )
         send.assert_called_once()
+        message = send.call_args.args[0]
+        self.assertIn("12.5", message)
+        self.assertIn("شمعة التحقق: 2024-01-01 11:57:00 UTC", message)
+        self.assertNotIn("14", message)
 
 
 if __name__ == "__main__":

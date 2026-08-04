@@ -29,6 +29,7 @@ from indicators import (
     check_macd_line_long,
     check_macd_line_short,
     check_macd_red,
+    find_rsi_stoch_entry_index,
     resample_ohlcv,
 )
 from cascade_steps import (
@@ -66,6 +67,7 @@ from state_manager import (
     _update_last_complete_step,
     complete_scan,
     get_stage_candidates,
+    get_step1_ready_since,
     mark_stage_ready,
     record_scan_step,
     remove_stage_candidate,
@@ -523,6 +525,8 @@ def _evaluate_transition(
         mark_stage_ready(signal_type, to_stage, passed)
         _promote_candidates(signal_type, from_stage, to_stage, passed)
     else:
+        # أخرج الناجحين من المرحلة 7 حتى لا يُعاد تقييمهم بشمعة لاحقة.
+        _promote_candidates(signal_type, from_stage, to_stage, passed)
         _set_step8_survivors(signal_type, passed)
     return passed
 
@@ -537,19 +541,59 @@ def _waiting_transition_candidates(signal_type, stage_num, get_resampled):
     )
 
 
+def _resolve_entry_signal_candle(candidate, signal_type):
+    """
+    شمعة التحقق على فريم الدخول (الثُلث): سعر إغلاقها ووقت فتحها.
+
+    Step 8 يكتمل بأحداث تاريخية؛ لذلك لا نستخدم آخر شمعة وقت الإرسال ولا df_base.
+    """
+    entry_frame = candidate.get("df_triple")
+    if entry_frame is None or entry_frame.empty:
+        raise ValueError("Candidate is missing entry timeframe data")
+
+    since_ts = get_step1_ready_since(
+        candidate["sym"],
+        candidate["base_frame"],
+        candidate["confirm_frame"],
+        candidate["triple_frame"],
+        signal_type,
+    )
+    side = "long" if signal_type == "buy" else "short"
+    entry_index = find_rsi_stoch_entry_index(
+        entry_frame,
+        since_ts,
+        max_gap=3,
+        side=side,
+    )
+    if entry_index is None:
+        entry_index = len(entry_frame) - 1
+
+    candle = entry_frame.iloc[entry_index]
+    candle_ts = candle["ts"]
+    if getattr(candle_ts, "to_pydatetime", None) is not None:
+        candle_ts = candle_ts.to_pydatetime()
+    return entry_frame, float(candle["close"]), candle_ts
+
+
 def _emit_signals(signal_type, label, passed, evaluated_count):
     if not passed:
         return
     if _signal_handler is None:
         raise RuntimeError("Cascade signal handler is not configured")
     for candidate in passed:
+        entry_frame, price, candle_ts = _resolve_entry_signal_candle(
+            candidate,
+            signal_type,
+        )
         _signal_handler(
             candidate["sym"],
             candidate["base_frame"],
             candidate["confirm_frame"],
             candidate["triple_frame"],
-            candidate["df_base"],
+            entry_frame,
             signal_type=signal_type,
+            price=price,
+            candle_ts=candle_ts,
         )
     log.info(
         "⚡ Quick check (%s): %d إشارة من %d مرشح محفوظ",
@@ -649,6 +693,7 @@ def _refresh_quick_data(snapshot):
         for candidate in all_candidates
     }
     for candidate in all_candidates:
+        refresh_items.add((candidate["sym"], candidate["triple_api"]))
         higher_tf = NEXT_TF.get(candidate["base_frame"])
         if higher_tf is not None:
             refresh_items.add(

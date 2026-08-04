@@ -463,9 +463,10 @@ def update_symbols_loop():
 
 
 def get_last_closed_candle(symbol, tf):
-    """جلب آخر شمعة مُغلقة 100% من Binance"""
+    """جلب آخر شمعة مُغلقة 100% من Binance (Spot أو Futures حسب MARKET_MODE)."""
     try:
-        df = get_ohlcv(symbol, tf, limit=2)
+        fetch = get_ohlcv_futures if MARKET_MODE == "futures" else get_ohlcv
+        df = fetch(symbol, tf, limit=2)
 
         if df.empty or len(df) < 2:
             log.warning("⚠️ بيانات ناقصة لـ %s فريم %s", symbol, tf)

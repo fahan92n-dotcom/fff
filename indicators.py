@@ -500,6 +500,61 @@ def check_smi_touched_since(df, since_ts, threshold=-40, direction="long"):
     return bool((smi_window >= threshold).any())
 
 
+def find_rsi_stoch_entry_index(df, since_ts, max_gap=3, side="long"):
+    """
+    أقدم شمعة أكملت شرط الدخول على فريم الثلث (RSI/SMA + Stochastic %K).
+
+    تُرجع فهرس شمعة الإكمال (الأحدث بين تقاطع RSI وتقاطع Stoch في أول زوج صالح)،
+    أو None إن لم يكتمل الشرط. هذا يمنع الإشعار من التقاط شمعة لاحقة بعد التحقق.
+    """
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
+        return None
+    if side not in ("long", "short"):
+        raise ValueError(f"Unsupported side: {side}")
+
+    rsi = calc_rsi_tv(df["close"], period=14)
+    rsi_sig = rsi.rolling(14).mean()
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])  # %K فقط — بدون %D
+
+    start_positions = df.index[df["ts"] >= since_ts]
+    if len(start_positions) < 2:
+        return None
+    start_pos = max(int(start_positions[0]), 1)
+
+    rsi_crosses = []
+    stoch_crosses = []
+    for i in range(start_pos, len(df)):
+        try:
+            if side == "long":
+                rsi_crossed = (
+                    float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1])
+                    and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i])
+                )
+                stoch_crossed = float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20
+            else:
+                rsi_crossed = (
+                    float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1])
+                    and float(rsi.iloc[i]) <= float(rsi_sig.iloc[i])
+                )
+                stoch_crossed = float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80
+            if rsi_crossed:
+                rsi_crosses.append(i)
+            if stoch_crossed:
+                stoch_crosses.append(i)
+        except (ValueError, IndexError, TypeError):
+            continue
+
+    best_completion = None
+    for rc in rsi_crosses:
+        for sc in stoch_crosses:
+            if abs(sc - rc) > max_gap:
+                continue
+            completion = max(rc, sc)
+            if best_completion is None or completion < best_completion:
+                best_completion = completion
+    return best_completion
+
+
 def check_rsi_stoch(df, since_ts, max_gap=3):
     """
     شرط الدخول LONG على فريم الثلث:
@@ -509,35 +564,7 @@ def check_rsi_stoch(df, since_ts, max_gap=3):
 
     لا يُشترط أن يبقى Stochastic فوق 20 أو RSI فوق متوسطه على الشمعة الحالية.
     """
-    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
-        return False
-    rsi = calc_rsi_tv(df["close"], period=14)
-    rsi_sig = rsi.rolling(14).mean()
-    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])  # %K فقط — بدون %D
-
-    start_positions = df.index[df["ts"] >= since_ts]
-    if len(start_positions) < 2:
-        return False
-    start_pos = max(int(start_positions[0]), 1)
-
-    rsi_crosses = []
-    stoch_crosses = []
-    for i in range(start_pos, len(df)):
-        try:
-            # تقاطع RSI لفوق متوسطه
-            if float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i]):
-                rsi_crosses.append(i)
-            # Stochastic %K يطلع فوق 20
-            if float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20:
-                stoch_crosses.append(i)
-        except (ValueError, IndexError, TypeError):
-            continue
-
-    for rc in rsi_crosses:
-        for sc in stoch_crosses:
-            if abs(sc - rc) <= max_gap:
-                return True
-    return False
+    return find_rsi_stoch_entry_index(df, since_ts, max_gap=max_gap, side="long") is not None
 
 
 def check_rsi_stoch_short(df, since_ts, max_gap=3):
@@ -549,32 +576,4 @@ def check_rsi_stoch_short(df, since_ts, max_gap=3):
 
     لا يُشترط أن يبقى Stochastic تحت 80 أو RSI تحت متوسطه على الشمعة الحالية.
     """
-    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
-        return False
-    rsi = calc_rsi_tv(df["close"], period=14)
-    rsi_sig = rsi.rolling(14).mean()
-    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])  # %K فقط — بدون %D
-
-    start_positions = df.index[df["ts"] >= since_ts]
-    if len(start_positions) < 2:
-        return False
-    start_pos = max(int(start_positions[0]), 1)
-
-    rsi_crosses = []
-    stoch_crosses = []
-    for i in range(start_pos, len(df)):
-        try:
-            # تقاطع RSI لتحت متوسطه
-            if float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1]) and float(rsi.iloc[i]) <= float(rsi_sig.iloc[i]):
-                rsi_crosses.append(i)
-            # Stochastic %K ينزل تحت 80
-            if float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80:
-                stoch_crosses.append(i)
-        except (ValueError, IndexError, TypeError):
-            continue
-
-    for rc in rsi_crosses:
-        for sc in stoch_crosses:
-            if abs(sc - rc) <= max_gap:
-                return True
-    return False
+    return find_rsi_stoch_entry_index(df, since_ts, max_gap=max_gap, side="short") is not None
