@@ -65,12 +65,12 @@ from state_manager import (
     _promote_candidates,
     _set_step8_survivors,
     _update_last_complete_step,
+    abandon_waiting_candidate,
     complete_scan,
     get_stage_candidates,
     get_step1_ready_since,
     mark_stage_ready,
     record_scan_step,
-    remove_stage_candidate,
     reset_scan_state,
     touch_scan_times,
 )
@@ -479,7 +479,7 @@ def _refresh_stage(signal_type, stage_num, get_resampled):
             need_triple=True,
         )
         if candidate2 is None:
-            remove_stage_candidate(signal_type, stage_num, candidate)
+            abandon_waiting_candidate(signal_type, candidate)
         else:
             refreshed.append(candidate2)
     return refreshed
@@ -498,7 +498,7 @@ def _filter_higher_saturation(
             signal_type,
             get_resampled,
         ):
-            remove_stage_candidate(signal_type, stage_num, candidate)
+            abandon_waiting_candidate(signal_type, candidate)
         else:
             filtered.append(candidate)
     return filtered
@@ -630,7 +630,7 @@ def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
     for candidate in stage5_candidates:
         refreshed = validate_step5(candidate, get_resampled)
         if refreshed is None:
-            remove_stage_candidate(signal_type, 5, candidate)
+            abandon_waiting_candidate(signal_type, candidate)
         else:
             validated_stage5.append(refreshed)
 

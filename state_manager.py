@@ -201,6 +201,36 @@ def remove_stage_candidate(signal_type, stage_num, candidate):
         )
 
 
+def _clear_ready_timestamps(signal_type, symbol, base_frame, confirm_frame, triple_frame):
+    """Drop saturation/ready timestamps for one candidate key."""
+    ready_key = get_signal_key(
+        symbol,
+        base_frame,
+        confirm_frame,
+        triple_frame,
+        signal_type,
+    )
+    for ready_store, ready_lock in (
+        (step1_ready_since, step1_ready_since_lock),
+        (step6_ready_since, step6_ready_since_lock),
+        (step7_ready_since, step7_ready_since_lock),
+    ):
+        with ready_lock:
+            ready_store.pop(ready_key, None)
+    _forget_step5_entry(signal_type, symbol, base_frame)
+
+
+def abandon_waiting_candidate(signal_type, candidate):
+    """Remove a waiting candidate and forget its saturation episode."""
+    _clear_waiting_candidate(
+        candidate["sym"],
+        candidate["base_frame"],
+        candidate["confirm_frame"],
+        candidate["triple_frame"],
+        signal_type=signal_type,
+    )
+
+
 def _frames_far_apart(frame1, frame2):
     """Return whether two base frames may coexist in stage 5."""
     larger, smaller = max(frame1, frame2), min(frame1, frame2)
@@ -246,7 +276,14 @@ def _store_step5_waiters(signal_type, candidates):
                 symbol_frames[base_frame] = candidate
                 _remember_step5_entry(signal_type, symbol, base_frame, now)
             elif base_frame > close_frame:
-                _forget_step5_entry(signal_type, symbol, close_frame)
+                dropped = symbol_frames[close_frame]
+                _clear_ready_timestamps(
+                    signal_type,
+                    dropped["sym"],
+                    dropped["base_frame"],
+                    dropped["confirm_frame"],
+                    dropped["triple_frame"],
+                )
                 del symbol_frames[close_frame]
                 symbol_frames[base_frame] = candidate
                 _remember_step5_entry(signal_type, symbol, base_frame, now)
@@ -306,25 +343,55 @@ def _clear_waiting_candidate(
     signal_type="buy",
 ):
     candidate_key = (symbol, base_frame, confirm_frame, triple_frame)
-    ready_key = get_signal_key(
+    survivors_dict, survivors_lock = _get_stage_maps(signal_type)
+    with survivors_lock:
+        for stage_num in (5, 6, 7, 8):
+            _remove_stage_candidate(survivors_dict, stage_num, candidate_key)
+    _clear_ready_timestamps(
+        signal_type,
         symbol,
         base_frame,
         confirm_frame,
         triple_frame,
-        signal_type,
     )
+
+
+def _active_ready_keys(signal_type):
+    """Ready-key set for candidates currently waiting in stages 5–8."""
     survivors_dict, survivors_lock = _get_stage_maps(signal_type)
     with survivors_lock:
-        for stage_num in (5, 6, 7):
-            _remove_stage_candidate(survivors_dict, stage_num, candidate_key)
+        return {
+            get_signal_key(
+                candidate["sym"],
+                candidate["base_frame"],
+                candidate["confirm_frame"],
+                candidate["triple_frame"],
+                signal_type,
+            )
+            for stage_num in (5, 6, 7, 8)
+            for candidate in survivors_dict.get(stage_num, [])
+        }
+
+
+def _purge_orphaned_ready_timestamps(signal_type):
+    """
+    امسح timestamps التشبع للمرشحين الذين فشلوا بعد Step 1
+    ولم يعودوا في طابور الانتظار (5–8).
+    """
+    active = _active_ready_keys(signal_type)
     for ready_store, ready_lock in (
         (step1_ready_since, step1_ready_since_lock),
         (step6_ready_since, step6_ready_since_lock),
         (step7_ready_since, step7_ready_since_lock),
     ):
         with ready_lock:
-            ready_store.pop(ready_key, None)
-    _forget_step5_entry(signal_type, symbol, base_frame)
+            stale = [
+                key
+                for key in ready_store
+                if key[4] == signal_type and key not in active
+            ]
+            for key in stale:
+                del ready_store[key]
 
 
 def mark_stage_ready(signal_type, stage_num, candidates):
@@ -400,6 +467,8 @@ def complete_scan(signal_type, step_survivors):
         return False
 
     _store_step5_waiters(signal_type, step_survivors.get(5, []))
+    # مرشحو Step1 الذين فشلوا لاحقًا لا يبقون بـ timestamp تشبع قديم.
+    _purge_orphaned_ready_timestamps(signal_type)
     with complete_lock, stats_lock, results_lock:
         for step_num in range(1, 5):
             complete_stats[step_num] = dict(stats.get(step_num, {}))

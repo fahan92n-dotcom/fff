@@ -65,7 +65,8 @@ from state_manager import (
     _set_ready_since, _get_stage_maps, _upsert_stage_candidate,
     _remove_stage_candidate, _candidate_keys_in_stages, _frames_far_apart,
     _store_step5_waiters, _promote_candidates, _set_step8_survivors,
-    _clear_waiting_candidate, _update_last_complete_step,
+    _clear_waiting_candidate, abandon_waiting_candidate,
+    _purge_orphaned_ready_timestamps, _update_last_complete_step,
 )
 from cascade_pipeline import (
     TRIPLING_PAIRS, TIMEFRAME_CHAIN, NEXT_TF, TF_TO_API,

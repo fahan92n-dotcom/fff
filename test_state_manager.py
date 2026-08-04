@@ -71,6 +71,59 @@ class TestReadyTimestamps(StateManagerTestCase):
 
         self.assertEqual(store["key"], first)
 
+    def test_purge_removes_step1_timestamp_when_not_waiting(self):
+        candidate = _candidate("BTCUSDT", 9)
+        state.mark_stage_ready("buy", 1, [candidate])
+        key = state.get_signal_key(
+            "BTCUSDT",
+            9,
+            candidate["confirm_frame"],
+            candidate["triple_frame"],
+            "buy",
+        )
+        self.assertIn(key, state.step1_ready_since)
+
+        state._purge_orphaned_ready_timestamps("buy")
+
+        self.assertNotIn(key, state.step1_ready_since)
+
+    def test_abandon_clears_timestamp_and_stages(self):
+        candidate = _candidate("ETHUSDT", 12)
+        with state.last_complete_lock:
+            state.last_complete_survivors[5] = [candidate]
+        state.mark_stage_ready("buy", 1, [candidate])
+
+        state.abandon_waiting_candidate("buy", candidate)
+
+        self.assertEqual(state.get_stage_candidates("buy", 5), [])
+        self.assertNotIn(
+            state.get_signal_key(
+                "ETHUSDT",
+                12,
+                candidate["confirm_frame"],
+                candidate["triple_frame"],
+                "buy",
+            ),
+            state.step1_ready_since,
+        )
+
+    def test_waiting_candidate_keeps_timestamp_after_purge(self):
+        candidate = _candidate("SOLUSDT", 15)
+        with state.last_complete_lock:
+            state.last_complete_survivors[6] = [candidate]
+        state.mark_stage_ready("buy", 1, [candidate])
+        key = state.get_signal_key(
+            "SOLUSDT",
+            15,
+            candidate["confirm_frame"],
+            candidate["triple_frame"],
+            "buy",
+        )
+
+        state._purge_orphaned_ready_timestamps("buy")
+
+        self.assertIn(key, state.step1_ready_since)
+
 
 class TestStep5Storage(StateManagerTestCase):
     def test_far_frames_coexist(self):
