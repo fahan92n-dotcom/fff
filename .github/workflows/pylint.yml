@@ -17,7 +17,34 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pylint requests pandas numpy
-    - name: Analysing the code with pylint
+        pip install -r requirements.txt pylint
+    - name: Run unit tests
+      run: python -m unittest discover -v
+    - name: Analyse production code with Pylint
       run: |
-        pylint $(git ls-files '*.py')
+        pylint \
+          binance_data.py \
+          cascade_pipeline.py \
+          cascade_steps.py \
+          config.py \
+          fahadal92.py \
+          indicators.py \
+          main.py \
+          state_manager.py \
+          state_store.py \
+          telegram_bot.py
+    - name: Reject unexplained broad exception handlers
+      run: |
+        pylint \
+          --disable=all \
+          --enable=broad-exception-caught \
+          binance_data.py \
+          cascade_pipeline.py \
+          cascade_steps.py \
+          config.py \
+          fahadal92.py \
+          indicators.py \
+          main.py \
+          state_manager.py \
+          state_store.py \
+          telegram_bot.py

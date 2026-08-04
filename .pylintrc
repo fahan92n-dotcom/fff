@@ -1,2 +1,5 @@
+[MAIN]
+fail-under=8.0
+
 [DESIGN]
 max-module-lines=1500

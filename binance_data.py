@@ -398,76 +398,68 @@ def cache_updater_60m_futures():
     _cache_updater_60m_impl(_update_batch_futures)
 
 
-def update_symbols_loop_futures():
+def _refresh_symbols_once(market, first_run):
+    valid_symbols, invalid_symbols, invalid_reasons = validate_symbols_with_reasons(
+        CUSTOM_SYMBOLS,
+        market=market,
+    )
+
+    with symbols_cache_lock:
+        symbols_cache[:] = valid_symbols
+    with invalid_symbols_lock:
+        invalid_symbols_cache[:] = invalid_symbols
+    with invalid_symbols_reason_lock:
+        invalid_symbols_reason_cache.clear()
+        invalid_symbols_reason_cache.update(invalid_reasons)
+
+    log.info(
+        "✅ العملات الصالحة: %s — أول 5: %s",
+        len(symbols_cache),
+        symbols_cache[:5],
+    )
+    if invalid_symbols:
+        log.warning("❌ العملات غير الصالحة: %s", invalid_symbols)
+
+    cleanup_old_symbols_cache()
+    market_label = "Futures" if market == "futures" else "Spot"
+    if invalid_symbols:
+        msg_lines = [
+            f"⚠️ <b>عملات غير متاحة على Binance {market_label} ولن يتم مسحها:</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+        ]
+        msg_lines += [f"❌ <code>{symbol}</code>" for symbol in invalid_symbols]
+        _notify_telegram("\n".join(msg_lines))
+    elif first_run:
+        _notify_telegram(
+            f"✅ جميع العملات ({len(valid_symbols)}) صالحة ومتاحة على "
+            f"{market_label}."
+        )
+
+    if not fast_prefetch_done.is_set():
+        prefetch_target = (
+            prefetch_all_futures if market == "futures" else prefetch_all
+        )
+        threading.Thread(
+            target=prefetch_target,
+            args=(list(symbols_cache),),
+            daemon=True,
+        ).start()
+    return False
+
+
+def _update_symbols_loop(market):
     first_run = True
     while True:
-        try:
-            valid_symbols, invalid_symbols, invalid_reasons = validate_symbols_with_reasons(CUSTOM_SYMBOLS, market="futures")
-
-            with symbols_cache_lock:
-                symbols_cache[:] = valid_symbols
-            with invalid_symbols_lock:
-                invalid_symbols_cache[:] = invalid_symbols
-            with invalid_symbols_reason_lock:
-                invalid_symbols_reason_cache.clear()
-                invalid_symbols_reason_cache.update(invalid_reasons)
-
-            log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
-            if invalid_symbols:
-                log.warning("❌ العملات غير الصالحة: %s", invalid_symbols)
-
-            cleanup_old_symbols_cache()
-
-            if invalid_symbols:
-                msg_lines = ["⚠️ <b>عملات غير متاحة على Binance Futures ولن يتم مسحها:</b>", "━━━━━━━━━━━━━━━━━━━━"]
-                msg_lines += [f"❌ <code>{s}</code>" for s in invalid_symbols]
-                _notify_telegram("\n".join(msg_lines))
-            elif first_run:
-                _notify_telegram(f"✅ جميع العملات ({len(valid_symbols)}) صالحة ومتاحة على Futures.")
-
-            if not fast_prefetch_done.is_set():
-                threading.Thread(target=prefetch_all_futures, args=(list(symbols_cache),), daemon=True).start()
-
-            first_run = False
-        except Exception as exc:
-            log.error("update_symbols_loop_futures: %s", exc)
+        first_run = _refresh_symbols_once(market, first_run)
         time.sleep(3600)
+
+
+def update_symbols_loop_futures():
+    _update_symbols_loop("futures")
 
 
 def update_symbols_loop():
-    first_run = True
-    while True:
-        try:
-            valid_symbols, invalid_symbols, invalid_reasons = validate_symbols_with_reasons(CUSTOM_SYMBOLS, market="spot")
-
-            with symbols_cache_lock:
-                symbols_cache[:] = valid_symbols
-            with invalid_symbols_lock:
-                invalid_symbols_cache[:] = invalid_symbols
-            with invalid_symbols_reason_lock:
-                invalid_symbols_reason_cache.clear()
-                invalid_symbols_reason_cache.update(invalid_reasons)
-
-            log.info("✅ العملات الصالحة: %s — أول 5: %s", len(symbols_cache), symbols_cache[:5])
-            if invalid_symbols:
-                log.warning("❌ العملات غير الصالحة: %s", invalid_symbols)
-
-            cleanup_old_symbols_cache()
-
-            if invalid_symbols:
-                msg_lines = ["⚠️ <b>عملات غير متاحة على Binance Spot ولن يتم مسحها:</b>", "━━━━━━━━━━━━━━━━━━━━"]
-                msg_lines += [f"❌ <code>{s}</code>" for s in invalid_symbols]
-                _notify_telegram("\n".join(msg_lines))
-            elif first_run:
-                _notify_telegram(f"✅ جميع العملات ({len(valid_symbols)}) صالحة ومتاحة على Binance.")
-
-            if not fast_prefetch_done.is_set():
-                threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()
-
-            first_run = False
-        except Exception as exc:
-            log.error("update_symbols_loop: %s", exc)
-        time.sleep(3600)
+    _update_symbols_loop("spot")
 
 
 def get_last_closed_candle(symbol, tf):
