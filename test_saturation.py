@@ -290,7 +290,11 @@ class TestQuickCheckWatcherInterval(unittest.TestCase):
         self.assertEqual(bot.QUICK_CHECK_INTERVAL_SECONDS, 3)
 
     def test_quick_check_watcher_uses_configured_interval(self):
-        with patch.object(bot.time, "sleep", side_effect=SystemExit) as mock_sleep:
+        with patch.object(
+            pipeline.time,
+            "sleep",
+            side_effect=SystemExit,
+        ) as mock_sleep:
             with self.assertRaises(SystemExit):
                 bot.quick_check_watcher()
         mock_sleep.assert_called_once_with(bot.QUICK_CHECK_INTERVAL_SECONDS)

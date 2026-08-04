@@ -18,7 +18,7 @@ class TestStepOwnership(unittest.TestCase):
         self.assertEqual(strategy.step1.__module__, "cascade_steps")
 
     def test_long_and_short_steps_share_directional_implementation(self):
-        candidate = {"df_base": pd.DataFrame({"close": [1.0] * 100})}
+        candidate = {"df_base": pd.DataFrame({"close": [1.0] * 1000})}
         long_rules = replace(
             strategy.LONG_RULES,
             base_histogram_check=Mock(return_value=False),

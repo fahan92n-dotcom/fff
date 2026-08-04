@@ -24,7 +24,7 @@ No Telegram credential is stored in the source tree.
 ## Run
 
 ```bash
-python main.py
+python fahadal92.py
 ```
 
 ## Verify

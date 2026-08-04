@@ -263,12 +263,8 @@ def heartbeat_once():
     )
 
 
-def main(command_handler=None):
+def main(command_handler):
     """Configure integrations and run the process until interrupted."""
-    if command_handler is None:
-        from fahadal92 import _dispatch_command  # Local import avoids a cycle.
-
-        command_handler = _dispatch_command
     configure_integrations(command_handler)
 
     def handle_exception(exc_type, exc_value, exc_tb):
@@ -287,7 +283,3 @@ def main(command_handler=None):
     while True:
         time.sleep(300)
         heartbeat_once()
-
-
-if __name__ == "__main__":
-    main()

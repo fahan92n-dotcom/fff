@@ -1,5 +1,5 @@
 [build]
-startCommand = "python main.py"
+startCommand = "python fahadal92.py"
 
 [deploy]
 healthcheckPath = "/"
