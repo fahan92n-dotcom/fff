@@ -21,35 +21,51 @@ from binance_data import (
 )
 from indicators import (
     MIN_CANDLES,
-    WARMUP_MACD,
     _ribbon_cache,
     _ribbon_cache_lock,
     calc_smi,
-    check_confirm_rsi_not_overbought,
-    check_confirm_rsi_not_oversold,
     check_donchian_trend_ribbon,
-    check_ema50_closed_above_since,
-    check_ema50_closed_below_since,
     check_macd_green,
     check_macd_line_long,
     check_macd_line_short,
     check_macd_red,
-    check_rsi_stoch,
-    check_rsi_stoch_short,
-    check_rsi_touched_since,
-    check_smi_overbought,
-    check_smi_oversold,
-    check_smi_touched_since,
     resample_ohlcv,
+)
+from cascade_steps import (
+    NEXT_TF,
+    SHORT_STEP_LABELS,
+    SHORT_STEP_NAMES,
+    STEP_LABELS,
+    STEP_NAMES,
+    TF_TO_API,
+    TIMEFRAME_CHAIN,
+    TRIPLING_PAIRS,
+    _has_higher_tf_saturation,
+    short_step1,
+    short_step2,
+    short_step3,
+    short_step4,
+    short_step5,
+    short_step6,
+    short_step7,
+    short_step8,
+    short_steps,
+    step1,
+    step2,
+    step3,
+    step4,
+    step5,
+    step6,
+    step7,
+    step8,
+    steps,
 )
 from state_manager import (
     _promote_candidates,
     _set_step8_survivors,
     _update_last_complete_step,
     complete_scan,
-    get_candidate_key,
     get_stage_candidates,
-    get_step1_ready_since,
     mark_stage_ready,
     record_scan_step,
     remove_stage_candidate,
@@ -60,90 +76,7 @@ from state_manager import (
 
 log = logging.getLogger(__name__)
 
-TRIPLING_PAIRS = [
-    (9, 27, 3, "1m", "1m"),
-    (12, 36, 4, "1m", "1m"),
-    (15, 45, 5, "1m", "1m"),
-    (18, 54, 6, "1m", "1m"),
-    (21, 63, 7, "1m", "1m"),
-    (24, 72, 8, "1m", "1m"),
-    (27, 81, 9, "1m", "1m"),
-    (30, 90, 10, "1m", "1m"),
-    (45, 135, 15, "1m", "1m"),
-    (60, 180, 20, "60m", "1m"),
-    (90, 270, 30, "30m", "30m"),
-    (120, 360, 40, "30m", "30m"),
-    (150, 450, 50, "30m", "30m"),
-    (180, 540, 60, "60m", "60m"),
-    (210, 630, 70, "60m", "30m"),
-    (240, 720, 80, "60m", "30m"),
-]
-
-TIMEFRAME_CHAIN = [
-    9,
-    12,
-    15,
-    18,
-    21,
-    24,
-    27,
-    30,
-    45,
-    60,
-    90,
-    120,
-    150,
-    180,
-    210,
-    240,
-]
-NEXT_TF = {
-    TIMEFRAME_CHAIN[index]: TIMEFRAME_CHAIN[index + 1]
-    for index in range(len(TIMEFRAME_CHAIN) - 1)
-}
-TF_TO_API = {pair[0]: pair[3] for pair in TRIPLING_PAIRS}
 QUICK_CHECK_INTERVAL_SECONDS = 3
-
-STEP_NAMES = [
-    "smi_oversold",
-    "macd_red",
-    "donchian_base",
-    "donchian_confirm",
-    "macd_confirm",
-    "ema50",
-    "donchian_triple",
-    "rsi_stoch",
-]
-STEP_LABELS = {
-    "smi_oversold": "① تشبع بيعي SMI",
-    "macd_red": "② MACD أحمر",
-    "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
-    "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
-    "macd_confirm": "⑤ MACD Confirm أخضر",
-    "ema50": "⑥ السعر تحت EMA50",
-    "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
-    "rsi_stoch": "⑧ RSI/Stochastic تقاطع",
-}
-SHORT_STEP_NAMES = [
-    "smi_overbought",
-    "macd_green",
-    "donchian_base_red",
-    "donchian_confirm_red",
-    "macd_confirm_red",
-    "ema50_above",
-    "donchian_triple_green",
-    "rsi_stoch_short",
-]
-SHORT_STEP_LABELS = {
-    "smi_overbought": "① تشبع شرائي SMI ≥ +40",
-    "macd_green": "② MACD أخضر",
-    "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
-    "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
-    "macd_confirm_red": "⑤ MACD Confirm أحمر",
-    "ema50_above": "⑥ السعر فوق EMA50",
-    "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
-    "rsi_stoch_short": "⑧ RSI≥65 / Stochastic≤20",
-}
 
 _signal_handler = None
 
@@ -152,295 +85,6 @@ def set_signal_handler(handler):
     """Register the application callback used after a candidate passes stage 8."""
     global _signal_handler
     _signal_handler = handler
-
-
-def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
-    """Check saturation on the candidate's immediate next timeframe only."""
-    higher_tf = NEXT_TF.get(candidate["base_frame"])
-    if higher_tf is None:
-        return False
-
-    native_api = TF_TO_API.get(higher_tf, candidate["base_api"])
-    raw_native = get_cached(candidate["sym"], native_api)
-    if raw_native.empty:
-        return False
-
-    higher_frame = get_resampled(
-        raw_native,
-        candidate["sym"],
-        native_api,
-        higher_tf,
-    )
-    if higher_frame.empty:
-        return False
-    if signal_type == "buy":
-        return check_smi_oversold(higher_frame)
-    if signal_type == "sell":
-        return check_smi_overbought(higher_frame, threshold=40)
-    raise ValueError(f"Unsupported signal type: {signal_type}")
-
-
-def step1(candidate):
-    if not check_smi_oversold(candidate["df_base"]):
-        return False, "smi_oversold"
-    if _has_higher_tf_saturation(
-        candidate,
-        "buy",
-        candidate["get_resampled"],
-    ):
-        return False, "active_skip"
-    return True, "passed"
-
-
-def step2(candidate):
-    if len(candidate["df_base"]) < WARMUP_MACD:
-        return False, "warmup"
-    if not check_macd_red(candidate["df_base"]):
-        return False, "macd_histogram_not_red"
-    if not check_macd_line_long(
-        candidate["df_base"],
-        pct=0.40,
-        base_frame=candidate["base_frame"],
-    ):
-        return False, "macd_line_band"
-    return True, "passed"
-
-
-def step3(candidate):
-    key = (
-        candidate["sym"],
-        candidate["base_api"],
-        candidate["base_frame"],
-    )
-    if not check_donchian_trend_ribbon(
-        candidate["df_base"],
-        "green",
-        cache_key=key,
-    ):
-        return False, "donchian_base"
-    return True, "passed"
-
-
-def step4(candidate):
-    key = (
-        candidate["sym"],
-        candidate["base_api"],
-        candidate["confirm_frame"],
-    )
-    if not check_donchian_trend_ribbon(
-        candidate["df_confirm"],
-        "green",
-        cache_key=key,
-    ):
-        return False, "donchian_confirm"
-    return True, "passed"
-
-
-def step5(candidate):
-    if not check_macd_green(candidate["df_confirm"]):
-        return False, "macd_confirm"
-    return True, "passed"
-
-
-def step6(candidate):
-    since_ts = get_step1_ready_since(
-        candidate["sym"],
-        candidate["base_frame"],
-        candidate["confirm_frame"],
-        candidate["triple_frame"],
-        "buy",
-    )
-    if not check_ema50_closed_below_since(candidate["df_base"], since_ts):
-        return False, "ema50"
-    if not check_confirm_rsi_not_oversold(
-        candidate["df_confirm"],
-        lookback=30,
-        threshold=30,
-    ):
-        return False, "rsi_confirm_recent"
-    return True, "passed"
-
-
-def step7(candidate):
-    key = (
-        candidate["sym"],
-        candidate["triple_api"],
-        candidate["triple_frame"],
-    )
-    if not check_donchian_trend_ribbon(
-        candidate["df_triple"],
-        "red",
-        cache_key=key,
-    ):
-        return False, "donchian_triple"
-    return True, "passed"
-
-
-def step8(candidate):
-    since_ts = get_step1_ready_since(
-        candidate["sym"],
-        candidate["base_frame"],
-        candidate["confirm_frame"],
-        candidate["triple_frame"],
-        "buy",
-    )
-    if not check_smi_touched_since(
-        candidate["df_triple"],
-        since_ts,
-        threshold=-40,
-        direction="long",
-    ):
-        return False, "smi_touch_since_ready"
-    if not check_rsi_touched_since(
-        candidate["df_triple"],
-        since_ts,
-        threshold=35,
-        direction="long",
-    ):
-        return False, "rsi_touch_since_ready"
-    if not check_rsi_stoch(candidate["df_triple"], since_ts, max_gap=3):
-        return False, "rsi_stoch"
-    return True, "passed"
-
-
-def short_step1(candidate):
-    if not check_smi_overbought(candidate["df_base"], threshold=40):
-        return False, "smi_overbought"
-    if _has_higher_tf_saturation(
-        candidate,
-        "sell",
-        candidate["get_resampled"],
-    ):
-        return False, "active_skip"
-    return True, "passed"
-
-
-def short_step2(candidate):
-    if len(candidate["df_base"]) < WARMUP_MACD:
-        return False, "warmup"
-    if not check_macd_green(candidate["df_base"]):
-        return False, "macd_histogram_not_green"
-    if not check_macd_line_short(
-        candidate["df_base"],
-        pct=0.40,
-        base_frame=candidate["base_frame"],
-    ):
-        return False, "macd_line_band"
-    return True, "passed"
-
-
-def short_step3(candidate):
-    key = (
-        candidate["sym"],
-        candidate["base_api"],
-        candidate["base_frame"],
-    )
-    if not check_donchian_trend_ribbon(
-        candidate["df_base"],
-        "red",
-        cache_key=key,
-    ):
-        return False, "donchian_base_red"
-    return True, "passed"
-
-
-def short_step4(candidate):
-    key = (
-        candidate["sym"],
-        candidate["base_api"],
-        candidate["confirm_frame"],
-    )
-    if not check_donchian_trend_ribbon(
-        candidate["df_confirm"],
-        "red",
-        cache_key=key,
-    ):
-        return False, "donchian_confirm_red"
-    return True, "passed"
-
-
-def short_step5(candidate):
-    if not check_macd_red(candidate["df_confirm"]):
-        return False, "macd_confirm_red"
-    return True, "passed"
-
-
-def short_step6(candidate):
-    since_ts = get_step1_ready_since(
-        candidate["sym"],
-        candidate["base_frame"],
-        candidate["confirm_frame"],
-        candidate["triple_frame"],
-        "sell",
-    )
-    if not check_ema50_closed_above_since(candidate["df_base"], since_ts):
-        return False, "ema50_above"
-    if not check_confirm_rsi_not_overbought(
-        candidate["df_confirm"],
-        lookback=30,
-        threshold=70,
-    ):
-        return False, "rsi_confirm_recent_over"
-    return True, "passed"
-
-
-def short_step7(candidate):
-    key = (
-        candidate["sym"],
-        candidate["triple_api"],
-        candidate["triple_frame"],
-    )
-    if not check_donchian_trend_ribbon(
-        candidate["df_triple"],
-        "green",
-        cache_key=key,
-    ):
-        return False, "donchian_triple_green"
-    return True, "passed"
-
-
-def short_step8(candidate):
-    since_ts = get_step1_ready_since(
-        candidate["sym"],
-        candidate["base_frame"],
-        candidate["confirm_frame"],
-        candidate["triple_frame"],
-        "sell",
-    )
-    if not check_smi_touched_since(
-        candidate["df_triple"],
-        since_ts,
-        threshold=40,
-        direction="short",
-    ):
-        return False, "smi_touch_since_ready_short"
-    if not check_rsi_touched_since(
-        candidate["df_triple"],
-        since_ts,
-        threshold=65,
-        direction="short",
-    ):
-        return False, "rsi_touch_since_ready_short"
-    if not check_rsi_stoch_short(
-        candidate["df_triple"],
-        since_ts,
-        max_gap=3,
-    ):
-        return False, "rsi_stoch_short"
-    return True, "passed"
-
-
-steps = [step1, step2, step3, step4, step5, step6, step7, step8]
-short_steps = [
-    short_step1,
-    short_step2,
-    short_step3,
-    short_step4,
-    short_step5,
-    short_step6,
-    short_step7,
-    short_step8,
-]
 
 
 def _new_resampler():
@@ -532,7 +176,8 @@ def _run_step_batch(
     def run_one(candidate):
         try:
             return candidate, *step_fn(candidate)
-        except Exception as exc:  # Intentional plugin boundary: one symbol must not abort the batch.
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            # Intentional plugin boundary: one symbol must not abort the batch.
             log.exception(
                 "❌ خطأ في الخطوة %d (%s): %s",
                 step_num,
@@ -857,6 +502,63 @@ def _filter_higher_saturation(
     return filtered
 
 
+def _evaluate_transition(
+    signal_type,
+    from_stage,
+    candidates,
+    step_fn,
+    label,
+):
+    """Evaluate one quick-check transition and publish its state changes."""
+    to_stage = from_stage + 1
+    evaluations = _run_step_batch(
+        candidates,
+        step_fn,
+        to_stage,
+        label,
+    )
+    _update_last_complete_step(signal_type, to_stage, evaluations)
+    passed = [candidate for candidate, ok, _ in evaluations if ok]
+    if to_stage < 8:
+        mark_stage_ready(signal_type, to_stage, passed)
+        _promote_candidates(signal_type, from_stage, to_stage, passed)
+    else:
+        _set_step8_survivors(signal_type, passed)
+    return passed
+
+
+def _waiting_transition_candidates(signal_type, stage_num, get_resampled):
+    refreshed = _refresh_stage(signal_type, stage_num, get_resampled)
+    return _filter_higher_saturation(
+        signal_type,
+        stage_num,
+        refreshed,
+        get_resampled,
+    )
+
+
+def _emit_signals(signal_type, label, passed, evaluated_count):
+    if not passed:
+        return
+    if _signal_handler is None:
+        raise RuntimeError("Cascade signal handler is not configured")
+    for candidate in passed:
+        _signal_handler(
+            candidate["sym"],
+            candidate["base_frame"],
+            candidate["confirm_frame"],
+            candidate["triple_frame"],
+            candidate["df_base"],
+            signal_type=signal_type,
+        )
+    log.info(
+        "⚡ Quick check (%s): %d إشارة من %d مرشح محفوظ",
+        label,
+        len(passed),
+        evaluated_count,
+    )
+
+
 def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
     label = "LONG" if signal_type == "buy" else "SHORT"
     if signal_type == "buy":
@@ -881,74 +583,47 @@ def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
             validated_stage5.append(refreshed)
 
     if validated_stage5:
-        evaluations = _run_step_batch(
+        _evaluate_transition(
+            signal_type,
+            5,
             validated_stage5,
             stage6_fn,
-            6,
             label,
         )
-        _update_last_complete_step(signal_type, 6, evaluations)
-        passed = [candidate for candidate, ok, _ in evaluations if ok]
-        mark_stage_ready(signal_type, 6, passed)
-        _promote_candidates(signal_type, 5, 6, passed)
 
-    refreshed_stage6 = _refresh_stage(signal_type, 6, get_resampled)
-    if refreshed_stage6:
-        filtered_stage6 = _filter_higher_saturation(
-            signal_type,
-            6,
-            refreshed_stage6,
-            get_resampled,
-        )
-        evaluations = _run_step_batch(
-            filtered_stage6,
-            stage7_fn,
-            7,
-            label,
-        )
-        _update_last_complete_step(signal_type, 7, evaluations)
-        passed = [candidate for candidate, ok, _ in evaluations if ok]
-        mark_stage_ready(signal_type, 7, passed)
-        _promote_candidates(signal_type, 6, 7, passed)
-
-    refreshed_stage7 = _refresh_stage(signal_type, 7, get_resampled)
-    if not refreshed_stage7:
-        return
-
-    filtered_stage7 = _filter_higher_saturation(
+    stage6_candidates = _waiting_transition_candidates(
         signal_type,
-        7,
-        refreshed_stage7,
+        6,
         get_resampled,
     )
-    evaluations = _run_step_batch(
-        filtered_stage7,
+    if stage6_candidates:
+        _evaluate_transition(
+            signal_type,
+            6,
+            stage6_candidates,
+            stage7_fn,
+            label,
+        )
+
+    stage7_candidates = _waiting_transition_candidates(
+        signal_type,
+        7,
+        get_resampled,
+    )
+    if not stage7_candidates:
+        return
+    passed = _evaluate_transition(
+        signal_type,
+        7,
+        stage7_candidates,
         stage8_fn,
-        8,
         label,
     )
-    _update_last_complete_step(signal_type, 8, evaluations)
-    passed = [candidate for candidate, ok, _ in evaluations if ok]
-    if not passed:
-        return
-
-    _set_step8_survivors(signal_type, passed)
-    if _signal_handler is None:
-        raise RuntimeError("Cascade signal handler is not configured")
-    for candidate in passed:
-        _signal_handler(
-            candidate["sym"],
-            candidate["base_frame"],
-            candidate["confirm_frame"],
-            candidate["triple_frame"],
-            candidate["df_base"],
-            signal_type=signal_type,
-        )
-    log.info(
-        "⚡ Quick check (%s): %d إشارة من %d مرشح محفوظ",
+    _emit_signals(
+        signal_type,
         label,
-        len(passed),
-        len(filtered_stage7),
+        passed,
+        len(stage7_candidates),
     )
 
 
@@ -1009,8 +684,12 @@ def quick_check_once():
     snapshot = _snapshot_quick_candidates()
     _refresh_quick_data(snapshot)
     _, get_resampled = _new_resampler()
-    _advance_pipeline("buy", snapshot["buy"][5], get_resampled)
-    _advance_pipeline("sell", snapshot["sell"][5], get_resampled)
+    for signal_type in ("buy", "sell"):
+        _advance_pipeline(
+            signal_type,
+            snapshot[signal_type][5],
+            get_resampled,
+        )
     touch_scan_times()
 
 
@@ -1020,5 +699,6 @@ def quick_check_watcher():
         time.sleep(QUICK_CHECK_INTERVAL_SECONDS)
         try:
             quick_check_once()
-        except Exception:  # Intentional daemon boundary: a later cycle must still run.
+        except Exception:  # pylint: disable=broad-exception-caught
+            # Intentional daemon boundary: a later cycle must still run.
             log.exception("❌ خطأ في quick_check_watcher")

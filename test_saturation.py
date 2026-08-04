@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 
 # تحميل الوحدة بدون تشغيل main()
+import cascade_steps
 import cascade_pipeline as pipeline
 import fahadal92 as bot
 
@@ -115,7 +116,7 @@ class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
         def mock_get_resampled(raw_df, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         apis_called = [api for _, api in calls]
@@ -135,7 +136,7 @@ class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
         def mock_get_resampled(raw_df, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         apis_called = [api for _, api in calls]
@@ -155,7 +156,7 @@ class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
             calls_per_api_per_tf.append(api)
             return pd.DataFrame()
 
-        with patch.object(pipeline, "get_cached", side_effect=tracking_get_cached):
+        with patch.object(cascade_steps, "get_cached", side_effect=tracking_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         self.assertEqual(calls_per_api_per_tf, ["1m"])
@@ -185,7 +186,7 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
         def mock_get_resampled(raw, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
             result = bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         self.assertFalse(result)
@@ -206,9 +207,9 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
                 return large_df.copy()
             return pd.DataFrame()
 
-        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
             # check_smi_oversold يحتاج SMI ≤ -40 — لضمان التحقق نُغلف الدالة
-            with patch.object(pipeline, "check_smi_oversold", return_value=True):
+            with patch.object(cascade_steps, "check_smi_oversold", return_value=True):
                 result = bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         self.assertTrue(result)
@@ -227,8 +228,8 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
                 return large_df.copy()
             return pd.DataFrame()
 
-        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
-            with patch.object(pipeline, "check_smi_overbought", return_value=True):
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            with patch.object(cascade_steps, "check_smi_overbought", return_value=True):
                 result = bot._has_higher_tf_saturation(candidate, "sell", mock_get_resampled)
 
         self.assertTrue(result)
@@ -245,7 +246,7 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
         def mock_get_resampled(raw, sym, api, tf):
             return pd.DataFrame()
 
-        with patch.object(pipeline, "get_cached", side_effect=mock_get_cached):
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
         # base_frame = 240 وهو أكبر فريم في TIMEFRAME_CHAIN → لا استدعاءات
@@ -289,7 +290,11 @@ class TestQuickCheckWatcherInterval(unittest.TestCase):
         self.assertEqual(bot.QUICK_CHECK_INTERVAL_SECONDS, 3)
 
     def test_quick_check_watcher_uses_configured_interval(self):
-        with patch.object(bot.time, "sleep", side_effect=SystemExit) as mock_sleep:
+        with patch.object(
+            pipeline.time,
+            "sleep",
+            side_effect=SystemExit,
+        ) as mock_sleep:
             with self.assertRaises(SystemExit):
                 bot.quick_check_watcher()
         mock_sleep.assert_called_once_with(bot.QUICK_CHECK_INTERVAL_SECONDS)
