@@ -523,6 +523,150 @@ def check_smi_touched_since(df, since_ts, threshold=-40, direction="long"):
     ) is not None
 
 
+def find_rsi_touch_index(df, since_ts, threshold=35, direction="long"):
+    """أول شمعة لمس فيها RSI المستوى منذ since_ts (بدون أي شرط على المتوسط)."""
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
+        return None
+    if direction not in ("long", "short"):
+        raise ValueError(f"Unsupported direction: {direction}")
+
+    mask = df["ts"] >= since_ts
+    if not mask.any():
+        return None
+
+    rsi = calc_rsi_tv(df["close"], period=14)
+    for index in df.index[mask]:
+        value = float(rsi.iloc[index])
+        if direction == "long" and value <= threshold:
+            return int(index)
+        if direction == "short" and value >= threshold:
+            return int(index)
+    return None
+
+
+def find_rsi_ma_cross_index(df, since_ts, side="long", at_or_after=None):
+    """
+    أول تقاطع RSI مع متوسطه SMA(14) بعد since_ts.
+    LONG: تقاطع لفوق المتوسط | SHORT: تقاطع لتحت المتوسط
+    """
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
+        return None
+    if side not in ("long", "short"):
+        raise ValueError(f"Unsupported side: {side}")
+
+    rsi = calc_rsi_tv(df["close"], period=14)
+    rsi_ma = rsi.rolling(14).mean()
+    start_positions = list(df.index[df["ts"] >= since_ts])
+    if not start_positions:
+        return None
+    start_pos = max(int(start_positions[0]), 1)
+    if at_or_after is not None:
+        start_pos = max(start_pos, int(at_or_after))
+
+    for i in range(start_pos, len(df)):
+        try:
+            prev_rsi = float(rsi.iloc[i - 1])
+            prev_ma = float(rsi_ma.iloc[i - 1])
+            curr_rsi = float(rsi.iloc[i])
+            curr_ma = float(rsi_ma.iloc[i])
+            if side == "long" and prev_rsi < prev_ma and curr_rsi >= curr_ma:
+                return i
+            if side == "short" and prev_rsi > prev_ma and curr_rsi <= curr_ma:
+                return i
+        except (ValueError, IndexError, TypeError):
+            continue
+    return None
+
+
+def find_stoch_level_after_index(
+    df,
+    cross_index,
+    side="long",
+    stoch_level=None,
+    max_gap=3,
+):
+    """
+    بعد تقاطع RSI: أول شمعة يكون فيها Stochastic بالاتجاه خلال max_gap شموع.
+    LONG: %K > stoch_level (20) | SHORT: %K < stoch_level (80)
+    """
+    if df.empty or cross_index is None or len(df) < WARMUP_STOCH:
+        return None
+    if side not in ("long", "short"):
+        raise ValueError(f"Unsupported side: {side}")
+    if stoch_level is None:
+        stoch_level = 20 if side == "long" else 80
+
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+    start = int(cross_index)
+    end = min(len(df) - 1, start + int(max_gap))
+    for i in range(start, end + 1):
+        try:
+            value = float(k.iloc[i])
+            if side == "long" and value > stoch_level:
+                return i
+            if side == "short" and value < stoch_level:
+                return i
+        except (ValueError, IndexError, TypeError):
+            continue
+    return None
+
+
+def find_rsi_stoch_entry_index(
+    df,
+    since_ts,
+    max_gap=3,
+    side="long",
+    rsi_threshold=None,
+    stoch_level=None,
+):
+    """
+    بعد تشبع SMI:
+    1) لمس RSI للمستوى على شمعة مغلقة (35 تشبع بيعي / 65 تشبع شرائي)
+    2) تقاطع RSI مع متوسطه
+    3) بعده خلال max_gap شموع: Stochastic فوق 20 (شراء) / تحت 80 (بيع)
+
+    شمعة الإشارة = شمعة تحقق شرط الستوكاستك.
+    """
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
+        return None
+    if side not in ("long", "short"):
+        raise ValueError(f"Unsupported side: {side}")
+
+    if rsi_threshold is None:
+        rsi_threshold = 35 if side == "long" else 65
+    if stoch_level is None:
+        stoch_level = 20 if side == "long" else 80
+    if max_gap is None:
+        max_gap = 3
+
+    direction = "long" if side == "long" else "short"
+    rsi_touch = find_rsi_touch_index(
+        df,
+        since_ts,
+        threshold=rsi_threshold,
+        direction=direction,
+    )
+    if rsi_touch is None:
+        return None
+
+    rsi_cross = find_rsi_ma_cross_index(
+        df,
+        since_ts,
+        side=side,
+        at_or_after=rsi_touch,
+    )
+    if rsi_cross is None:
+        return None
+
+    return find_stoch_level_after_index(
+        df,
+        rsi_cross,
+        side=side,
+        stoch_level=stoch_level,
+        max_gap=max_gap,
+    )
+
+
 def find_step8_entry_index(
     df,
     since_ts,
@@ -531,13 +675,14 @@ def find_step8_entry_index(
     rsi_threshold,
     direction="long",
     max_gap=3,
+    stoch_level=None,
 ):
     """
-    ترتيب Step 8 الإلزامي على فريم الثلث:
-    1) تشبع SMI أولًا
-    2) بعدها فقط لمس RSI + تقاطع RSI/Stochastic
-
-    تُرجع فهرس شمعة إكمال RSI/Stoch، أو None.
+    ترتيب Step 8 على فريم الثلث (شموع مغلقة):
+    1) إغلاق كامل لتشبع SMI أولًا
+    2) لمس RSI (35 تشبع بيعي / 65 تشبع شرائي)
+    3) تقاطع RSI مع متوسطه
+    4) خلال 3 شموع بعده: Stoch فوق 20 / تحت 80
     """
     smi_index = find_smi_touch_index(
         df,
@@ -549,97 +694,42 @@ def find_step8_entry_index(
         return None
 
     after_smi_ts = df["ts"].iloc[smi_index]
-    if not check_rsi_touched_since(
-        df,
-        after_smi_ts,
-        threshold=rsi_threshold,
-        direction=direction,
-    ):
-        return None
-
     side = "long" if direction == "long" else "short"
+    if stoch_level is None:
+        stoch_level = 20 if side == "long" else 80
     return find_rsi_stoch_entry_index(
         df,
         after_smi_ts,
-        max_gap=max_gap,
+        max_gap=max_gap if max_gap is not None else 3,
         side=side,
+        rsi_threshold=rsi_threshold,
+        stoch_level=stoch_level,
     )
-
-
-def find_rsi_stoch_entry_index(df, since_ts, max_gap=3, side="long"):
-    """
-    أقدم شمعة أكملت شرط الدخول على فريم الثلث (RSI/SMA + Stochastic %K).
-
-    تُرجع فهرس شمعة الإكمال (الأحدث بين تقاطع RSI وتقاطع Stoch في أول زوج صالح)،
-    أو None إن لم يكتمل الشرط. هذا يمنع الإشعار من التقاط شمعة لاحقة بعد التحقق.
-    """
-    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
-        return None
-    if side not in ("long", "short"):
-        raise ValueError(f"Unsupported side: {side}")
-
-    rsi = calc_rsi_tv(df["close"], period=14)
-    rsi_sig = rsi.rolling(14).mean()
-    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])  # %K فقط — بدون %D
-
-    start_positions = df.index[df["ts"] >= since_ts]
-    if len(start_positions) < 2:
-        return None
-    start_pos = max(int(start_positions[0]), 1)
-
-    rsi_crosses = []
-    stoch_crosses = []
-    for i in range(start_pos, len(df)):
-        try:
-            if side == "long":
-                rsi_crossed = (
-                    float(rsi.iloc[i - 1]) < float(rsi_sig.iloc[i - 1])
-                    and float(rsi.iloc[i]) >= float(rsi_sig.iloc[i])
-                )
-                stoch_crossed = float(k.iloc[i - 1]) <= 20 and float(k.iloc[i]) > 20
-            else:
-                rsi_crossed = (
-                    float(rsi.iloc[i - 1]) > float(rsi_sig.iloc[i - 1])
-                    and float(rsi.iloc[i]) <= float(rsi_sig.iloc[i])
-                )
-                stoch_crossed = float(k.iloc[i - 1]) >= 80 and float(k.iloc[i]) < 80
-            if rsi_crossed:
-                rsi_crosses.append(i)
-            if stoch_crossed:
-                stoch_crosses.append(i)
-        except (ValueError, IndexError, TypeError):
-            continue
-
-    best_completion = None
-    for rc in rsi_crosses:
-        for sc in stoch_crosses:
-            if abs(sc - rc) > max_gap:
-                continue
-            completion = max(rc, sc)
-            if best_completion is None or completion < best_completion:
-                best_completion = completion
-    return best_completion
 
 
 def check_rsi_stoch(df, since_ts, max_gap=3):
     """
-    شرط الدخول LONG على فريم الثلث:
-    - بعد أن يلمس RSI قيمة 35 أو أقل (يُفحص منفصلاً في step8)،
-    - يتحقق تقاطع RSI لفوق متوسطه (SMA 14)،
-    - وخلال ±max_gap شمعة من هذا التقاطع يطلع Stochastic %K (الخط الأزرق فقط) فوق 20.
-
-    لا يُشترط أن يبقى Stochastic فوق 20 أو RSI فوق متوسطه على الشمعة الحالية.
+    LONG: لمس RSI≤35، تقاطع فوق المتوسط، ثم Stoch>20 خلال max_gap شموع.
     """
-    return find_rsi_stoch_entry_index(df, since_ts, max_gap=max_gap, side="long") is not None
+    return find_rsi_stoch_entry_index(
+        df,
+        since_ts,
+        max_gap=max_gap,
+        side="long",
+        rsi_threshold=35,
+        stoch_level=20,
+    ) is not None
 
 
 def check_rsi_stoch_short(df, since_ts, max_gap=3):
     """
-    شرط الدخول SHORT على فريم الثلث:
-    - بعد أن يلمس RSI قيمة 65 أو أعلى (يُفحص منفصلاً في short_step8)،
-    - يتحقق تقاطع RSI لتحت متوسطه (SMA 14)،
-    - وخلال ±max_gap شمعة من هذا التقاطع ينزل Stochastic %K تحت 80.
-
-    لا يُشترط أن يبقى Stochastic تحت 80 أو RSI تحت متوسطه على الشمعة الحالية.
+    SHORT: لمس RSI≥65، تقاطع تحت المتوسط، ثم Stoch<80 خلال max_gap شموع.
     """
-    return find_rsi_stoch_entry_index(df, since_ts, max_gap=max_gap, side="short") is not None
+    return find_rsi_stoch_entry_index(
+        df,
+        since_ts,
+        max_gap=max_gap,
+        side="short",
+        rsi_threshold=65,
+        stoch_level=80,
+    ) is not None
