@@ -113,62 +113,80 @@ def check_macd_green(df):
     return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
 def _get_macd_window_hours(base_frame_minutes):
-    """إرجاع عدد ساعات نافذة المشاهدة حسب حجم الفريم:
-    - فريم ≤ 60 دقيقة → 24 ساعة
-    - فريم > 60 دقيقة → 72 ساعة (3 أيام)
+    """نافذة قياس الـ 40٪ بمقياس يومي حسب حجم الفريم:
+    - فريم ≤ 60 دقيقة → يوم واحد (24 ساعة)
+    - فريم > 60 دقيقة → 3 أيام (72 ساعة)
+      (اليوم الواحد على الفريمات الكبيرة يعطي شموعًا قليلة فيفسد القياس)
     """
     return 24 if base_frame_minutes <= 60 else 72
 
+
+def _macd_window_series(macd_line, ts, base_frame):
+    """يقطع سلسلة MACD على النافذة اليومية المناسبة للفريم."""
+    window_hours = _get_macd_window_hours(base_frame)
+    last_ts = pd.Timestamp(ts.iloc[-1])
+    cutoff_ts = last_ts - pd.Timedelta(hours=window_hours)
+    window = macd_line[pd.to_datetime(ts) >= cutoff_ts]
+    return window if not window.empty else macd_line
+
+
 def check_macd_line_long(df, pct=0.40, base_frame=60):
+    """
+    شرط MACD Line للشراء (مع هيستوجرام أحمر متوقع من المستدعي):
+    - الحد السفلي: الخط الأزرق فوق الهوستقرام أو يلامسه (macd >= hist) — ممنوع تحته
+    - الحد العلوي: ≤ pct من أقصى ارتفاع فوق خط الصفر خلال النافذة اليومية
+      مثال: أعلى قيمة موجبة = 100 → السقف = 40
+    """
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
     current_macd = float(macd_line.iloc[-1])
     current_hist = float(histogram.iloc[-1])
-    if current_hist < 0 and current_macd < current_hist:
+
+    # الحد السفلي: فوق الهوستقرام الأحمر أو يلامسه
+    if current_macd < current_hist:
         return False
-    
-    # نافذة زمنية ديناميكية: 24 ساعة للفريمات ≤ 60 دقيقة، 72 ساعة للفريمات > 60 دقيقة
-    window_hours = _get_macd_window_hours(base_frame)
-    last_ts = df["ts"].iloc[-1]
-    cutoff_ts = last_ts - timedelta(hours=window_hours)
-    macd_today = macd_line[df["ts"].values >= np.datetime64(cutoff_ts)]
-    if macd_today.empty:
-        macd_today = macd_line
-    
-    # أعلى قيمة في النافذة الزمنية المحددة
-    max_window = float(macd_today.max())
-    
-    # 40% من أعلى قيمة
-    threshold = max_window * pct
-    
+
+    window = _macd_window_series(macd_line, df["ts"], base_frame)
+    # أقصى ارتفاع فوق خط الصفر فقط
+    positive = window[window > 0]
+    if positive.empty:
+        # لا يوجد ارتفاع فوق الصفر في النافذة → السقف = 0
+        threshold = 0.0
+    else:
+        threshold = float(positive.max()) * pct
+
     if current_macd > threshold:
         return False
     return True
 
+
 def check_macd_line_short(df, pct=0.40, base_frame=60):
+    """
+    شرط MACD Line للبيع (مع هيستوجرام أخضر متوقع من المستدعي):
+    - الحد العلوي: الخط الأزرق تحت الهوستقرام أو يلامسه (macd <= hist) — ممنوع فوقه
+    - الحد السفلي: ≥ pct من أقصى نزول تحت خط الصفر خلال النافذة اليومية
+      مثال: أدنى قيمة = -100 → الأرضية = -40 (ولا ينزل أعمق منها)
+    """
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
     current_macd = float(macd_line.iloc[-1])
     current_hist = float(histogram.iloc[-1])
-    if current_hist > 0 and current_macd > current_hist:
+
+    # الحد العلوي: تحت الهوستقرام الأخضر أو يلامسه
+    if current_macd > current_hist:
         return False
-    
-    # نافذة زمنية ديناميكية: 24 ساعة للفريمات ≤ 60 دقيقة، 72 ساعة للفريمات > 60 دقيقة
-    window_hours = _get_macd_window_hours(base_frame)
-    last_ts = df["ts"].iloc[-1]
-    cutoff_ts = last_ts - timedelta(hours=window_hours)
-    macd_today = macd_line[df["ts"].values >= np.datetime64(cutoff_ts)]
-    if macd_today.empty:
-        macd_today = macd_line
-    
-    # أدنى قيمة في النافذة الزمنية المحددة
-    min_window = float(macd_today.min())
-    
-    # 40% من أدنى قيمة
-    threshold = min_window * pct
-    
+
+    window = _macd_window_series(macd_line, df["ts"], base_frame)
+    # أقصى نزول تحت خط الصفر فقط
+    negative = window[window < 0]
+    if negative.empty:
+        # لا يوجد نزول تحت الصفر في النافذة → الأرضية = 0
+        threshold = 0.0
+    else:
+        threshold = float(negative.min()) * pct
+
     if current_macd < threshold:
         return False
     return True
