@@ -73,7 +73,7 @@ STEP_LABELS = {
     "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
     "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
     "macd_confirm": "⑤ MACD Confirm أخضر",
-    "ema50": "⑥ السعر تحت EMA50",
+    "ema50": "⑥ تحت EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
     "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع RSI → Stoch>20 خلال 3",
 }
@@ -93,7 +93,7 @@ SHORT_STEP_LABELS = {
     "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
     "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
     "macd_confirm_red": "⑤ MACD Confirm أحمر",
-    "ema50_above": "⑥ السعر فوق EMA50",
+    "ema50_above": "⑥ فوق EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
     "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI → Stoch<80 خلال 3",
 }
