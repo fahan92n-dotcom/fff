@@ -394,6 +394,34 @@ def _purge_orphaned_ready_timestamps(signal_type):
                 del ready_store[key]
 
 
+def _candle_ready_timestamp(candidate, stage_num):
+    """
+    وقت جاهزية المرحلة من شمعة الإغلاق، لا من ساعة الجدار.
+
+    Step1 كان يُسجَّل بـ datetime.now() بعد قفل الشمعة، فيصبح since_ts
+    أحدث من ts كل الشموع المغلقة → نافذة EMA/RSI فارغة وStep6 يفشل للجميع.
+    """
+    frame = None
+    if stage_num == 1:
+        frame = candidate.get("df_base")
+    elif stage_num in (6, 7):
+        frame = candidate.get("df_triple")
+        if frame is None or getattr(frame, "empty", True):
+            frame = candidate.get("df_base")
+
+    if frame is None or getattr(frame, "empty", True):
+        return datetime.now(timezone.utc)
+    if "ts" not in getattr(frame, "columns", []):
+        return datetime.now(timezone.utc)
+
+    candle_ts = frame["ts"].iloc[-1]
+    if getattr(candle_ts, "to_pydatetime", None) is not None:
+        candle_ts = candle_ts.to_pydatetime()
+    if getattr(candle_ts, "tzinfo", None) is None:
+        candle_ts = candle_ts.replace(tzinfo=timezone.utc)
+    return candle_ts
+
+
 def mark_stage_ready(signal_type, stage_num, candidates):
     """Set the first ready timestamp for candidates promoted to a stage."""
     if stage_num == 1:
@@ -405,7 +433,6 @@ def mark_stage_ready(signal_type, stage_num, candidates):
     else:
         raise ValueError(f"Unsupported ready stage: {stage_num}")
 
-    timestamp = datetime.now(timezone.utc)
     for candidate in candidates:
         ready_key = get_signal_key(
             candidate["sym"],
@@ -414,7 +441,12 @@ def mark_stage_ready(signal_type, stage_num, candidates):
             candidate["triple_frame"],
             signal_type,
         )
-        _set_ready_since(ready_store, ready_lock, ready_key, timestamp)
+        _set_ready_since(
+            ready_store,
+            ready_lock,
+            ready_key,
+            _candle_ready_timestamp(candidate, stage_num),
+        )
 
 
 def reset_scan_state(signal_type):

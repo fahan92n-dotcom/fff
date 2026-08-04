@@ -71,6 +71,31 @@ class TestReadyTimestamps(StateManagerTestCase):
 
         self.assertEqual(store["key"], first)
 
+    def test_step1_ready_uses_last_closed_candle_not_wall_clock(self):
+        import pandas as pd
+
+        candle_ts = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+        wall_clock_after_close = candle_ts + timedelta(minutes=9, seconds=1)
+        candidate = _candidate("BTCUSDT", 9)
+        candidate["df_base"] = pd.DataFrame(
+            {
+                "ts": [candle_ts - timedelta(minutes=9), candle_ts],
+                "close": [100.0, 99.0],
+            }
+        )
+
+        state.mark_stage_ready("buy", 1, [candidate])
+
+        key = state.get_signal_key(
+            "BTCUSDT",
+            9,
+            candidate["confirm_frame"],
+            candidate["triple_frame"],
+            "buy",
+        )
+        self.assertEqual(state.step1_ready_since[key], candle_ts)
+        self.assertLess(state.step1_ready_since[key], wall_clock_after_close)
+
     def test_purge_removes_step1_timestamp_when_not_waiting(self):
         candidate = _candidate("BTCUSDT", 9)
         state.mark_stage_ready("buy", 1, [candidate])
