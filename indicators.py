@@ -437,33 +437,40 @@ def check_rsi_touched_since(df, since_ts, threshold=35, direction="long"):
     direction:
       - "long"  => لمس <= threshold
       - "short" => لمس >= threshold
+
+    يُحسب RSI على السلسلة الكاملة ثم تُفلتر النافذة الزمنية — حتى لا يفسد الـ warmup
+    إذا كانت النافذة قصيرة.
     """
     if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return False
 
-    window = df[df["ts"] >= since_ts].copy()
-    if window.empty:
+    mask = df["ts"] >= since_ts
+    if not mask.any():
         return False
 
-    rsi = calc_rsi_tv(window["close"], period=14)
+    rsi = calc_rsi_tv(df["close"], period=14)
+    rsi_window = rsi[mask]
 
     if direction == "long":
-        return bool((rsi <= threshold).any())
-    else:
-        return bool((rsi >= threshold).any())
+        return bool((rsi_window <= threshold).any())
+    return bool((rsi_window >= threshold).any())
 
 
 def check_smi_touched_since(df, since_ts, threshold=-40, direction="long"):
+    """
+    يفحص هل SMI لمس المستوى المطلوب منذ since_ts.
+    يُحسب SMI على السلسلة الكاملة ثم تُفلتر النافذة الزمنية للحفاظ على الـ warmup.
+    """
     if df.empty or since_ts is None or len(df) < WARMUP_SMI:
         return False
-    window = df[df["ts"] >= since_ts].copy()
-    if window.empty:
+    mask = df["ts"] >= since_ts
+    if not mask.any():
         return False
-    smi, _, _ = calc_smi(window["high"], window["low"], window["close"])
+    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
+    smi_window = smi[mask]
     if direction == "long":
-        return bool((smi <= threshold).any())
-    else:
-        return bool((smi >= threshold).any())
+        return bool((smi_window <= threshold).any())
+    return bool((smi_window >= threshold).any())
 
 
 def check_rsi_stoch(df, since_ts, max_gap=3):
