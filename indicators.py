@@ -235,60 +235,38 @@ def calc_donchian_trend_pine(close_arr, high_arr, low_arr, length):
 
 def _calc_donchian_ribbon_result(close, high, low):
     """
-    Evaluate the full 10-band Donchian Trend Ribbon matching the Pine plot ladder:
+    Return the visible green/red direction of TradingView's Donchian Trend Ribbon.
 
-        plot( 5, color = dchannelalt(dlen - 0, maintrend), ...)
-        plot(10, color = dchannelalt(dlen - 1, maintrend), ...)
-        ...
-        plot(50, color = dchannelalt(dlen - 9, maintrend), ...)
+    In the original Pine script the hue of all ten plotted bands is selected by:
 
-    Band 0 (length = dlen)     sets maintrend.
-    Bands 1-9 (lengths dlen-1 .. dlen-9) are sub-trends that must agree with
-    maintrend for the ribbon to be fully solid green or fully solid red.
+        maintrend = dchannel(dlen)
 
-    Returns:
-         1  when maintrend == 1  and all 10 sub-trends == 1  (fully green ribbon)
-        -1  when maintrend == -1 and all 10 sub-trends == -1 (fully red ribbon)
-         0  otherwise (mixed, neutral, or insufficient data)
+    With dlen=20, maintrend=1 makes every band green and maintrend=-1 makes
+    every band red.  The auxiliary lengths 19..11 only change alpha
+    (#00FF00ff vs #00FF009f, or the red equivalents); they do not change hue.
+
+    Therefore the bot's binary green/red condition must use dchannel(20) only.
+    Requiring all auxiliary trends to agree creates a third state that the
+    TradingView indicator does not display.
     """
-    dlen = DONCHIAN_DLEN
-    n = len(close)
-
-    high_s = pd.Series(high, dtype=float)
-    low_s = pd.Series(low, dtype=float)
-    close_s = pd.Series(close, dtype=float)
-
-    maintrend = 0
-    for i in range(10):
-        length = dlen - i  # 20, 19, 18, ..., 11
-        if n < length + 1:
-            return 0
-        hh = high_s.rolling(length, min_periods=length).max().shift(1)
-        ll = low_s.rolling(length, min_periods=length).min().shift(1)
-        raw = pd.Series(np.nan, index=close_s.index, dtype=float)
-        raw[close_s.gt(hh).fillna(False)] = 1.0
-        raw[close_s.lt(ll).fillna(False)] = -1.0
-        t = int(raw.ffill().fillna(0).iloc[-1])
-        if i == 0:
-            maintrend = t
-            if maintrend == 0:
-                return 0
-        elif t != maintrend:
-            return 0
-
-    return maintrend  # all 10 bands agree with maintrend
+    return calc_donchian_trend_pine(
+        close,
+        high,
+        low,
+        DONCHIAN_DLEN,
+    )
 
 
 # ------------------ Donchian check + cache ------------------
 def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
     """
-    Evaluates the full Donchian Trend Ribbon (Pine-exact) and caches the result.
+    Evaluates and caches TradingView's visible Donchian ribbon hue.
 
-    Replicates the Pine Script's ten dchannelalt() plot calls using the ladder
-    of lengths dlen-0 through dlen-9 (20 down to 11).
+    direction="green" → dchannel(20) maintrend == 1
+    direction="red"   → dchannel(20) maintrend == -1
 
-    direction="green" → True only when all 10 bands agree on bullish  (result == 1)
-    direction="red"   → True only when all 10 bands agree on bearish  (result == -1)
+    The 19..11 sub-trends only control opacity in the Pine script and do not
+    affect this binary green/red decision.
 
     Thread-safe via _ribbon_cache_lock.
     """
