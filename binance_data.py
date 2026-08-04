@@ -144,11 +144,11 @@ def validate_symbols_with_reasons(symbols, market="futures"):
 
             valid.append(sym)
 
-    except requests.RequestException as e:
-        log.error("❌ validate_symbols_with_reasons network error: %s", e)
+    except requests.RequestException as exc:
+        log.error("❌ validate_symbols_with_reasons network error: %s", exc)
         return list(symbols), [], {}
-    except Exception as e:
-        log.error("❌ validate_symbols_with_reasons error: %s", e)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        log.error("❌ validate_symbols_with_reasons response error: %s", exc)
         return list(symbols), [], {}
 
     return valid, invalid, reasons
@@ -511,6 +511,11 @@ def get_last_closed_candle(symbol, tf):
 
         return None
 
-    except Exception as e:
-        log.error("❌ خطأ في get_last_closed_candle: %s | symbol: %s | tf: %s", e, symbol, tf)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+        log.error(
+            "❌ خطأ في get_last_closed_candle: %s | symbol: %s | tf: %s",
+            exc,
+            symbol,
+            tf,
+        )
         return None
