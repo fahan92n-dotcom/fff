@@ -405,17 +405,21 @@ def _candle_ready_timestamp(candidate, stage_num):
     if stage_num == 1:
         frame = candidate.get("df_base")
     elif stage_num in (6, 7):
-        frame = candidate.get("df_triple") or candidate.get("df_base")
+        frame = candidate.get("df_triple")
+        if frame is None or getattr(frame, "empty", True):
+            frame = candidate.get("df_base")
 
-    if frame is not None and not getattr(frame, "empty", True):
-        if "ts" in getattr(frame, "columns", []):
-            candle_ts = frame["ts"].iloc[-1]
-            if getattr(candle_ts, "to_pydatetime", None) is not None:
-                candle_ts = candle_ts.to_pydatetime()
-            if getattr(candle_ts, "tzinfo", None) is None:
-                candle_ts = candle_ts.replace(tzinfo=timezone.utc)
-            return candle_ts
-    return datetime.now(timezone.utc)
+    if frame is None or getattr(frame, "empty", True):
+        return datetime.now(timezone.utc)
+    if "ts" not in getattr(frame, "columns", []):
+        return datetime.now(timezone.utc)
+
+    candle_ts = frame["ts"].iloc[-1]
+    if getattr(candle_ts, "to_pydatetime", None) is not None:
+        candle_ts = candle_ts.to_pydatetime()
+    if getattr(candle_ts, "tzinfo", None) is None:
+        candle_ts = candle_ts.replace(tzinfo=timezone.utc)
+    return candle_ts
 
 
 def mark_stage_ready(signal_type, stage_num, candidates):
