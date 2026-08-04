@@ -429,7 +429,7 @@ def update_symbols_loop_futures():
                 threading.Thread(target=prefetch_all_futures, args=(list(symbols_cache),), daemon=True).start()
 
             first_run = False
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
             log.error("update_symbols_loop_futures: %s", exc)
         time.sleep(3600)
 
@@ -465,7 +465,7 @@ def update_symbols_loop():
                 threading.Thread(target=prefetch_all, args=(list(symbols_cache),), daemon=True).start()
 
             first_run = False
-        except Exception as exc:
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
             log.error("update_symbols_loop: %s", exc)
         time.sleep(3600)
 

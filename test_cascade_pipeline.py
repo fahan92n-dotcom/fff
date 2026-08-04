@@ -75,6 +75,30 @@ class TestCompatibilityExports(CascadePipelineTestCase):
         self.assertIs(bot.step1, pipeline.step1)
 
 
+class TestDiagnostics(CascadePipelineTestCase):
+    def test_unavailable_diagnostic_has_all_report_fields(self):
+        was_set = bot.fast_prefetch_done.is_set()
+        bot.fast_prefetch_done.clear()
+        try:
+            reason = bot.diagnose_signal_failures()[0]
+        finally:
+            if was_set:
+                bot.fast_prefetch_done.set()
+
+        for field in (
+            "rank",
+            "reason",
+            "severity",
+            "percentage",
+            "total_failed",
+            "total",
+            "description",
+            "solution",
+            "why",
+        ):
+            self.assertIn(field, reason)
+
+
 class TestStepBatch(CascadePipelineTestCase):
     def test_candidate_exception_is_isolated(self):
         good = {"id": "good"}

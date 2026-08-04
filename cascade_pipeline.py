@@ -47,7 +47,6 @@ from state_manager import (
     _set_step8_survivors,
     _update_last_complete_step,
     complete_scan,
-    get_candidate_key,
     get_stage_candidates,
     get_step1_ready_since,
     mark_stage_ready,
@@ -532,7 +531,8 @@ def _run_step_batch(
     def run_one(candidate):
         try:
             return candidate, *step_fn(candidate)
-        except Exception as exc:  # Intentional plugin boundary: one symbol must not abort the batch.
+        # Intentional plugin boundary: one symbol must not abort the batch.
+        except Exception as exc:
             log.exception(
                 "❌ خطأ في الخطوة %d (%s): %s",
                 step_num,
@@ -857,81 +857,48 @@ def _filter_higher_saturation(
     return filtered
 
 
-def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
-    label = "LONG" if signal_type == "buy" else "SHORT"
+def _get_side_functions(signal_type):
     if signal_type == "buy":
-        validate_step5 = _refresh_and_validate_step5
-        stage6_fn, stage7_fn, stage8_fn = step6, step7, step8
-    elif signal_type == "sell":
-        validate_step5 = _refresh_and_validate_step5_short
-        stage6_fn, stage7_fn, stage8_fn = (
+        return "LONG", _refresh_and_validate_step5, (step6, step7, step8)
+    if signal_type == "sell":
+        return "SHORT", _refresh_and_validate_step5_short, (
             short_step6,
             short_step7,
             short_step8,
         )
-    else:
-        raise ValueError(f"Unsupported signal type: {signal_type}")
+    raise ValueError(f"Unsupported signal type: {signal_type}")
 
-    validated_stage5 = []
-    for candidate in stage5_candidates:
+
+def _validate_stage5_candidates(
+    signal_type,
+    candidates,
+    validate_step5,
+    get_resampled,
+):
+    validated = []
+    for candidate in candidates:
         refreshed = validate_step5(candidate, get_resampled)
         if refreshed is None:
             remove_stage_candidate(signal_type, 5, candidate)
         else:
-            validated_stage5.append(refreshed)
+            validated.append(refreshed)
+    return validated
 
-    if validated_stage5:
-        evaluations = _run_step_batch(
-            validated_stage5,
-            stage6_fn,
-            6,
-            label,
-        )
-        _update_last_complete_step(signal_type, 6, evaluations)
-        passed = [candidate for candidate, ok, _ in evaluations if ok]
-        mark_stage_ready(signal_type, 6, passed)
-        _promote_candidates(signal_type, 5, 6, passed)
 
-    refreshed_stage6 = _refresh_stage(signal_type, 6, get_resampled)
-    if refreshed_stage6:
-        filtered_stage6 = _filter_higher_saturation(
-            signal_type,
-            6,
-            refreshed_stage6,
-            get_resampled,
-        )
-        evaluations = _run_step_batch(
-            filtered_stage6,
-            stage7_fn,
-            7,
-            label,
-        )
-        _update_last_complete_step(signal_type, 7, evaluations)
-        passed = [candidate for candidate, ok, _ in evaluations if ok]
-        mark_stage_ready(signal_type, 7, passed)
-        _promote_candidates(signal_type, 6, 7, passed)
-
-    refreshed_stage7 = _refresh_stage(signal_type, 7, get_resampled)
-    if not refreshed_stage7:
-        return
-
-    filtered_stage7 = _filter_higher_saturation(
-        signal_type,
-        7,
-        refreshed_stage7,
-        get_resampled,
-    )
+def _evaluate_stage(signal_type, stage_num, candidates, step_fn, label):
     evaluations = _run_step_batch(
-        filtered_stage7,
-        stage8_fn,
-        8,
+        candidates,
+        step_fn,
+        stage_num,
         label,
     )
-    _update_last_complete_step(signal_type, 8, evaluations)
-    passed = [candidate for candidate, ok, _ in evaluations if ok]
+    _update_last_complete_step(signal_type, stage_num, evaluations)
+    return [candidate for candidate, ok, _ in evaluations if ok]
+
+
+def _emit_signals(signal_type, label, passed, evaluated_count):
     if not passed:
         return
-
     _set_step8_survivors(signal_type, passed)
     if _signal_handler is None:
         raise RuntimeError("Cascade signal handler is not configured")
@@ -948,8 +915,65 @@ def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
         "⚡ Quick check (%s): %d إشارة من %d مرشح محفوظ",
         label,
         len(passed),
-        len(filtered_stage7),
+        evaluated_count,
     )
+
+
+def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
+    """Advance one LONG/SHORT queue through stages 5→6→7→8."""
+    label, validate_step5, stage_functions = _get_side_functions(signal_type)
+    validated_stage5 = _validate_stage5_candidates(
+        signal_type,
+        stage5_candidates,
+        validate_step5,
+        get_resampled,
+    )
+    if validated_stage5:
+        passed = _evaluate_stage(
+            signal_type,
+            6,
+            validated_stage5,
+            stage_functions[0],
+            label,
+        )
+        mark_stage_ready(signal_type, 6, passed)
+        _promote_candidates(signal_type, 5, 6, passed)
+
+    refreshed = _refresh_stage(signal_type, 6, get_resampled)
+    if refreshed:
+        candidates = _filter_higher_saturation(
+            signal_type,
+            6,
+            refreshed,
+            get_resampled,
+        )
+        passed = _evaluate_stage(
+            signal_type,
+            7,
+            candidates,
+            stage_functions[1],
+            label,
+        )
+        mark_stage_ready(signal_type, 7, passed)
+        _promote_candidates(signal_type, 6, 7, passed)
+
+    refreshed = _refresh_stage(signal_type, 7, get_resampled)
+    if not refreshed:
+        return
+    candidates = _filter_higher_saturation(
+        signal_type,
+        7,
+        refreshed,
+        get_resampled,
+    )
+    passed = _evaluate_stage(
+        signal_type,
+        8,
+        candidates,
+        stage_functions[2],
+        label,
+    )
+    _emit_signals(signal_type, label, passed, len(candidates))
 
 
 def _snapshot_quick_candidates():
