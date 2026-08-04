@@ -1,19 +1,7 @@
 """بوت مسح العملات من Binance مع تنبيهات Telegram - نسخة Cascade Pipeline مع استراتيجية مزدوجة (شراء/بيع)."""
-import os
-import time
 import logging
-import threading
-import sys
-import traceback
-import json
-import gc
-import ctypes
-import resource
 from datetime import datetime, timezone, timedelta
-from concurrent.futures import ThreadPoolExecutor
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
-import requests
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -23,10 +11,12 @@ log = logging.getLogger(__name__)
 # Main Settings
 # ------------------------------------------
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8696456847:AAG06_sYJVIZNjCRwO29OynYFh9GsWYOwXo")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003968771145")
-
-PORT = int(os.environ.get("PORT", "8080"))
+from config import (
+    ALLOWED_CHAT_IDS,
+    PORT,
+    TELEGRAM_CHAT_ID,
+    TELEGRAM_TOKEN,
+)
 
 from binance_data import (
     BINANCE_FUTURES_BASE, BINANCE_SPOT_BASE, BINANCE_BASE, MARKET_MODE,
@@ -89,37 +79,25 @@ from cascade_pipeline import (
     _run_step_batch, run_cascade_scan, run_short_cascade_scan,
     quick_check_watcher, set_signal_handler,
 )
-
-# ------------------------------------------
-# Helper Functions
-# ------------------------------------------
-
-def delete_webhook():
-    try:
-        r = get_session().post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
-            json={"drop_pending_updates": True}, timeout=10,
-        ).json()
-        if r.get("ok"):
-            log.info("✅ تم حذف الـ Webhook")
-    except requests.RequestException as exc:
-        log.error("deleteWebhook error: %s", exc)
-
-def send_telegram(msg, chat_id=None):
-    target = chat_id or TELEGRAM_CHAT_ID
-    try:
-        r = get_session().post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": target, "text": msg, "parse_mode": "HTML"},
-            timeout=10,
-        ).json()
-        return r.get("ok", False)
-    except requests.RequestException as exc:
-        log.error("Telegram send error: %s", exc)
-        return False
-
-# ربط مُرسل Telegram بطبقة البيانات (prefetch / update_symbols_loop)
-set_telegram_sender(send_telegram)
+from main import (
+    HealthHandler,
+    cascade_watcher,
+    configure_integrations,
+    heartbeat_once,
+    main,
+    next_candle_close,
+    run_forever,
+    start_background_services,
+    thread_exception_handler,
+    trim_memory,
+)
+from telegram_bot import (
+    _fire_signal,
+    delete_webhook,
+    poll_telegram_commands,
+    send_telegram,
+    set_command_handler,
+)
 
 def get_report(period="today", signal_type=None):
     now = datetime.now(timezone.utc)
@@ -453,29 +431,6 @@ def handle_hard_filters_command(chat_id, signal_type="buy"):
 
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
-        
-        
-def _fire_signal(symbol, base_frame, confirm_frame, triple_frame, df, signal_type="buy"):
-    key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
-    now = claim_signal(key)
-    if now is None:
-        return
-
-    price = float(df["close"].iloc[-1])
-    save_signal(symbol, price, base_frame, confirm_frame, triple_frame, signal_type=signal_type)
-    _clear_waiting_candidate(symbol, base_frame, confirm_frame, triple_frame, signal_type=signal_type)
-
-    icon = "🟢 شراء (LONG)" if signal_type == "buy" else "🔴 بيع (SHORT)"
-    send_telegram(
-        f"{icon}\n"
-        f"💱 العملة: <b>{symbol}</b>\n"
-        f"💰 السعر: <b>{price:.6g}</b>\n"
-        f"⏱️ الفريمات: {base_frame}m / {confirm_frame}m / {triple_frame}m\n"
-        f"🕐 الوقت: {now.strftime('%H:%M:%S UTC')}"
-    )
-
-set_signal_handler(_fire_signal)
-
 # ------------------------------------------
 # Telegram Commands
 # ------------------------------------------
@@ -773,202 +728,9 @@ def _dispatch_command(txt, chat_id):
             "📋 <code>/help</code> — هذه القائمة",
             chat_id,
         )
-        
-def poll_telegram_commands():
-    last_id = 0
-    allowed_ids = {
-        cid.strip()
-        for cid in os.environ.get("ALLOWED_CHAT_IDS", TELEGRAM_CHAT_ID).split(",")
-        if cid.strip()
-    }
-    while True:
-        try:
-            r = get_session().get(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
-                params={"offset": last_id + 1, "timeout": 30},
-                timeout=35,
-            ).json()
-            for upd in r.get("result", []):
-                last_id = upd["update_id"]
-                txt = upd.get("message", {}).get("text", "").strip()
-                chat_id = str(upd.get("message", {}).get("chat", {}).get("id", ""))
-                if txt and chat_id:
-                    if chat_id in allowed_ids:
-                        threading.Thread(target=_dispatch_command, args=(txt, chat_id), daemon=True).start()
-                    else:
-                        log.warning("⚠️ رسالة من chat_id غير مصرح به: %s — تم تجاهلها", chat_id)
-        except requests.RequestException as exc:
-            log.error("poll_telegram_commands network error: %s", exc)
-            time.sleep(10)
-        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
-            log.error("poll_telegram_commands response error: %s", exc)
-            time.sleep(10)
-
-def next_candle_close():
-    now = datetime.now(timezone.utc)
-    total_seconds = now.minute * 60 + now.second
-    min_wait = 999999
-    for tf in TIMEFRAME_CHAIN:
-        tf_seconds = tf * 60
-        remaining = tf_seconds - (total_seconds % tf_seconds)
-        if remaining < min_wait:
-            min_wait = remaining
-    return min_wait + 1
-_scan_lock = threading.Lock()
-
-def cascade_watcher():
-    while True:
-        try:
-            if fast_prefetch_done.is_set():
-                with ohlcv_cache_lock:
-                    if len(ohlcv_cache) < 200:  # تأكد الكاش فيه بيانات
-                        time.sleep(30)
-                        continue
-                # ✅ fetch مرة واحدة للاثنين — أضفنا 30m لضمان فريش دائمًا
-                with symbols_cache_lock:
-                    syms = list(symbols_cache)
-
-                def fetch_fresh(sym):
-                    # إصلاح: استخدام الدالة الصحيحة حسب MARKET_MODE لتجنب خلط بيانات Spot/Futures
-                    fetch_fn = get_ohlcv_futures if MARKET_MODE == "futures" else get_ohlcv
-                    for tf in ["1m", "30m", "60m"]:
-                        df = fetch_fn(sym, tf, limit=3)
-                        if not df.empty:
-                            cache_merge(sym, tf, df)
-
-                with ThreadPoolExecutor(max_workers=30) as executor:
-                    executor.map(fetch_fresh, syms)
-
-                # 🔄 سكان كامل (1-8) — كل استيقاظة (بدون تخطي دورات)
-                # مع قفل يمنع تشغيل سكان جديد قبل انتهاء القديم
-                if _scan_lock.acquire(blocking=False):
-                    try:
-                        t1 = threading.Thread(target=run_cascade_scan, daemon=True)
-                        t2 = threading.Thread(target=run_short_cascade_scan, daemon=True)
-                        t1.start()
-                        t2.start()
-                        t1.join()
-                        t2.join()
-                        with _ribbon_cache_lock:
-                            _ribbon_cache.clear()
-                        trim_memory()
-                    finally:
-                        _scan_lock.release()
-                else:
-                    log.warning("⏭️ تخطي السكان — السكان السابق لسه شغال")
-
-            time.sleep(next_candle_close())
-        except Exception:  # Intentional daemon boundary: retry after unexpected failures.
-            log.exception("❌ خطأ في cascade_watcher")
-            time.sleep(5)
-
-def trim_memory():
-    try:
-        rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    except (OSError, ValueError):
-        rss_before = None
-
-    gc.collect()
-    try:
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
-    except (AttributeError, OSError) as exc:
-        log.error("malloc_trim error: %s", exc)
-
-    if rss_before is not None:
-        try:
-            rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            log.info("🧹 trim_memory: peak RSS قبل=%s KB، بعد=%s KB (peak قد لا يقل حتى مع نجاح trim)", rss_before, rss_after)
-        except (OSError, ValueError) as exc:
-            log.debug("تعذر قراءة RSS بعد التنظيف: %s", exc)
-
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-    def log_message(self, *_):
-        pass
-
-def thread_exception_handler(args):
-    msg = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
-    thread_name = args.thread.name if args.thread else "unknown"
-    log.error("💥 خطأ في Thread [%s]:\n%s", thread_name, msg)
-    try:
-        send_telegram(f"⚠️ <b>خطأ في Thread {thread_name}:</b>\n<code>{args.exc_value}</code>")
-    except Exception:
-        pass
+set_command_handler(_dispatch_command)
+configure_integrations(_dispatch_command)
 
 
-def run_forever(target, name):
-    def wrapper():
-        while True:
-            try:
-                target()
-            except Exception as e:
-                log.error("💥 %s توقف بخطأ، سيُعاد تشغيله خلال 10 ثواني: %s", name, e)
-                try:
-                    send_telegram(f"🔄 <b>{name}</b> توقف وسيُعاد تشغيله تلقائياً.\n<code>{e}</code>")
-                except Exception:
-                    pass
-                time.sleep(10)
-
-    threading.Thread(target=wrapper, name=name, daemon=True).start()
-
-
-def main():
-    def handle_exception(exc_type, exc_value, exc_tb):
-        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        log.error("💥 خطأ غير متوقع أوقف البوت:\n%s", msg)
-        try:
-            send_telegram(f"💥 <b>البوت توقف بسبب خطأ:</b>\n<code>{exc_value}</code>")
-        except Exception:
-            pass
-
-    sys.excepthook = handle_exception
-    threading.excepthook = thread_exception_handler
-
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    log.info("✅ Health server شغّال على port %s", PORT)
-
-    delete_webhook()
-
-    if MARKET_MODE == "futures":
-        run_forever(update_symbols_loop_futures, "update_symbols_loop_futures")
-        threading.Thread(target=cache_updater_1m_futures, daemon=True).start()
-        threading.Thread(target=cache_updater_60m_futures, daemon=True).start()
-        threading.Thread(target=cache_updater_30m_futures, daemon=True).start()
-    else:
-        run_forever(update_symbols_loop, "update_symbols_loop")
-        threading.Thread(target=cache_updater_1m, daemon=True).start()
-        threading.Thread(target=cache_updater_60m, daemon=True).start()
-        threading.Thread(target=cache_updater_30m, daemon=True).start()
-
-    run_forever(poll_telegram_commands, "poll_telegram_commands")
-    run_forever(cascade_watcher, "cascade_watcher")
-    run_forever(quick_check_watcher, "quick_check_watcher")
-
-    send_telegram("🚀 <b>البوت انطلق — استراتيجية مزدوجة (شراء + بيع)</b>")
-
-    while True:
-        try:
-            time.sleep(300)
-            cleanup_alerted_keys()
-            with ohlcv_cache_lock:
-                cache_size = len(ohlcv_cache)
-            with trades_lock:
-                signals_count = len(trades_history)
-            log.info(
-                "💓 البوت يعمل | كاش: %s مفتاح | إشارات: %s | سريع: %s | كامل: %s",
-                cache_size,
-                signals_count,
-                "✅" if fast_prefetch_done.is_set() else "⏳",
-                "✅" if prefetch_done.is_set() else "⏳",
-            )
-        except Exception as exc:
-            log.error("❌ خطأ في main loop: %s\n%s", exc, traceback.format_exc())
-            time.sleep(10)
-            
 if __name__ == "__main__":
-    main()
+    main(_dispatch_command)
