@@ -151,6 +151,7 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
         def refresh_stage(signal_type, stage_num, _get_resampled):
             return state.get_stage_candidates(signal_type, stage_num)
 
+        candle_ts = pd.Timestamp("2024-01-01 11:57:00", tz="UTC")
         try:
             with patch.object(
                 pipeline,
@@ -170,6 +171,10 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
                 side_effect=lambda candidates, *_args, **_kwargs: [
                     (item, True, "passed") for item in candidates
                 ],
+            ), patch.object(
+                pipeline,
+                "_resolve_entry_signal_candle",
+                return_value=(candidate["df_triple"], 12.5, candle_ts.to_pydatetime()),
             ):
                 pipeline._advance_pipeline("buy", [candidate], Mock())
         finally:
@@ -177,9 +182,61 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
 
         self.assertEqual(state.get_stage_candidates("buy", 5), [])
         self.assertEqual(state.get_stage_candidates("buy", 6), [])
-        self.assertEqual(state.get_stage_candidates("buy", 7), [candidate])
+        self.assertEqual(state.get_stage_candidates("buy", 7), [])
         self.assertEqual(state.get_stage_candidates("buy", 8), [candidate])
-        handler.assert_called_once()
+        handler.assert_called_once_with(
+            candidate["sym"],
+            candidate["base_frame"],
+            candidate["confirm_frame"],
+            candidate["triple_frame"],
+            candidate["df_triple"],
+            signal_type="buy",
+            price=12.5,
+            candle_ts=candle_ts.to_pydatetime(),
+        )
+
+class TestResolveEntrySignalCandle(CascadePipelineTestCase):
+    def test_uses_verification_candle_not_later_triple_bar(self):
+        ts = pd.date_range("2024-01-01", periods=5, freq="3min", tz="UTC")
+        entry = pd.DataFrame(
+            {
+                "ts": ts,
+                "open": [1, 2, 3, 4, 5],
+                "high": [1, 2, 3, 4, 5],
+                "low": [1, 2, 3, 4, 5],
+                "close": [10.0, 11.0, 12.5, 13.0, 14.0],
+                "vol": [1, 1, 1, 1, 1],
+            }
+        )
+        base = entry.copy()
+        base["close"] = [100.0, 100.0, 100.0, 100.0, 100.0]
+        candidate = {
+            "sym": "BATUSDT",
+            "base_frame": 9,
+            "confirm_frame": 27,
+            "triple_frame": 3,
+            "df_base": base,
+            "df_triple": entry,
+        }
+        with patch.object(
+            pipeline,
+            "get_step1_ready_since",
+            return_value=ts[0],
+        ), patch.object(
+            pipeline,
+            "find_rsi_stoch_entry_index",
+            return_value=2,
+        ):
+            frame, price, candle_ts = pipeline._resolve_entry_signal_candle(
+                candidate,
+                "buy",
+            )
+
+        self.assertIs(frame, entry)
+        self.assertEqual(price, 12.5)
+        self.assertEqual(candle_ts, ts[2].to_pydatetime())
+        self.assertNotEqual(price, float(base["close"].iloc[-1]))
+        self.assertNotEqual(price, float(entry["close"].iloc[-1]))
 
 
 if __name__ == "__main__":

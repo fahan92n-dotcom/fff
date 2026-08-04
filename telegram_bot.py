@@ -83,14 +83,33 @@ def _fire_signal(
     triple_frame,
     frame,
     signal_type="buy",
+    price=None,
+    candle_ts=None,
 ):
-    """Persist and send one deduplicated stage-8 signal."""
+    """Persist and send one deduplicated stage-8 signal.
+
+    ``frame`` must be the entry/triple timeframe. Prefer the verification
+    candle ``price`` / ``candle_ts`` from step 8 — not the latest bar at
+    send time, and not the base timeframe close.
+    """
     key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
     now = claim_signal(key)
     if now is None:
         return False
 
-    price = float(frame["close"].iloc[-1])
+    if price is None:
+        if candle_ts is not None and "ts" in frame.columns:
+            matched = frame.loc[frame["ts"] == candle_ts]
+            if not matched.empty:
+                price = float(matched["close"].iloc[0])
+        if price is None:
+            price = float(frame["close"].iloc[-1])
+
+    if candle_ts is None and "ts" in frame.columns:
+        candle_ts = frame["ts"].iloc[-1]
+        if getattr(candle_ts, "to_pydatetime", None) is not None:
+            candle_ts = candle_ts.to_pydatetime()
+
     save_signal(
         symbol,
         price,
@@ -108,12 +127,17 @@ def _fire_signal(
     )
 
     icon = "🟢 شراء (LONG)" if signal_type == "buy" else "🔴 بيع (SHORT)"
+    if candle_ts is not None:
+        candle_label = candle_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+    else:
+        candle_label = now.strftime("%Y-%m-%d %H:%M:%S UTC")
     send_telegram(
         f"{icon}\n"
         f"💱 العملة: <b>{symbol}</b>\n"
-        f"💰 السعر: <b>{price:.6g}</b>\n"
+        f"💰 سعر إغلاق شمعة الدخول ({triple_frame}m): <b>{price:.6g}</b>\n"
         f"⏱️ الفريمات: {base_frame}m / {confirm_frame}m / {triple_frame}m\n"
-        f"🕐 الوقت: {now.strftime('%H:%M:%S UTC')}"
+        f"🕐 شمعة التحقق: {candle_label}\n"
+        f"🕐 وقت الإرسال: {now.strftime('%H:%M:%S UTC')}"
     )
     return True
 

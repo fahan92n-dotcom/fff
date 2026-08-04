@@ -112,5 +112,37 @@ class TestCheckRsiStochShort(unittest.TestCase):
             self.assertTrue(ind.check_rsi_stoch_short(df, since_ts, max_gap=3))
 
 
+class TestFindRsiStochEntryIndex(unittest.TestCase):
+    def test_returns_completion_candle_not_latest_bar(self):
+        n = 220
+        df = _base_df(n)
+        since_ts = df["ts"].iloc[150]
+        rc, sc = 180, 182
+
+        rsi_vals = np.full(n, 40.0)
+        sig_vals = np.full(n, 45.0)
+        rsi_vals[rc - 1] = 44.0
+        rsi_vals[rc] = 46.0
+
+        k = pd.Series(np.full(n, 10.0))
+        k.iloc[sc - 1] = 18.0
+        k.iloc[sc] = 25.0
+        k.iloc[-1] = 15.0
+        d = pd.Series(np.full(n, 50.0))
+        rsi = _series_with_fixed_signal(rsi_vals, sig_vals)
+
+        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
+             patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
+            index = ind.find_rsi_stoch_entry_index(
+                df,
+                since_ts,
+                max_gap=3,
+                side="long",
+            )
+
+        self.assertEqual(index, sc)
+        self.assertNotEqual(index, n - 1)
+
+
 if __name__ == "__main__":
     unittest.main()
