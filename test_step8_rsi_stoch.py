@@ -162,6 +162,53 @@ class TestStep8FullOrder(unittest.TestCase):
                 )
             )
 
+    def test_rejects_rsi_ma_cross_before_raw_touch_35(self):
+        """التقاطع مع المتوسط قبل لمس 35 (قيمة RSI الخام) يجب أن يُرفض."""
+        n = 220
+        df = _base_df(n)
+        since_ts = df["ts"].iloc[150]
+        rsi_vals = np.full(n, 40.0)
+        ma_vals = np.full(n, 45.0)
+        # تقاطع مبكر عند 165 — قبل لمس 35
+        rsi_vals[164] = 44.0
+        rsi_vals[165] = 46.0
+        # لمس 35 لاحقًا بدون تقاطع جديد بعده
+        rsi_vals[190] = 34.0
+        rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
+        k = pd.Series(np.full(n, 10.0))
+        k.iloc[191] = 25.0
+        d = pd.Series(np.full(n, 50.0))
+
+        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
+             patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
+            self.assertIsNone(
+                ind.find_rsi_stoch_entry_index(
+                    df,
+                    since_ts,
+                    max_gap=3,
+                    side="long",
+                )
+            )
+
+    def test_rsi_touch_uses_raw_value_not_ma(self):
+        """لمس 35 يُقاس على RSI الخام حتى لو المتوسط أعلى بكثير."""
+        n = 220
+        df = _base_df(n)
+        since_ts = df["ts"].iloc[150]
+        rsi_vals = np.full(n, 40.0)
+        ma_vals = np.full(n, 70.0)  # المتوسط بعيد — لا يؤثر على اللمس
+        rsi_vals[170] = 35.0
+        index = None
+        rsi = pd.Series(rsi_vals)
+        with patch.object(ind, "calc_rsi_tv", return_value=rsi):
+            index = ind.find_rsi_touch_index(
+                df,
+                since_ts,
+                threshold=35,
+                direction="long",
+            )
+        self.assertEqual(index, 170)
+
 
 if __name__ == "__main__":
     unittest.main()

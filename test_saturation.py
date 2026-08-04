@@ -70,11 +70,20 @@ class TestTFToAPI(unittest.TestCase):
             self.assertEqual(bot.TF_TO_API[tf], "30m",
                              f"الفريم {tf}m يجب أن يستخدم 30m كمصدر")
 
-    def test_high_frames_use_60m(self):
-        """الفريمات 180/210/240 دقيقة يجب أن تستخدم مصدر 60m."""
-        for tf in [180, 210, 240]:
-            self.assertEqual(bot.TF_TO_API[tf], "60m",
-                             f"الفريم {tf}m يجب أن يستخدم 60m كمصدر")
+    def test_high_frames_use_native_divisible_sources(self):
+        """الفريمات الكبيرة تستخدم مصدرًا ينقسم عليها صحيحًا."""
+        self.assertEqual(bot.TF_TO_API[180], "60m")
+        self.assertEqual(bot.TF_TO_API[210], "30m")  # 210 لا ينقسم على 60
+        self.assertEqual(bot.TF_TO_API[240], "60m")
+
+    def test_all_tripling_targets_divisible_by_source(self):
+        """كل base/confirm/triple يجب أن ينقسم على مصدره."""
+        for base, confirm, triple, base_api, triple_api in bot.TRIPLING_PAIRS:
+            base_minutes = int(base_api.replace("m", ""))
+            triple_minutes = int(triple_api.replace("m", ""))
+            self.assertEqual(base % base_minutes, 0, f"{base}m من {base_api}")
+            self.assertEqual(confirm % base_minutes, 0, f"{confirm}m من {base_api}")
+            self.assertEqual(triple % triple_minutes, 0, f"{triple}m من {triple_api}")
 
     def test_all_timeframe_chain_covered(self):
         """كل الفريمات في TIMEFRAME_CHAIN يجب أن تكون موجودة في TF_TO_API."""

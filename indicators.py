@@ -524,7 +524,12 @@ def check_smi_touched_since(df, since_ts, threshold=-40, direction="long"):
 
 
 def find_rsi_touch_index(df, since_ts, threshold=35, direction="long"):
-    """أول شمعة لمس فيها RSI المستوى منذ since_ts (بدون أي شرط على المتوسط)."""
+    """
+    أول شمعة مغلقة لمس فيها RSI المستوى منذ since_ts.
+
+    يُستخدم سعر RSI الخام فقط — بدون متوسط RSI.
+    LONG: RSI <= 35 | SHORT: RSI >= 65
+    """
     if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return None
     if direction not in ("long", "short"):
@@ -548,6 +553,8 @@ def find_rsi_ma_cross_index(df, since_ts, side="long", at_or_after=None):
     """
     أول تقاطع RSI مع متوسطه SMA(14) بعد since_ts.
     LONG: تقاطع لفوق المتوسط | SHORT: تقاطع لتحت المتوسط
+
+    at_or_after: يُستخدم لفرض أن التقاطع لا يُحتسب قبل لمس RSI للمستوى.
     """
     if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return None
@@ -621,11 +628,11 @@ def find_rsi_stoch_entry_index(
 ):
     """
     بعد تشبع SMI:
-    1) لمس RSI للمستوى على شمعة مغلقة (35 تشبع بيعي / 65 تشبع شرائي)
-    2) تقاطع RSI مع متوسطه
-    3) بعده خلال max_gap شموع: Stochastic فوق 20 (شراء) / تحت 80 (بيع)
+    1) لمس RSI الخام للمستوى على شمعة مغلقة (35/65) — بدون متوسط
+    2) بعدها تقاطع RSI مع متوسطه (هنا فقط يُستخدم المتوسط)
+    3) بعده خلال max_gap شموع: Stochastic %K فوق 20 / تحت 80 — بدون %D
 
-    شمعة الإشارة = شمعة تحقق شرط الستوكاستك.
+    التقاطع قبل لمس 35/65 مرفوض. شمعة الإشارة = تحقق Stoch.
     """
     if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return None
@@ -649,6 +656,7 @@ def find_rsi_stoch_entry_index(
     if rsi_touch is None:
         return None
 
+    # التقاطع يُبحث من شمعة اللمس فما بعد — لا تقاطع سابق على اللمس.
     rsi_cross = find_rsi_ma_cross_index(
         df,
         since_ts,
