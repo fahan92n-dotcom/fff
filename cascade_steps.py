@@ -73,7 +73,7 @@ STEP_LABELS = {
     "macd_confirm": "⑤ MACD Confirm أخضر",
     "ema50": "⑥ السعر تحت EMA50",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
-    "rsi_stoch": "⑧ SMI ثم RSI/Stochastic",
+    "rsi_stoch": "⑧ SMI ثم RSI≤35 وStoch>20",
 }
 SHORT_STEP_NAMES = [
     "smi_overbought",
@@ -93,7 +93,7 @@ SHORT_STEP_LABELS = {
     "macd_confirm_red": "⑤ MACD Confirm أحمر",
     "ema50_above": "⑥ السعر فوق EMA50",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
-    "rsi_stoch_short": "⑧ SMI ثم RSI/Stochastic",
+    "rsi_stoch_short": "⑧ SMI ثم RSI≥65 وStoch<80",
 }
 
 StepResult = tuple[bool, str]
@@ -319,9 +319,10 @@ def _step7(candidate, rules):
 
 def _step8(candidate, rules):
     """
-    Step 8 بالترتيب الزمني:
-    1) تشبع SMI على فريم الثلث
-    2) بعدها لمس RSI ثم تقاطع RSI/Stochastic
+    Step 8 على شموع مغلقة بالترتيب:
+    1) إغلاق كامل لتشبع SMI
+    2) بعدها RSI وصل مستواه (بدون تقاطع المتوسط) و Stochastic بالاتجاه
+       خلال ±3 شموع — لا يهم أيهما أسبق بين RSI و Stoch
     """
     since_ts = _ready_since(candidate, rules)
     frame = candidate["df_triple"]
@@ -334,7 +335,7 @@ def _step8(candidate, rules):
     if smi_index is None:
         return False, rules.smi_touch_reason
 
-    # RSI + Stoch يُحسبان فقط بعد (ومن) شمعة تشبع SMI — لا أحداث سابقة.
+    # RSI + Stoch فقط بعد إغلاق شمعة تشبع SMI.
     after_smi_ts = frame["ts"].iloc[smi_index]
     if not check_rsi_touched_since(
         frame,
