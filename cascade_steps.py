@@ -24,7 +24,7 @@ from indicators import (
     check_rsi_touched_since,
     check_smi_overbought,
     check_smi_oversold,
-    check_smi_touched_since,
+    find_smi_touch_index,
 )
 from state_manager import get_step1_ready_since
 
@@ -73,7 +73,7 @@ STEP_LABELS = {
     "macd_confirm": "⑤ MACD Confirm أخضر",
     "ema50": "⑥ السعر تحت EMA50",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
-    "rsi_stoch": "⑧ RSI/Stochastic تقاطع",
+    "rsi_stoch": "⑧ SMI ثم RSI/Stochastic",
 }
 SHORT_STEP_NAMES = [
     "smi_overbought",
@@ -93,7 +93,7 @@ SHORT_STEP_LABELS = {
     "macd_confirm_red": "⑤ MACD Confirm أحمر",
     "ema50_above": "⑥ السعر فوق EMA50",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
-    "rsi_stoch_short": "⑧ RSI≥65 / Stochastic≤20",
+    "rsi_stoch_short": "⑧ SMI ثم RSI/Stochastic",
 }
 
 StepResult = tuple[bool, str]
@@ -318,22 +318,32 @@ def _step7(candidate, rules):
 
 
 def _step8(candidate, rules):
+    """
+    Step 8 بالترتيب الزمني:
+    1) تشبع SMI على فريم الثلث
+    2) بعدها لمس RSI ثم تقاطع RSI/Stochastic
+    """
     since_ts = _ready_since(candidate, rules)
-    if not check_smi_touched_since(
-        candidate["df_triple"],
+    frame = candidate["df_triple"]
+    smi_index = find_smi_touch_index(
+        frame,
         since_ts,
         threshold=rules.smi_threshold,
         direction=rules.touch_direction,
-    ):
+    )
+    if smi_index is None:
         return False, rules.smi_touch_reason
+
+    # RSI + Stoch يُحسبان فقط بعد (ومن) شمعة تشبع SMI — لا أحداث سابقة.
+    after_smi_ts = frame["ts"].iloc[smi_index]
     if not check_rsi_touched_since(
-        candidate["df_triple"],
-        since_ts,
+        frame,
+        after_smi_ts,
         threshold=rules.rsi_threshold,
         direction=rules.touch_direction,
     ):
         return False, rules.rsi_touch_reason
-    if not rules.final_check(candidate["df_triple"], since_ts, max_gap=3):
+    if not rules.final_check(frame, after_smi_ts, max_gap=3):
         return False, rules.final_reason
     return True, "passed"
 

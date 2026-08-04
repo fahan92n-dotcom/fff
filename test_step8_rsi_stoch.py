@@ -144,5 +144,77 @@ class TestFindRsiStochEntryIndex(unittest.TestCase):
         self.assertNotEqual(index, n - 1)
 
 
+class TestStep8SmiThenRsiStochOrder(unittest.TestCase):
+    def test_fails_when_rsi_stoch_complete_before_smi_touch(self):
+        n = 220
+        df = _base_df(n)
+        since_ts = df["ts"].iloc[150]
+        rc, sc, smi_i = 170, 172, 190
+
+        rsi_vals = np.full(n, 40.0)
+        sig_vals = np.full(n, 45.0)
+        rsi_vals[rc - 1] = 44.0
+        rsi_vals[rc] = 46.0
+        rsi_vals[sc] = 30.0  # لمس RSI قبل SMI فقط
+
+        k = pd.Series(np.full(n, 10.0))
+        k.iloc[sc - 1] = 18.0
+        k.iloc[sc] = 25.0
+        d = pd.Series(np.full(n, 50.0))
+        rsi = _series_with_fixed_signal(rsi_vals, sig_vals)
+
+        smi = pd.Series(np.full(n, -10.0))
+        smi.iloc[smi_i] = -45.0  # تشبع SMI بعد اكتمال RSI/Stoch
+
+        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
+             patch.object(ind, "calc_stoch_tv", return_value=(k, d)), \
+             patch.object(ind, "calc_smi", return_value=(smi, smi, smi)):
+            self.assertIsNone(
+                ind.find_step8_entry_index(
+                    df,
+                    since_ts,
+                    smi_threshold=-40,
+                    rsi_threshold=35,
+                    direction="long",
+                    max_gap=3,
+                )
+            )
+
+    def test_passes_when_smi_touch_precedes_rsi_stoch(self):
+        n = 220
+        df = _base_df(n)
+        since_ts = df["ts"].iloc[150]
+        smi_i, rc, sc = 160, 180, 182
+
+        rsi_vals = np.full(n, 40.0)
+        sig_vals = np.full(n, 45.0)
+        rsi_vals[rc - 1] = 44.0
+        rsi_vals[rc] = 46.0
+        rsi_vals[170] = 30.0  # لمس RSI بعد SMI
+
+        k = pd.Series(np.full(n, 10.0))
+        k.iloc[sc - 1] = 18.0
+        k.iloc[sc] = 25.0
+        d = pd.Series(np.full(n, 50.0))
+        rsi = _series_with_fixed_signal(rsi_vals, sig_vals)
+
+        smi = pd.Series(np.full(n, -10.0))
+        smi.iloc[smi_i] = -45.0
+
+        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
+             patch.object(ind, "calc_stoch_tv", return_value=(k, d)), \
+             patch.object(ind, "calc_smi", return_value=(smi, smi, smi)):
+            index = ind.find_step8_entry_index(
+                df,
+                since_ts,
+                smi_threshold=-40,
+                rsi_threshold=35,
+                direction="long",
+                max_gap=3,
+            )
+
+        self.assertEqual(index, sc)
+
+
 if __name__ == "__main__":
     unittest.main()

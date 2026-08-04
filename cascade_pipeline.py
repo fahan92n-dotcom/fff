@@ -29,7 +29,7 @@ from indicators import (
     check_macd_line_long,
     check_macd_line_short,
     check_macd_red,
-    find_rsi_stoch_entry_index,
+    find_step8_entry_index,
     resample_ohlcv,
 )
 from cascade_steps import (
@@ -545,7 +545,7 @@ def _resolve_entry_signal_candle(candidate, signal_type):
     """
     شمعة التحقق على فريم الدخول (الثُلث): سعر إغلاقها ووقت فتحها.
 
-    Step 8 يكتمل بأحداث تاريخية؛ لذلك لا نستخدم آخر شمعة وقت الإرسال ولا df_base.
+    الترتيب: تشبع SMI أولًا ثم RSI/Stoch. لا نستخدم آخر شمعة ولا df_base.
     """
     entry_frame = candidate.get("df_triple")
     if entry_frame is None or entry_frame.empty:
@@ -558,12 +558,20 @@ def _resolve_entry_signal_candle(candidate, signal_type):
         candidate["triple_frame"],
         signal_type,
     )
-    side = "long" if signal_type == "buy" else "short"
-    entry_index = find_rsi_stoch_entry_index(
+    if signal_type == "buy":
+        smi_threshold, rsi_threshold, direction = -40, 35, "long"
+    elif signal_type == "sell":
+        smi_threshold, rsi_threshold, direction = 40, 65, "short"
+    else:
+        raise ValueError(f"Unsupported signal type: {signal_type}")
+
+    entry_index = find_step8_entry_index(
         entry_frame,
         since_ts,
+        smi_threshold=smi_threshold,
+        rsi_threshold=rsi_threshold,
+        direction=direction,
         max_gap=3,
-        side=side,
     )
     if entry_index is None:
         entry_index = len(entry_frame) - 1
