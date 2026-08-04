@@ -83,6 +83,7 @@ from indicators import (
     check_macd_line_long, check_macd_line_short, check_macd_red, check_macd_green,
     calc_donchian_trend_pine, _calc_donchian_ribbon_result, check_donchian_trend_ribbon,
     check_ema50_below, check_ema50_above,
+    check_ema50_closed_below_since, check_ema50_closed_above_since,
     calc_smi, check_smi_oversold, check_smi_overbought, check_ema50_above_since_overbought,
     calc_rsi_tv, calc_stoch_tv,
     check_rsi_touched_oversold, check_rsi_overbought_short,
@@ -874,7 +875,13 @@ def step5(c):
     return True, "passed"
 
 def step6(c):
-    if not check_ema50_below(c["df_base"]):
+    """
+    LONG — الشرط 6:
+    1) منذ تشبع الفريم الرئيس: أي شمعة أقفلت تحت EMA50 (حتى بفارق بسيط)
+    2) فريم التأكيد: RSI لم يلمس 30 في آخر 30 شمعة
+    """
+    since_ts = get_step1_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "buy")
+    if not check_ema50_closed_below_since(c["df_base"], since_ts):
         return False, "ema50"
     if not check_confirm_rsi_not_oversold(c["df_confirm"], lookback=30, threshold=30):
         return False, "rsi_confirm_recent"
@@ -953,7 +960,13 @@ def short_step5(c):
     return True, "passed"
 
 def short_step6(c):
-    if not check_ema50_above(c["df_base"]):
+    """
+    SHORT — الشرط 6:
+    1) منذ تشبع الفريم الرئيس: أي شمعة أقفلت فوق EMA50 (حتى بفارق بسيط)
+    2) فريم التأكيد: RSI لم يلمس 70 في آخر 30 شمعة
+    """
+    since_ts = get_step1_ready_since(c["sym"], c["base_frame"], c["confirm_frame"], c["triple_frame"], "sell")
+    if not check_ema50_closed_above_since(c["df_base"], since_ts):
         return False, "ema50_above"
     if not check_confirm_rsi_not_overbought(c["df_confirm"], lookback=30, threshold=70):
         return False, "rsi_confirm_recent_over"
