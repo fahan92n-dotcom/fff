@@ -322,12 +322,43 @@ def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
 # ------------------------------------------
 
 def check_ema50_below(df):
+    """آخر شمعة تقفل تحت EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
     ema = df["close"].ewm(span=50, adjust=False).mean()
     return bool(df["close"].iloc[-1] < ema.iloc[-1])
 
 def check_ema50_above(df):
+    """آخر شمعة تقفل فوق EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
     ema = df["close"].ewm(span=50, adjust=False).mean()
     return bool(df["close"].iloc[-1] > ema.iloc[-1])
+
+
+def check_ema50_closed_below_since(df, since_ts):
+    """
+    شراء: هل أقفلت أي شمعة تحت EMA50 منذ since_ts (تشبع الفريم الرئيس)؟
+    يُحسب EMA على السلسلة كاملة ثم تُفحص نافذة ما بعد التشبع.
+    الإغلاق تحت الخط يكفي حتى لو بفارق بسيط (close < ema).
+    """
+    if df.empty or since_ts is None or len(df) < 50:
+        return False
+    mask = df["ts"] >= since_ts
+    if not mask.any():
+        return False
+    ema = df["close"].ewm(span=50, adjust=False).mean()
+    return bool((df.loc[mask, "close"] < ema.loc[mask]).any())
+
+
+def check_ema50_closed_above_since(df, since_ts):
+    """
+    بيع: هل أقفلت أي شمعة فوق EMA50 منذ since_ts (تشبع الفريم الرئيس)؟
+    يُحسب EMA على السلسلة كاملة ثم تُفحص نافذة ما بعد التشبع.
+    """
+    if df.empty or since_ts is None or len(df) < 50:
+        return False
+    mask = df["ts"] >= since_ts
+    if not mask.any():
+        return False
+    ema = df["close"].ewm(span=50, adjust=False).mean()
+    return bool((df.loc[mask, "close"] > ema.loc[mask]).any())
 
 # ------------------------------------------
 # SMI
