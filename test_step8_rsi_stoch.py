@@ -1,8 +1,9 @@
 """
 Step 8:
 1) إغلاق تشبع SMI
-2) لمس RSI على شمعة مغلقة (35 تشبع بيعي / 65 تشبع شرائي) بدون متوسط
-3) الإشارة عند تقاطع Stochastic — أي وقت بعد اللمس (بلا قيد 3 شموع)
+2) لمس RSI على شمعة مغلقة (35 / 65)
+3) تقاطع RSI مع متوسطه
+4) بعده خلال 3 شموع: Stoch فوق 20 / تحت 80
 """
 import unittest
 from unittest.mock import patch
@@ -26,90 +27,126 @@ def _base_df(n=220):
     })
 
 
-class TestRsiTouchThenStochCross(unittest.TestCase):
-    def test_signal_candle_is_stoch_cross_after_rsi_touch(self):
+def _series_with_fixed_ma(values, ma_values):
+    s = pd.Series(values, dtype=float)
+
+    class _Roll:
+        def mean(self, *_a, **_k):
+            return pd.Series(ma_values, dtype=float)
+
+    s.rolling = lambda *_a, **_k: _Roll()
+    return s
+
+
+class TestRsiCrossThenStochWithin3(unittest.TestCase):
+    def test_passes_when_stoch_above_20_within_3_after_rsi_cross(self):
         n = 220
         df = _base_df(n)
         since_ts = df["ts"].iloc[150]
-        rsi_i, cross_i = 170, 190  # فجوة كبيرة — مسموحة
+        touch_i, cross_i, stoch_i = 160, 180, 182  # gap=2 بعد التقاطع
 
-        rsi = pd.Series(np.full(n, 40.0))
-        rsi.iloc[rsi_i] = 34.0
+        rsi_vals = np.full(n, 40.0)
+        ma_vals = np.full(n, 45.0)
+        rsi_vals[touch_i] = 34.0
+        rsi_vals[cross_i - 1] = 44.0
+        rsi_vals[cross_i] = 46.0  # تقاطع فوق المتوسط 45
+        rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
+
         k = pd.Series(np.full(n, 10.0))
-        k.iloc[cross_i - 1] = 18.0
-        k.iloc[cross_i] = 25.0  # تقاطع فوق 20
+        k.iloc[stoch_i] = 25.0
         d = pd.Series(np.full(n, 50.0))
 
         with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
              patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
-            self.assertTrue(ind.check_rsi_stoch(df, since_ts))
+            self.assertTrue(ind.check_rsi_stoch(df, since_ts, max_gap=3))
             self.assertEqual(
-                ind.find_rsi_stoch_entry_index(df, since_ts, side="long"),
-                cross_i,
+                ind.find_rsi_stoch_entry_index(df, since_ts, max_gap=3, side="long"),
+                stoch_i,
             )
 
-    def test_fails_when_stoch_is_above_20_without_cross(self):
-        """مجرد البقاء فوق 20 لا يكفي — لازم تقاطع."""
+    def test_fails_when_stoch_above_20_after_more_than_3_candles(self):
         n = 220
         df = _base_df(n)
         since_ts = df["ts"].iloc[150]
-        rsi = pd.Series(np.full(n, 40.0))
-        rsi.iloc[170] = 34.0
-        k = pd.Series(np.full(n, 25.0))  # فوق 20 من البداية — بلا تقاطع
-        d = pd.Series(np.full(n, 50.0))
+        rsi_vals = np.full(n, 40.0)
+        ma_vals = np.full(n, 45.0)
+        rsi_vals[160] = 34.0
+        rsi_vals[179] = 44.0
+        rsi_vals[180] = 46.0
+        rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
 
-        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
-             patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
-            self.assertFalse(ind.check_rsi_stoch(df, since_ts))
-
-    def test_fails_when_stoch_cross_before_rsi_touch(self):
-        n = 220
-        df = _base_df(n)
-        since_ts = df["ts"].iloc[150]
-        rsi = pd.Series(np.full(n, 40.0))
-        rsi.iloc[190] = 34.0  # اللمس بعد التقاطع
         k = pd.Series(np.full(n, 10.0))
-        k.iloc[170] = 18.0
-        k.iloc[171] = 25.0
+        k.iloc[185] = 25.0  # gap=5 من تقاطع 180
         d = pd.Series(np.full(n, 50.0))
 
         with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
              patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
-            self.assertFalse(ind.check_rsi_stoch(df, since_ts))
+            # تأكد أن التقاطع عند 180
+            self.assertEqual(
+                ind.find_rsi_ma_cross_index(df, since_ts, side="long", at_or_after=160),
+                180,
+            )
+            self.assertFalse(ind.check_rsi_stoch(df, since_ts, max_gap=3))
 
-    def test_short_signal_on_stoch_cross_below_80_after_rsi_65(self):
+    def test_fails_when_stoch_only_before_rsi_cross(self):
         n = 220
         df = _base_df(n)
         since_ts = df["ts"].iloc[150]
-        rsi = pd.Series(np.full(n, 50.0))
-        rsi.iloc[170] = 66.0
+        rsi_vals = np.full(n, 40.0)
+        ma_vals = np.full(n, 45.0)
+        rsi_vals[160] = 34.0
+        rsi_vals[179] = 44.0
+        rsi_vals[180] = 46.0
+        rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
+
+        k = pd.Series(np.full(n, 10.0))
+        k.iloc[175] = 25.0  # قبل التقاطع فقط
+        d = pd.Series(np.full(n, 50.0))
+
+        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
+             patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
+            self.assertFalse(ind.check_rsi_stoch(df, since_ts, max_gap=3))
+
+    def test_short_stoch_below_80_within_3_after_rsi_cross_down(self):
+        n = 220
+        df = _base_df(n)
+        since_ts = df["ts"].iloc[150]
+        rsi_vals = np.full(n, 60.0)
+        ma_vals = np.full(n, 55.0)
+        rsi_vals[160] = 66.0
+        rsi_vals[179] = 56.0
+        rsi_vals[180] = 54.0  # تقاطع لتحت المتوسط
+        rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
+
         k = pd.Series(np.full(n, 90.0))
-        k.iloc[185] = 82.0
-        k.iloc[186] = 75.0
+        k.iloc[182] = 70.0
         d = pd.Series(np.full(n, 50.0))
 
         with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
              patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
-            self.assertTrue(ind.check_rsi_stoch_short(df, since_ts))
+            self.assertTrue(ind.check_rsi_stoch_short(df, since_ts, max_gap=3))
             self.assertEqual(
-                ind.find_rsi_stoch_entry_index(df, since_ts, side="short"),
-                186,
+                ind.find_rsi_stoch_entry_index(df, since_ts, max_gap=3, side="short"),
+                182,
             )
 
 
-class TestStep8SmiThenRsiThenStoch(unittest.TestCase):
-    def test_fails_when_events_before_smi_close(self):
+class TestStep8FullOrder(unittest.TestCase):
+    def test_requires_smi_before_rsi_path(self):
         n = 220
         df = _base_df(n)
         since_ts = df["ts"].iloc[150]
-        rsi = pd.Series(np.full(n, 40.0))
-        rsi.iloc[170] = 30.0
+        rsi_vals = np.full(n, 40.0)
+        ma_vals = np.full(n, 45.0)
+        rsi_vals[170] = 30.0
+        rsi_vals[171] = 44.0
+        rsi_vals[172] = 46.0
+        rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
         k = pd.Series(np.full(n, 10.0))
-        k.iloc[171] = 18.0
-        k.iloc[172] = 25.0
+        k.iloc[173] = 25.0
         d = pd.Series(np.full(n, 50.0))
         smi = pd.Series(np.full(n, -10.0))
-        smi.iloc[190] = -45.0
+        smi.iloc[190] = -45.0  # SMI بعد الأحداث — يفشل
 
         with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
              patch.object(ind, "calc_stoch_tv", return_value=(k, d)), \
@@ -121,34 +158,8 @@ class TestStep8SmiThenRsiThenStoch(unittest.TestCase):
                     smi_threshold=-40,
                     rsi_threshold=35,
                     direction="long",
+                    max_gap=3,
                 )
-            )
-
-    def test_passes_smi_then_rsi_touch_then_late_stoch_cross(self):
-        n = 220
-        df = _base_df(n)
-        since_ts = df["ts"].iloc[150]
-        smi = pd.Series(np.full(n, -10.0))
-        smi.iloc[160] = -45.0
-        rsi = pd.Series(np.full(n, 40.0))
-        rsi.iloc[165] = 35.0
-        k = pd.Series(np.full(n, 10.0))
-        k.iloc[200] = 19.0
-        k.iloc[201] = 22.0  # تقاطع متأخر بعد اللمس — مسموح
-        d = pd.Series(np.full(n, 50.0))
-
-        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
-             patch.object(ind, "calc_stoch_tv", return_value=(k, d)), \
-             patch.object(ind, "calc_smi", return_value=(smi, smi, smi)):
-            self.assertEqual(
-                ind.find_step8_entry_index(
-                    df,
-                    since_ts,
-                    smi_threshold=-40,
-                    rsi_threshold=35,
-                    direction="long",
-                ),
-                201,
             )
 
 

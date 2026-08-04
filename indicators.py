@@ -544,20 +544,18 @@ def find_rsi_touch_index(df, since_ts, threshold=35, direction="long"):
     return None
 
 
-def find_stoch_cross_index(df, since_ts, side="long", stoch_level=None, at_or_after=None):
+def find_rsi_ma_cross_index(df, since_ts, side="long", at_or_after=None):
     """
-    أول تقاطع Stochastic %K بعد since_ts.
-    LONG: يطلع فوق stoch_level (20) | SHORT: ينزل تحت stoch_level (80)
-    إذا أُعطي at_or_after يُشترط أن يكون التقاطع على تلك الشمعة أو بعدها.
+    أول تقاطع RSI مع متوسطه SMA(14) بعد since_ts.
+    LONG: تقاطع لفوق المتوسط | SHORT: تقاطع لتحت المتوسط
     """
-    if df.empty or since_ts is None or len(df) < WARMUP_STOCH:
+    if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return None
     if side not in ("long", "short"):
         raise ValueError(f"Unsupported side: {side}")
-    if stoch_level is None:
-        stoch_level = 20 if side == "long" else 80
 
-    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+    rsi = calc_rsi_tv(df["close"], period=14)
+    rsi_ma = rsi.rolling(14).mean()
     start_positions = list(df.index[df["ts"] >= since_ts])
     if not start_positions:
         return None
@@ -567,11 +565,46 @@ def find_stoch_cross_index(df, since_ts, side="long", stoch_level=None, at_or_af
 
     for i in range(start_pos, len(df)):
         try:
-            prev_k = float(k.iloc[i - 1])
-            curr_k = float(k.iloc[i])
-            if side == "long" and prev_k <= stoch_level < curr_k:
+            prev_rsi = float(rsi.iloc[i - 1])
+            prev_ma = float(rsi_ma.iloc[i - 1])
+            curr_rsi = float(rsi.iloc[i])
+            curr_ma = float(rsi_ma.iloc[i])
+            if side == "long" and prev_rsi < prev_ma and curr_rsi >= curr_ma:
                 return i
-            if side == "short" and prev_k >= stoch_level > curr_k:
+            if side == "short" and prev_rsi > prev_ma and curr_rsi <= curr_ma:
+                return i
+        except (ValueError, IndexError, TypeError):
+            continue
+    return None
+
+
+def find_stoch_level_after_index(
+    df,
+    cross_index,
+    side="long",
+    stoch_level=None,
+    max_gap=3,
+):
+    """
+    بعد تقاطع RSI: أول شمعة يكون فيها Stochastic بالاتجاه خلال max_gap شموع.
+    LONG: %K > stoch_level (20) | SHORT: %K < stoch_level (80)
+    """
+    if df.empty or cross_index is None or len(df) < WARMUP_STOCH:
+        return None
+    if side not in ("long", "short"):
+        raise ValueError(f"Unsupported side: {side}")
+    if stoch_level is None:
+        stoch_level = 20 if side == "long" else 80
+
+    k, _ = calc_stoch_tv(df["close"], df["high"], df["low"])
+    start = int(cross_index)
+    end = min(len(df) - 1, start + int(max_gap))
+    for i in range(start, end + 1):
+        try:
+            value = float(k.iloc[i])
+            if side == "long" and value > stoch_level:
+                return i
+            if side == "short" and value < stoch_level:
                 return i
         except (ValueError, IndexError, TypeError):
             continue
@@ -581,18 +614,19 @@ def find_stoch_cross_index(df, since_ts, side="long", stoch_level=None, at_or_af
 def find_rsi_stoch_entry_index(
     df,
     since_ts,
-    max_gap=None,
+    max_gap=3,
     side="long",
     rsi_threshold=None,
     stoch_level=None,
 ):
     """
     بعد تشبع SMI:
-    1) لمس RSI للمستوى على شمعة مغلقة (تشبع بيعي 35 / شرائي 65) — بدون متوسط
-    2) الإشارة = شمعة تقاطع Stochastic %K (فوق 20 / تحت 80)
-       أي وقت بعد اللمس — بلا قيد فجوة شموع
+    1) لمس RSI للمستوى على شمعة مغلقة (35 تشبع بيعي / 65 تشبع شرائي)
+    2) تقاطع RSI مع متوسطه
+    3) بعده خلال max_gap شموع: Stochastic فوق 20 (شراء) / تحت 80 (بيع)
+
+    شمعة الإشارة = شمعة تحقق شرط الستوكاستك.
     """
-    del max_gap  # لم يعد شرطًا؛ الإبقاء على المعامل للتوافق مع الاستدعاءات القديمة
     if df.empty or since_ts is None or len(df) < WARMUP_RSI:
         return None
     if side not in ("long", "short"):
@@ -602,6 +636,8 @@ def find_rsi_stoch_entry_index(
         rsi_threshold = 35 if side == "long" else 65
     if stoch_level is None:
         stoch_level = 20 if side == "long" else 80
+    if max_gap is None:
+        max_gap = 3
 
     direction = "long" if side == "long" else "short"
     rsi_touch = find_rsi_touch_index(
@@ -613,12 +649,21 @@ def find_rsi_stoch_entry_index(
     if rsi_touch is None:
         return None
 
-    return find_stoch_cross_index(
+    rsi_cross = find_rsi_ma_cross_index(
         df,
         since_ts,
         side=side,
-        stoch_level=stoch_level,
         at_or_after=rsi_touch,
+    )
+    if rsi_cross is None:
+        return None
+
+    return find_stoch_level_after_index(
+        df,
+        rsi_cross,
+        side=side,
+        stoch_level=stoch_level,
+        max_gap=max_gap,
     )
 
 
@@ -629,14 +674,15 @@ def find_step8_entry_index(
     smi_threshold,
     rsi_threshold,
     direction="long",
-    max_gap=None,
+    max_gap=3,
     stoch_level=None,
 ):
     """
     ترتيب Step 8 على فريم الثلث (شموع مغلقة):
     1) إغلاق كامل لتشبع SMI أولًا
-    2) لمس RSI (35 تشبع بيعي / 65 تشبع شرائي) بدون تقاطع المتوسط
-    3) الإشارة عند تقاطع Stochastic — أي وقت بعد اللمس
+    2) لمس RSI (35 تشبع بيعي / 65 تشبع شرائي)
+    3) تقاطع RSI مع متوسطه
+    4) خلال 3 شموع بعده: Stoch فوق 20 / تحت 80
     """
     smi_index = find_smi_touch_index(
         df,
@@ -654,16 +700,16 @@ def find_step8_entry_index(
     return find_rsi_stoch_entry_index(
         df,
         after_smi_ts,
-        max_gap=max_gap,
+        max_gap=max_gap if max_gap is not None else 3,
         side=side,
         rsi_threshold=rsi_threshold,
         stoch_level=stoch_level,
     )
 
 
-def check_rsi_stoch(df, since_ts, max_gap=None):
+def check_rsi_stoch(df, since_ts, max_gap=3):
     """
-    LONG: لمس RSI≤35 على إغلاق، ثم إشارة عند تقاطع Stoch فوق 20 (أي وقت بعد اللمس).
+    LONG: لمس RSI≤35، تقاطع فوق المتوسط، ثم Stoch>20 خلال max_gap شموع.
     """
     return find_rsi_stoch_entry_index(
         df,
@@ -675,9 +721,9 @@ def check_rsi_stoch(df, since_ts, max_gap=None):
     ) is not None
 
 
-def check_rsi_stoch_short(df, since_ts, max_gap=None):
+def check_rsi_stoch_short(df, since_ts, max_gap=3):
     """
-    SHORT: لمس RSI≥65 على إغلاق، ثم إشارة عند تقاطع Stoch تحت 80 (أي وقت بعد اللمس).
+    SHORT: لمس RSI≥65، تقاطع تحت المتوسط، ثم Stoch<80 خلال max_gap شموع.
     """
     return find_rsi_stoch_entry_index(
         df,

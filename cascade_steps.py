@@ -73,7 +73,7 @@ STEP_LABELS = {
     "macd_confirm": "⑤ MACD Confirm أخضر",
     "ema50": "⑥ السعر تحت EMA50",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
-    "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع Stoch>20",
+    "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع RSI → Stoch>20 خلال 3",
 }
 SHORT_STEP_NAMES = [
     "smi_overbought",
@@ -93,7 +93,7 @@ SHORT_STEP_LABELS = {
     "macd_confirm_red": "⑤ MACD Confirm أحمر",
     "ema50_above": "⑥ السعر فوق EMA50",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
-    "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع Stoch<80",
+    "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI → Stoch<80 خلال 3",
 }
 
 StepResult = tuple[bool, str]
@@ -321,8 +321,9 @@ def _step8(candidate, rules):
     """
     Step 8 على شموع مغلقة:
     1) إغلاق كامل لتشبع SMI
-    2) لمس RSI على إغلاق (35 تشبع بيعي / 65 تشبع شرائي) — بدون متوسط
-    3) الإشارة عند تقاطع Stochastic — أي وقت بعد لمس RSI
+    2) لمس RSI (35 تشبع بيعي / 65 تشبع شرائي)
+    3) تقاطع RSI مع متوسطه
+    4) خلال 3 شموع بعده: Stoch فوق 20 / تحت 80
     """
     since_ts = _ready_since(candidate, rules)
     frame = candidate["df_triple"]
@@ -343,7 +344,7 @@ def _step8(candidate, rules):
         direction=rules.touch_direction,
     ):
         return False, rules.rsi_touch_reason
-    if not rules.final_check(frame, after_smi_ts):
+    if not rules.final_check(frame, after_smi_ts, max_gap=3):
         return False, rules.final_reason
     return True, "passed"
 
