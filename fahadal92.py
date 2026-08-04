@@ -223,6 +223,18 @@ def _set_ready_since(store, lock, key, ready_ts=None):
             store[key] = ts
     return ts
 
+def get_ready_since(symbol, base_frame, confirm_frame, triple_frame, signal_type="buy"):
+    """وقت جاهزية الخطوة 7 (يُستخدم كنافذة مرجعية عند الحاجة)."""
+    key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
+    with step7_ready_since_lock:
+        return step7_ready_since.get(key)
+
+def get_step1_ready_since(symbol, base_frame, confirm_frame, triple_frame, signal_type="buy"):
+    """وقت نجاح الخطوة 1 — مطلوب في step8 لفحص SMI/RSI/Stoch منذ التشبع."""
+    key = (symbol, base_frame, confirm_frame, triple_frame, signal_type)
+    with step1_ready_since_lock:
+        return step1_ready_since.get(key)
+
 def _get_stage_maps(signal_type):
     if signal_type == "buy":
         return last_complete_survivors, last_complete_lock
