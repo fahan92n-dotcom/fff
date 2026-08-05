@@ -10,6 +10,8 @@ from typing import Callable
 from binance_data import get_cached
 from indicators import (
     WARMUP_MACD,
+    WARMUP_SMI,
+    calc_smi,
     check_confirm_rsi_not_overbought,
     check_confirm_rsi_not_oversold,
     check_donchian_trend_ribbon,
@@ -182,8 +184,23 @@ SHORT_RULES = SideRules(
 )
 
 
+def _higher_tf_is_saturated(smi_value, signal_type):
+    if signal_type == "buy":
+        return smi_value <= -40
+    if signal_type == "sell":
+        return smi_value >= 40
+    raise ValueError(f"Unsupported signal type: {signal_type}")
+
+
 def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
-    """Check saturation on the candidate's immediate next timeframe only."""
+    """
+    نلغي الفريم الأصغر (شراء وبيع) إذا كان الفريم الأكبر التالي:
+    1) متشبع الآن، أو
+    2) ما زلنا ضمن أول أو ثاني شمعة مغلقة بعد انتهاء التشبع.
+
+    مثال: تشبع 30m انتهى → أثناء إغلاق الشمعة 1 و 2 بعده → تشبع 27m يُرفض.
+    من الشمعة الثالثة بدون تشبع على الأكبر، الأصغر يُسمح له.
+    """
     higher_tf = NEXT_TF.get(candidate["base_frame"])
     if higher_tf is None:
         return False
@@ -199,13 +216,30 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
         native_api,
         higher_tf,
     )
-    if higher_frame.empty:
+    if higher_frame.empty or len(higher_frame) < WARMUP_SMI:
         return False
-    if signal_type == "buy":
-        return check_smi_oversold(higher_frame)
-    if signal_type == "sell":
-        return check_smi_overbought(higher_frame, threshold=40)
-    raise ValueError(f"Unsupported signal type: {signal_type}")
+
+    smi, _, _ = calc_smi(
+        higher_frame["high"],
+        higher_frame["low"],
+        higher_frame["close"],
+    )
+    saturated = [
+        _higher_tf_is_saturated(float(value), signal_type) for value in smi
+    ]
+    if saturated[-1]:
+        return True
+
+    # ابحث آخر شمعة متشبعة؛ إن كنا على أول أو ثاني شمعة بعدها → إلغاء الأصغر
+    last_sat_offset = None
+    for offset in range(len(saturated) - 1, -1, -1):
+        if saturated[offset]:
+            last_sat_offset = offset
+            break
+    if last_sat_offset is None:
+        return False
+    candles_after_exit = (len(saturated) - 1) - last_sat_offset
+    return 1 <= candles_after_exit <= 2
 
 
 def _ready_since(candidate, rules):
