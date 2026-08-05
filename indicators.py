@@ -310,33 +310,42 @@ def check_ema50_above(df):
     return bool(df["close"].iloc[-1] > ema.iloc[-1])
 
 
-def check_ema50_closed_below_since(df, since_ts):
+def check_ema50_closed_below_since(df, since_ts, smi_threshold=-40):
     """
-    شراء: هل أقفلت أي شمعة تحت EMA50 منذ since_ts (تشبع الفريم الرئيس)؟
-    يُحسب EMA على السلسلة كاملة ثم تُفحص نافذة ما بعد التشبع.
-    الإغلاق تحت الخط يكفي حتى لو بفارق بسيط (close < ema).
+    شراء: هل أقفلت أي شمعة تحت EMA50 أثناء تشبع SMI منذ since_ts؟
+    يُحسب EMA/SMI على السلسلة كاملة، ويُقبل فقط إغلاق على شمعة متشبعة.
+    اللمس بالفتيل لا يكفي — الإغلاق (close) فقط.
     """
-    if df.empty or since_ts is None or len(df) < 50:
+    if df.empty or since_ts is None or len(df) < max(50, WARMUP_SMI):
         return False
-    mask = df["ts"] >= since_ts
-    if not mask.any():
-        return False
-    ema = df["close"].ewm(span=50, adjust=False).mean()
-    return bool((df.loc[mask, "close"] < ema.loc[mask]).any())
-
-
-def check_ema50_closed_above_since(df, since_ts):
-    """
-    بيع: هل أقفلت أي شمعة فوق EMA50 منذ since_ts (تشبع الفريم الرئيس)؟
-    يُحسب EMA على السلسلة كاملة ثم تُفحص نافذة ما بعد التشبع.
-    """
-    if df.empty or since_ts is None or len(df) < 50:
-        return False
-    mask = df["ts"] >= since_ts
-    if not mask.any():
+    time_mask = df["ts"] >= since_ts
+    if not time_mask.any():
         return False
     ema = df["close"].ewm(span=50, adjust=False).mean()
-    return bool((df.loc[mask, "close"] > ema.loc[mask]).any())
+    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
+    sat_mask = time_mask & (smi <= smi_threshold)
+    if not sat_mask.any():
+        return False
+    return bool((df.loc[sat_mask, "close"] < ema.loc[sat_mask]).any())
+
+
+def check_ema50_closed_above_since(df, since_ts, smi_threshold=40):
+    """
+    بيع: هل أقفلت أي شمعة فوق EMA50 أثناء تشبع SMI منذ since_ts؟
+    يُحسب EMA/SMI على السلسلة كاملة، ويُقبل فقط إغلاق على شمعة متشبعة.
+    اللمس بالفتيل لا يكفي — الإغلاق (close) فقط.
+    """
+    if df.empty or since_ts is None or len(df) < max(50, WARMUP_SMI):
+        return False
+    time_mask = df["ts"] >= since_ts
+    if not time_mask.any():
+        return False
+    ema = df["close"].ewm(span=50, adjust=False).mean()
+    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
+    sat_mask = time_mask & (smi >= smi_threshold)
+    if not sat_mask.any():
+        return False
+    return bool((df.loc[sat_mask, "close"] > ema.loc[sat_mask]).any())
 
 # ------------------------------------------
 # SMI

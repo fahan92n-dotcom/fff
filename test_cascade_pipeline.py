@@ -163,6 +163,10 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
                 side_effect=refresh_stage,
             ), patch.object(
                 pipeline,
+                "_filter_base_saturation",
+                side_effect=lambda _side, candidates: candidates,
+            ), patch.object(
+                pipeline,
                 "_filter_higher_saturation",
                 side_effect=lambda _side, _stage, candidates, _resample: candidates,
             ), patch.object(

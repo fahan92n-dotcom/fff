@@ -1,8 +1,8 @@
 """
-اختبارات EMA50 للخطوة 6: أي إغلاق تحت/فوق الخط منذ تشبع الرئيسي.
+اختبارات EMA50 للخطوة 6: إغلاق تحت/فوق الخط أثناء تشبع SMI فقط.
 """
 import unittest
-from datetime import datetime, timezone
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -24,52 +24,125 @@ def _make_df(closes, start="2024-01-01", freq="60min"):
     })
 
 
+def _fake_smi(values):
+    series = pd.Series(values, dtype=float)
+
+    def _calc(high, low, close, **_kwargs):
+        aligned = series.reindex(close.index).fillna(0.0)
+        return aligned, aligned, aligned
+
+    return _calc
+
+
 class TestEma50ClosedBelowSince(unittest.TestCase):
-    def test_true_when_earlier_candle_closed_below_even_if_last_is_above(self):
-        # سلسلة طويلة لـ EMA50، ثم هبوط تحت المتوسط ثم صعود فوقه في الآخر
-        closes = [100.0] * 60 + [90.0, 90.0, 90.0] + [110.0, 110.0]
+    def test_true_when_earlier_saturated_candle_closed_below(self):
+        closes = [100.0] * 100 + [90.0, 90.0, 90.0] + [110.0, 110.0]
         df = _make_df(closes)
-        since_ts = df["ts"].iloc[60]  # من بداية الهبوط
-        # آخر إغلاق فوق EMA غالبًا، لكن الشموع عند 90 تحت المتوسط
-        self.assertTrue(ind.check_ema50_closed_below_since(df, since_ts))
-        # النسخة القديمة (آخر شمعة فقط) قد تفشل
-        self.assertFalse(ind.check_ema50_below(df))
+        since_ts = df["ts"].iloc[100]
+        smi_vals = [0.0] * 100 + [-50.0, -50.0, -50.0] + [0.0, 0.0]
+        with patch.object(ind, "calc_smi", side_effect=_fake_smi(smi_vals)):
+            self.assertTrue(ind.check_ema50_closed_below_since(df, since_ts))
+            self.assertFalse(ind.check_ema50_below(df))
+
+    def test_false_when_close_below_but_not_during_saturation(self):
+        closes = [100.0] * 100 + [90.0, 90.0, 90.0] + [110.0, 110.0]
+        df = _make_df(closes)
+        since_ts = df["ts"].iloc[100]
+        # هبوط تحت EMA لكن بدون تشبع SMI
+        smi_vals = [0.0] * len(df)
+        with patch.object(ind, "calc_smi", side_effect=_fake_smi(smi_vals)):
+            self.assertFalse(ind.check_ema50_closed_below_since(df, since_ts))
 
     def test_false_when_no_close_below_since(self):
-        # صعود حاد بعد since يضمن الإغلاق فوق EMA طوال النافذة
-        closes = [50.0] * 55 + list(np.linspace(200, 250, 25))
+        closes = [50.0] * 100 + list(np.linspace(200, 250, 25))
         df = _make_df(closes)
-        since_ts = df["ts"].iloc[55]
-        ema = df["close"].ewm(span=50, adjust=False).mean()
-        mask = df["ts"] >= since_ts
-        self.assertFalse((df.loc[mask, "close"] < ema.loc[mask]).any())
-        self.assertFalse(ind.check_ema50_closed_below_since(df, since_ts))
+        since_ts = df["ts"].iloc[100]
+        smi_vals = [-50.0] * len(df)
+        with patch.object(ind, "calc_smi", side_effect=_fake_smi(smi_vals)):
+            self.assertFalse(ind.check_ema50_closed_below_since(df, since_ts))
 
     def test_false_without_since_ts(self):
-        df = _make_df([100.0] * 60)
+        df = _make_df([100.0] * 120)
         self.assertFalse(ind.check_ema50_closed_below_since(df, None))
 
-    def test_wall_clock_after_last_candle_open_creates_empty_window(self):
-        """
-        يخزّن الخلل السابق: since_ts = الآن بعد قفل الشمعة يستبعد كل الشموع
-        لأن ts = وقت فتح الشمعة < الآن.
-        """
-        closes = [100.0] * 60 + [80.0, 80.0]
-        df = _make_df(closes, freq="9min")
-        last_open = df["ts"].iloc[-1]
-        wall_clock = last_open.to_pydatetime() + pd.Timedelta(minutes=9, seconds=1)
-        self.assertFalse(ind.check_ema50_closed_below_since(df, wall_clock))
-        # بنفس البيانات، since من فتح شمعة التشبع يمر
-        self.assertTrue(ind.check_ema50_closed_below_since(df, last_open))
+    def test_wick_above_ema_does_not_count_for_short(self):
+        """فتيل فوق EMA50 بدون إغلاق فوقه لا يمرر شرط البيع."""
+        closes = [100.0] * 100 + [99.0, 99.0]
+        df = _make_df(closes)
+        df.loc[df.index[-1], "high"] = 200.0  # فتيل طويل فوق EMA
+        since_ts = df["ts"].iloc[100]
+        smi_vals = [0.0] * 100 + [50.0, 50.0]
+        with patch.object(ind, "calc_smi", side_effect=_fake_smi(smi_vals)):
+            self.assertFalse(ind.check_ema50_closed_above_since(df, since_ts))
 
 
 class TestEma50ClosedAboveSince(unittest.TestCase):
-    def test_true_when_earlier_candle_closed_above_even_if_last_is_below(self):
-        closes = [100.0] * 60 + [120.0, 120.0, 120.0] + [80.0, 80.0]
+    def test_true_when_earlier_saturated_candle_closed_above(self):
+        closes = [100.0] * 100 + [120.0, 120.0, 120.0] + [80.0, 80.0]
         df = _make_df(closes)
-        since_ts = df["ts"].iloc[60]
-        self.assertTrue(ind.check_ema50_closed_above_since(df, since_ts))
-        self.assertFalse(ind.check_ema50_above(df))
+        since_ts = df["ts"].iloc[100]
+        smi_vals = [0.0] * 100 + [50.0, 50.0, 50.0] + [0.0, 0.0]
+        with patch.object(ind, "calc_smi", side_effect=_fake_smi(smi_vals)):
+            self.assertTrue(ind.check_ema50_closed_above_since(df, since_ts))
+            self.assertFalse(ind.check_ema50_above(df))
+
+    def test_false_when_close_above_after_saturation_ended(self):
+        closes = [100.0] * 100 + [90.0, 90.0] + [120.0, 120.0]
+        df = _make_df(closes)
+        since_ts = df["ts"].iloc[100]
+        # التشبع على الشموع تحت EMA فقط؛ الإغلاق فوق EMA بعد انتهاء التشبع
+        smi_vals = [0.0] * 100 + [50.0, 50.0] + [0.0, 0.0]
+        with patch.object(ind, "calc_smi", side_effect=_fake_smi(smi_vals)):
+            self.assertFalse(ind.check_ema50_closed_above_since(df, since_ts))
+
+
+class TestAbandonWhenBaseSaturationEnds(unittest.TestCase):
+    def test_waiting_stage6_abandoned_when_smi_leaves_overbought(self):
+        import cascade_pipeline as pipeline
+        import state_manager as state
+
+        candidate = {
+            "sym": "ADAUSDT",
+            "base_api": "1m",
+            "triple_api": "1m",
+            "base_frame": 9,
+            "confirm_frame": 27,
+            "triple_frame": 3,
+            "df_base": _make_df([100.0] * 120),
+            "df_confirm": _make_df([100.0] * 120),
+            "df_triple": _make_df([100.0] * 120),
+        }
+        with state.last_complete_short_lock:
+            state.last_complete_short_survivors.clear()
+            state.last_complete_short_survivors[6] = [candidate]
+        state.mark_stage_ready("sell", 1, [candidate])
+
+        # SMI الحالي خارج التشبع الشرائي
+        smi_vals = [10.0] * 120
+        with patch.object(
+            pipeline,
+            "_refresh_waiting_candidate",
+            return_value=candidate,
+        ), patch.object(
+            pipeline,
+            "calc_smi",
+            side_effect=_fake_smi(smi_vals),
+        ), patch.object(
+            pipeline,
+            "_has_higher_tf_saturation",
+            return_value=False,
+        ):
+            kept = pipeline._waiting_transition_candidates(
+                "sell",
+                6,
+                get_resampled=lambda *a, **k: candidate["df_base"],
+            )
+
+        self.assertEqual(kept, [])
+        self.assertEqual(state.get_stage_candidates("sell", 6), [])
+        self.assertIsNone(
+            state.get_step1_ready_since("ADAUSDT", 9, 27, 3, "sell")
+        )
 
 
 if __name__ == "__main__":
