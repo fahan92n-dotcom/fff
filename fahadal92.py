@@ -1,6 +1,7 @@
 """بوت مسح العملات من Binance مع تنبيهات Telegram - نسخة Cascade Pipeline مع استراتيجية مزدوجة (شراء/بيع)."""
 import logging
 from datetime import datetime, timezone, timedelta
+from html import escape as html_escape
 
 import pandas as pd
 
@@ -466,9 +467,9 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
             step_name = STEP_NAMES[step_num - 1] if signal_type == "buy" else SHORT_STEP_NAMES[step_num - 1]
             step_label = STEP_LABELS[step_name] if signal_type == "buy" else SHORT_STEP_LABELS[step_name]
 
-            stat = stats[step_num]
-            total_t = stat["total"]
-            total_p = stat["passed"]
+            stat = stats.get(step_num) or {}
+            total_t = int(stat.get("total", 0) or 0)
+            total_p = int(stat.get("passed", 0) or 0)
             fail_count = total_t - total_p
             pct = int(total_p / total_t * 100) if total_t else 0
             bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
@@ -478,7 +479,13 @@ def _cmd_cascade_diag(chat_id, signal_type="buy"):
         msg = "\n".join(lines)
 
     for i in range(0, len(msg), 4000):
-        send_telegram(msg[i:i + 4000], chat_id)
+        if not send_telegram(msg[i:i + 4000], chat_id):
+            log.error("cascade_diag send failed for signal_type=%s", signal_type)
+            send_telegram(
+                "❌ فشل إرسال تقرير Cascade (تحقق من تنسيق HTML في التسميات).",
+                chat_id,
+            )
+            return
 
 def _cmd_show_step_survivors(chat_id, step_num=6, signal_type="buy"):
     """عرض العملات الناجحة حتى خطوة معينة"""
@@ -616,8 +623,35 @@ def handle_check5(chat_id, symbol="BTCUSDT"):
         send_telegram(f"❌ خطأ: {exc}", chat_id)
 
 
+def _normalize_command_text(txt):
+    """Strip BotFather @bot_username suffix from the first command token."""
+    text = (txt or "").strip()
+    if not text:
+        return text
+    parts = text.split(maxsplit=1)
+    command = parts[0]
+    if "@" in command:
+        command = command.split("@", 1)[0]
+    if len(parts) == 1:
+        return command
+    return f"{command} {parts[1]}"
+
+
 def _dispatch_command(txt, chat_id):
     """معالج أوامر Telegram"""
+    txt = _normalize_command_text(txt)
+    try:
+        _dispatch_command_inner(txt, chat_id)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+        log.exception("command handler failed for %r", txt)
+        send_telegram(
+            f"❌ خطأ أثناء تنفيذ الأمر: <code>{html_escape(str(exc))}</code>",
+            chat_id,
+        )
+
+
+def _dispatch_command_inner(txt, chat_id):
+    """Route one normalized Telegram command."""
     # تقارير الإشارات
     if txt in ("1", "/today"):
         send_telegram(get_report("today"), chat_id)

@@ -11,6 +11,23 @@ import cascade_steps as strategy
 import fahadal92 as bot
 
 
+class TestStepLabelsHtmlSafe(unittest.TestCase):
+    def test_step_labels_do_not_embed_raw_less_than(self):
+        """Telegram parse_mode=HTML rejects plain '<' outside tags (e.g. Stoch<80)."""
+        for labels in (strategy.STEP_LABELS, strategy.SHORT_STEP_LABELS):
+            for name, label in labels.items():
+                self.assertNotIn(
+                    "<",
+                    label.replace("&lt;", ""),
+                    msg=f"{name} label embeds raw '<' which breaks Telegram HTML: {label!r}",
+                )
+
+    def test_sell_step8_label_escapes_less_than(self):
+        label = strategy.SHORT_STEP_LABELS["rsi_stoch_short"]
+        self.assertIn("Stoch&lt;80", label)
+        self.assertNotIn("Stoch<80", label)
+
+
 class TestStepOwnership(unittest.TestCase):
     def test_pipeline_and_compatibility_module_reexport_strategy_steps(self):
         self.assertIs(pipeline.step1, strategy.step1)
