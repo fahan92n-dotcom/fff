@@ -311,11 +311,37 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
 
         self.assertTrue(result)
 
-    def test_allows_smaller_tf_after_second_non_saturated_higher_candle(self):
-        """بعد شمعتين بدون تشبع على الأكبر، الأصغر يُسمح له."""
+    def test_skips_smaller_tf_on_second_closed_candle_after_higher_exit(self):
+        """ثاني شمعة بعد خروج الأكبر من التشبع ما زالت تلغي الأصغر."""
         candidate = self._make_candidate(base_frame=27)
         large_df = _make_ohlcv(n=200, smi_value=0.0)
         smi = pd.Series([0.0] * 197 + [-50.0, -10.0, -5.0])
+
+        def mock_get_cached(sym, api):
+            return large_df.copy()
+
+        def mock_get_resampled(raw, sym, api, tf):
+            return large_df.copy()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "buy",
+                    mock_get_resampled,
+                )
+
+        self.assertTrue(result)
+
+    def test_allows_smaller_tf_after_third_non_saturated_higher_candle(self):
+        """من ثالث شمعة بدون تشبع على الأكبر، الأصغر يُسمح له."""
+        candidate = self._make_candidate(base_frame=27)
+        large_df = _make_ohlcv(n=200, smi_value=0.0)
+        smi = pd.Series([0.0] * 196 + [-50.0, -10.0, -5.0, -2.0])
 
         def mock_get_cached(sym, api):
             return large_df.copy()

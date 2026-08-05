@@ -196,10 +196,10 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     """
     نلغي الفريم الأصغر (شراء وبيع) إذا كان الفريم الأكبر التالي:
     1) متشبع الآن، أو
-    2) أُغلقت أول شمعة بعد انتهاء التشبع
-       (الشمعة السابقة متشبعة والحالية خرجت من التشبع).
+    2) ما زلنا ضمن أول أو ثاني شمعة مغلقة بعد انتهاء التشبع.
 
-    مثال: تشبع 30m انتهى وأُغلقت أول شمعة بعده → تشبع 27m يُرفض.
+    مثال: تشبع 30m انتهى → أثناء إغلاق الشمعة 1 و 2 بعده → تشبع 27m يُرفض.
+    من الشمعة الثالثة بدون تشبع على الأكبر، الأصغر يُسمح له.
     """
     higher_tf = NEXT_TF.get(candidate["base_frame"])
     if higher_tf is None:
@@ -224,16 +224,22 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
         higher_frame["low"],
         higher_frame["close"],
     )
-    current_sat = _higher_tf_is_saturated(float(smi.iloc[-1]), signal_type)
-    if current_sat:
+    saturated = [
+        _higher_tf_is_saturated(float(value), signal_type) for value in smi
+    ]
+    if saturated[-1]:
         return True
 
-    # أول شمعة مغلقة بعد خروج الفريم الأكبر من التشبع → نلغي الأصغر
-    if len(smi) >= 2:
-        prev_sat = _higher_tf_is_saturated(float(smi.iloc[-2]), signal_type)
-        if prev_sat and not current_sat:
-            return True
-    return False
+    # ابحث آخر شمعة متشبعة؛ إن كنا على أول أو ثاني شمعة بعدها → إلغاء الأصغر
+    last_sat_offset = None
+    for offset in range(len(saturated) - 1, -1, -1):
+        if saturated[offset]:
+            last_sat_offset = offset
+            break
+    if last_sat_offset is None:
+        return False
+    candles_after_exit = (len(saturated) - 1) - last_sat_offset
+    return 1 <= candles_after_exit <= 2
 
 
 def _ready_since(candidate, rules):
