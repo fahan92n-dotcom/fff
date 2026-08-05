@@ -95,7 +95,8 @@ SHORT_STEP_LABELS = {
     "macd_confirm_red": "⑤ MACD Confirm أحمر",
     "ema50_above": "⑥ فوق EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
-    "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI → Stoch<80 خلال 3",
+    # Use &lt; (not raw <) — Telegram parse_mode=HTML rejects Stoch<80 as a bad tag.
+    "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI → Stoch&lt;80 خلال 3",
 }
 
 StepResult = tuple[bool, str]
