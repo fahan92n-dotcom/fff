@@ -62,8 +62,20 @@ class TestImmediateHigherFrame(unittest.TestCase):
             "base_frame": 60,
             "base_api": "60m",
         }
-        get_resampled = Mock(return_value=pd.DataFrame({"close": [1.0]}))
-        native = pd.DataFrame({"close": [1.0]})
+        n = 120
+        higher = pd.DataFrame(
+            {
+                "ts": pd.date_range("2024-01-01", periods=n, freq="90min", tz="UTC"),
+                "open": [1.0] * n,
+                "high": [1.1] * n,
+                "low": [0.9] * n,
+                "close": [1.0] * n,
+                "vol": [1.0] * n,
+            }
+        )
+        native = higher.copy()
+        get_resampled = Mock(return_value=higher)
+        smi = pd.Series([-50.0] * n)
 
         with patch.object(
             strategy,
@@ -71,8 +83,8 @@ class TestImmediateHigherFrame(unittest.TestCase):
             return_value=native,
         ) as get_cached, patch.object(
             strategy,
-            "check_smi_oversold",
-            return_value=True,
+            "calc_smi",
+            return_value=(smi, smi, smi),
         ):
             result = strategy._has_higher_tf_saturation(
                 candidate,

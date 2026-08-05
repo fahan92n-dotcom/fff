@@ -201,33 +201,38 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
         self.assertFalse(result)
 
     def test_returns_true_when_higher_tf_oversold(self):
-        """ترجع True عندما يكون فريم أعلى في تشبع بيعي (check_smi_oversold = True)."""
+        """ترجع True عندما يكون فريم أعلى في تشبع بيعي الآن."""
         candidate = self._make_candidate(base_frame=9)
-
-        # نصنع DataFrame كافي مع SMI في منطقة التشبع البيعي
         large_df = _make_ohlcv(n=500, smi_value=-50.0)
+        smi = pd.Series([-50.0] * len(large_df))
 
         def mock_get_cached(sym, api):
             return large_df.copy()
 
         def mock_get_resampled(raw, sym, api, tf):
-            # base=9 يفحص الفريم التالي 12 فقط.
             if tf == 12:
                 return large_df.copy()
             return pd.DataFrame()
 
         with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
-            # check_smi_oversold يحتاج SMI ≤ -40 — لضمان التحقق نُغلف الدالة
-            with patch.object(cascade_steps, "check_smi_oversold", return_value=True):
-                result = bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "buy",
+                    mock_get_resampled,
+                )
 
         self.assertTrue(result)
 
     def test_returns_true_when_higher_tf_overbought(self):
-        """ترجع True عندما يكون فريم أعلى في تشبع شرائي (check_smi_overbought = True) لإشارة بيع."""
+        """ترجع True عندما يكون فريم أعلى في تشبع شرائي الآن لإشارة بيع."""
         candidate = self._make_candidate(base_frame=60)
-
         large_df = _make_ohlcv(n=500, smi_value=50.0)
+        smi = pd.Series([50.0] * len(large_df))
 
         def mock_get_cached(sym, api):
             return large_df.copy()
@@ -238,10 +243,99 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
             return pd.DataFrame()
 
         with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
-            with patch.object(cascade_steps, "check_smi_overbought", return_value=True):
-                result = bot._has_higher_tf_saturation(candidate, "sell", mock_get_resampled)
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "sell",
+                    mock_get_resampled,
+                )
 
         self.assertTrue(result)
+
+    def test_skips_smaller_tf_on_first_closed_candle_after_higher_exit_buy(self):
+        """بعد خروج 30m من التشبع وإغلاق أول شمعة → نلغي تشبع 27m (شراء)."""
+        candidate = self._make_candidate(base_frame=27)
+        large_df = _make_ohlcv(n=200, smi_value=0.0)
+        # السابقة متشبعة، الحالية خرجت
+        smi = pd.Series([0.0] * 198 + [-50.0, -10.0])
+
+        def mock_get_cached(sym, api):
+            return large_df.copy()
+
+        def mock_get_resampled(raw, sym, api, tf):
+            self.assertEqual(tf, 30)
+            return large_df.copy()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "buy",
+                    mock_get_resampled,
+                )
+
+        self.assertTrue(result)
+
+    def test_skips_smaller_tf_on_first_closed_candle_after_higher_exit_sell(self):
+        """بعد خروج 30m من التشبع وإغلاق أول شمعة → نلغي تشبع 27m (بيع)."""
+        candidate = self._make_candidate(base_frame=27)
+        large_df = _make_ohlcv(n=200, smi_value=0.0)
+        smi = pd.Series([0.0] * 198 + [50.0, 10.0])
+
+        def mock_get_cached(sym, api):
+            return large_df.copy()
+
+        def mock_get_resampled(raw, sym, api, tf):
+            self.assertEqual(tf, 30)
+            return large_df.copy()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "sell",
+                    mock_get_resampled,
+                )
+
+        self.assertTrue(result)
+
+    def test_allows_smaller_tf_after_second_non_saturated_higher_candle(self):
+        """بعد شمعتين بدون تشبع على الأكبر، الأصغر يُسمح له."""
+        candidate = self._make_candidate(base_frame=27)
+        large_df = _make_ohlcv(n=200, smi_value=0.0)
+        smi = pd.Series([0.0] * 197 + [-50.0, -10.0, -5.0])
+
+        def mock_get_cached(sym, api):
+            return large_df.copy()
+
+        def mock_get_resampled(raw, sym, api, tf):
+            return large_df.copy()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "buy",
+                    mock_get_resampled,
+                )
+
+        self.assertFalse(result)
 
     def test_skips_frame_when_base_frame_equal(self):
         """لا يفحص فريمًا مساوياً لـ base_frame."""

@@ -10,6 +10,8 @@ from typing import Callable
 from binance_data import get_cached
 from indicators import (
     WARMUP_MACD,
+    WARMUP_SMI,
+    calc_smi,
     check_confirm_rsi_not_overbought,
     check_confirm_rsi_not_oversold,
     check_donchian_trend_ribbon,
@@ -182,8 +184,23 @@ SHORT_RULES = SideRules(
 )
 
 
+def _higher_tf_is_saturated(smi_value, signal_type):
+    if signal_type == "buy":
+        return smi_value <= -40
+    if signal_type == "sell":
+        return smi_value >= 40
+    raise ValueError(f"Unsupported signal type: {signal_type}")
+
+
 def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
-    """Check saturation on the candidate's immediate next timeframe only."""
+    """
+    نلغي الفريم الأصغر (شراء وبيع) إذا كان الفريم الأكبر التالي:
+    1) متشبع الآن، أو
+    2) أُغلقت أول شمعة بعد انتهاء التشبع
+       (الشمعة السابقة متشبعة والحالية خرجت من التشبع).
+
+    مثال: تشبع 30m انتهى وأُغلقت أول شمعة بعده → تشبع 27m يُرفض.
+    """
     higher_tf = NEXT_TF.get(candidate["base_frame"])
     if higher_tf is None:
         return False
@@ -199,13 +216,24 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
         native_api,
         higher_tf,
     )
-    if higher_frame.empty:
+    if higher_frame.empty or len(higher_frame) < WARMUP_SMI:
         return False
-    if signal_type == "buy":
-        return check_smi_oversold(higher_frame)
-    if signal_type == "sell":
-        return check_smi_overbought(higher_frame, threshold=40)
-    raise ValueError(f"Unsupported signal type: {signal_type}")
+
+    smi, _, _ = calc_smi(
+        higher_frame["high"],
+        higher_frame["low"],
+        higher_frame["close"],
+    )
+    current_sat = _higher_tf_is_saturated(float(smi.iloc[-1]), signal_type)
+    if current_sat:
+        return True
+
+    # أول شمعة مغلقة بعد خروج الفريم الأكبر من التشبع → نلغي الأصغر
+    if len(smi) >= 2:
+        prev_sat = _higher_tf_is_saturated(float(smi.iloc[-2]), signal_type)
+        if prev_sat and not current_sat:
+            return True
+    return False
 
 
 def _ready_since(candidate, rules):
