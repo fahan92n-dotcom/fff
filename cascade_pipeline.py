@@ -21,6 +21,7 @@ from binance_data import (
 )
 from indicators import (
     MIN_CANDLES,
+    WARMUP_SMI,
     _ribbon_cache,
     _ribbon_cache_lock,
     calc_smi,
@@ -485,6 +486,40 @@ def _refresh_stage(signal_type, stage_num, get_resampled):
     return refreshed
 
 
+def _base_smi_still_saturated(candidate, signal_type):
+    """True only while the main-TF SMI episode is still active."""
+    df_base = candidate.get("df_base")
+    if df_base is None or getattr(df_base, "empty", True):
+        return False
+    if len(df_base) < WARMUP_SMI:
+        return False
+    smi, _, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
+    current_smi = float(smi.iloc[-1])
+    if signal_type == "buy":
+        return current_smi <= -40
+    if signal_type == "sell":
+        return current_smi >= 40
+    raise ValueError(f"Unsupported signal type: {signal_type}")
+
+
+def _filter_base_saturation(signal_type, candidates):
+    """Drop waiters when main-TF SMI saturation ends — all stages, not only 5."""
+    filtered = []
+    for candidate in candidates:
+        if not _base_smi_still_saturated(candidate, signal_type):
+            abandon_waiting_candidate(signal_type, candidate)
+            log.info(
+                "⛔ %s %s/%s/%s: انتهى تشبع الفريم الرئيسي — أُلغي من الانتظار",
+                candidate.get("sym"),
+                candidate.get("base_frame"),
+                candidate.get("confirm_frame"),
+                candidate.get("triple_frame"),
+            )
+        else:
+            filtered.append(candidate)
+    return filtered
+
+
 def _filter_higher_saturation(
     signal_type,
     stage_num,
@@ -533,10 +568,11 @@ def _evaluate_transition(
 
 def _waiting_transition_candidates(signal_type, stage_num, get_resampled):
     refreshed = _refresh_stage(signal_type, stage_num, get_resampled)
+    still_saturated = _filter_base_saturation(signal_type, refreshed)
     return _filter_higher_saturation(
         signal_type,
         stage_num,
-        refreshed,
+        still_saturated,
         get_resampled,
     )
 
