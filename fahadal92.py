@@ -343,7 +343,7 @@ def handle_diag_command(chat_id):
         send_telegram(msg[i:i + 4000], chat_id)
 
 
-def _arabic_frame_count(count):
+def _arabic_broken_frame_count(count):
     """Arabic plural phrasing for broken-frame counts."""
     if count == 1:
         return "فريم واحد معطوب"
@@ -354,56 +354,28 @@ def _arabic_frame_count(count):
     return f"{count} فريماً معطوباً"
 
 
-def format_broken_frames_report(report):
-    """Format audit_broken_frames() output into Telegram HTML chunks."""
-    if not report.get("ready"):
-        return [
-            "⏳ البيانات الأولية لم تكتمل بعد.\n"
-            "انتظر انتهاء التحميل ثم أعد طلب "
-            "<code>/broken_frames</code>."
-        ]
+def _arabic_ok_frame_count(count):
+    """Arabic plural phrasing for healthy-frame counts."""
+    if count == 1:
+        return "فريم واحد صالح"
+    if count == 2:
+        return "فريمان صالحان"
+    if 3 <= count <= 10:
+        return f"{count} فريمات صالحة"
+    return f"{count} فريماً صالحاً"
 
-    broken_by_symbol = report.get("broken_by_symbol") or {}
-    symbols_checked = report.get("symbols_checked", 0)
-    total_pairs = report.get("total_pairs", len(TRIPLING_PAIRS))
-    broken_frame_count = report.get("broken_frame_count", 0)
-    ok_count = len(report.get("ok_symbols") or [])
 
-    if not broken_by_symbol:
-        return [
-            "✅ <b>كل الفريمات شغّالة</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"تم فحص <b>{symbols_checked}</b> عملة × "
-            f"<b>{total_pairs}</b> فريم ثلاثي.\n"
-            "ما في أي فريم متخطّى بسبب نقص بيانات أو شموع."
-        ]
-
-    header = (
-        "🛠️ <b>تقرير الفريمات المعطوبة</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"عملات فيها مشاكل: <b>{len(broken_by_symbol)}</b> / {symbols_checked}\n"
-        f"إجمالي الفريمات المعطوبة: <b>{broken_frame_count}</b>\n"
-        f"عملات سليمة بالكامل: <b>{ok_count}</b>\n"
+def _format_frame_triple(item):
+    """Compact base/confirm/triple label for Telegram."""
+    return (
+        f"{item['base_frame']}m / "
+        f"{item['confirm_frame']}m / "
+        f"{item['triple_frame']}m"
     )
 
-    blocks = [header]
-    for symbol in sorted(broken_by_symbol):
-        issues = broken_by_symbol[symbol]
-        lines = [
-            f"• <code>{html_escape(symbol)}</code> — "
-            f"{_arabic_frame_count(len(issues))}:"
-        ]
-        for issue in issues:
-            frames = (
-                f"{issue['base_frame']}m / "
-                f"{issue['confirm_frame']}m / "
-                f"{issue['triple_frame']}m"
-            )
-            detail = html_escape(str(issue.get("detail") or issue.get("reason")))
-            lines.append(f"  ◦ <code>{frames}</code> — {detail}")
-        blocks.append("\n".join(lines))
 
-    # Pack into Telegram-safe chunks (~4000 chars).
+def _pack_telegram_chunks(blocks):
+    """Pack text blocks into Telegram-safe chunks (~4000 chars)."""
     chunks = []
     current = ""
     for block in blocks:
@@ -418,13 +390,108 @@ def format_broken_frames_report(report):
     return chunks
 
 
+def format_broken_frames_report(report, *, detail_symbol=False):
+    """
+    Format audit into Telegram HTML chunks showing صالح vs معطوب.
+
+    For a full ~100-coin scan: list broken frames in detail, and healthy frames
+    as a compact base-frame list. For a single-symbol query (`detail_symbol`),
+    list every healthy triple explicitly.
+    """
+    if not report.get("ready"):
+        return [
+            "⏳ البيانات الأولية لم تكتمل بعد.\n"
+            "انتظر انتهاء التحميل ثم أعد طلب "
+            "<code>/broken_frames</code>."
+        ]
+
+    broken_by_symbol = report.get("broken_by_symbol") or {}
+    ok_frames_by_symbol = report.get("ok_frames_by_symbol") or {}
+    ok_symbols = list(report.get("ok_symbols") or [])
+    symbols_checked = report.get("symbols_checked", 0)
+    total_pairs = report.get("total_pairs", len(TRIPLING_PAIRS))
+    broken_frame_count = report.get("broken_frame_count", 0)
+    ok_frame_count = report.get(
+        "ok_frame_count",
+        sum(len(items) for items in ok_frames_by_symbol.values()),
+    )
+
+    header = (
+        "🛠️ <b>فحص الفريمات (صالح / معطوب)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"العملات المفحوصة: <b>{symbols_checked}</b> × "
+        f"<b>{total_pairs}</b> فريم\n"
+        f"✅ فريمات صالحة: <b>{ok_frame_count}</b>\n"
+        f"❌ فريمات معطوبة: <b>{broken_frame_count}</b>\n"
+        f"عملات سليمة بالكامل: <b>{len(ok_symbols)}</b>\n"
+        f"عملات فيها معطوب: <b>{len(broken_by_symbol)}</b>\n"
+    )
+
+    if not broken_by_symbol:
+        ok_names = ", ".join(f"<code>{html_escape(s)}</code>" for s in sorted(ok_symbols))
+        body = (
+            f"{header}\n"
+            "✅ <b>كل الفريمات صالحة</b> — ما في أي فريم متخطّى.\n"
+        )
+        if detail_symbol and ok_symbols:
+            symbol = ok_symbols[0]
+            ok_frames = ok_frames_by_symbol.get(symbol) or []
+            lines = [body + f"<b>الصالحة لـ</b> <code>{html_escape(symbol)}</code>:"]
+            for frame in ok_frames:
+                lines.append(f"  ✅ <code>{_format_frame_triple(frame)}</code>")
+            return _pack_telegram_chunks(["\n".join(lines)])
+        if ok_names:
+            body += f"العملات: {ok_names}"
+        return [body]
+
+    blocks = [header]
+
+    for symbol in sorted(broken_by_symbol):
+        issues = broken_by_symbol[symbol]
+        ok_frames = ok_frames_by_symbol.get(symbol) or []
+        lines = [
+            f"• <code>{html_escape(symbol)}</code> — "
+            f"{_arabic_ok_frame_count(len(ok_frames))} / "
+            f"{_arabic_broken_frame_count(len(issues))}:"
+        ]
+        for issue in issues:
+            detail = html_escape(str(issue.get("detail") or issue.get("reason")))
+            lines.append(
+                f"  ❌ <code>{_format_frame_triple(issue)}</code> — {detail}"
+            )
+        if ok_frames:
+            if detail_symbol:
+                lines.append("  <b>الصالحة:</b>")
+                for frame in ok_frames:
+                    lines.append(f"  ✅ <code>{_format_frame_triple(frame)}</code>")
+            else:
+                # Compact: base frames only, keeps 100-coin reports readable.
+                bases = ", ".join(f"{frame['base_frame']}m" for frame in ok_frames)
+                lines.append(f"  ✅ الصالح: <code>{bases}</code>")
+        else:
+            lines.append("  ✅ الصالح: لا يوجد")
+        blocks.append("\n".join(lines))
+
+    if ok_symbols:
+        names = ", ".join(
+            f"<code>{html_escape(symbol)}</code>" for symbol in sorted(ok_symbols)
+        )
+        blocks.append(
+            f"✅ <b>عملات كل فريماتها صالحة ({len(ok_symbols)}):</b>\n{names}"
+        )
+
+    return _pack_telegram_chunks(blocks)
+
+
 def handle_broken_frames_command(chat_id, symbol=None):
-    """معالج أمر /broken_frames — يعرض الفريمات التي يتخطاها الماسح."""
+    """معالج أمر /broken_frames — فحص صالح/معطوب لكل العملات أو لعملة واحدة."""
     symbols = None
+    detail_symbol = False
     if symbol:
         symbols = [symbol.upper().replace("/", "").strip()]
+        detail_symbol = True
     report = audit_broken_frames(symbols=symbols)
-    for chunk in format_broken_frames_report(report):
+    for chunk in format_broken_frames_report(report, detail_symbol=detail_symbol):
         send_telegram(chunk, chat_id)
 
 def get_top_hard_filters(signal_type="buy", top_n=3, max_pass_pct=10.0):
@@ -835,7 +902,8 @@ def _dispatch_command_inner(txt, chat_id):
             "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
             "🔴 <code>/cascade_diag_sell</code> أو <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
             "🧪 <code>/diag_failures</code> أو <code>/diag</code> — تشخيص أسباب ضعف الإشارات\n"
-            "🛠️ <code>/broken_frames</code> أو <code>/فريمات</code> — الفريمات المعطوبة لكل عملة\n"
+            "🛠️ <code>/broken_frames</code> أو <code>/فريمات</code> — فحص صالح/معطوب لكل العملات\n"
+            "🛠️ <code>/broken_frames BTCUSDT</code> — نفس الفحص لعملة واحدة بالتفصيل\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>🎯 الناجحون (شراء):</b>\n"
             "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"

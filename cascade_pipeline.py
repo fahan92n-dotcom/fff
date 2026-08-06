@@ -258,10 +258,11 @@ def _classify_broken_frame(
 
 def audit_broken_frames(symbols=None):
     """
-    Inspect every symbol × TRIPLING_PAIRS entry and list frames that cannot build.
+    Inspect every symbol × TRIPLING_PAIRS entry and classify frames as ok/broken.
 
     Mirrors the silent skips in `_build_tripling_candidates` so the report matches
-    what the scanner actually drops.
+    what the scanner actually drops. Returns both healthy and broken frames per
+    symbol so a full ~100-coin audit can show صالح vs معطوب clearly.
     """
     if not fast_prefetch_done.is_set():
         return {
@@ -269,8 +270,10 @@ def audit_broken_frames(symbols=None):
             "symbols_checked": 0,
             "total_pairs": len(TRIPLING_PAIRS),
             "broken_by_symbol": {},
+            "ok_frames_by_symbol": {},
             "ok_symbols": [],
             "broken_frame_count": 0,
+            "ok_frame_count": 0,
         }
 
     if symbols is None:
@@ -281,6 +284,7 @@ def audit_broken_frames(symbols=None):
 
     _, get_resampled = _new_resampler()
     broken_by_symbol = {}
+    ok_frames_by_symbol = {}
     ok_symbols = []
 
     for symbol in symbols:
@@ -290,6 +294,7 @@ def audit_broken_frames(symbols=None):
             "60m": get_cached(symbol, "60m"),
         }
         broken = []
+        ok_frames = []
         for (
             base_frame,
             confirm_frame,
@@ -309,7 +314,18 @@ def audit_broken_frames(symbols=None):
             )
             if issue is not None:
                 broken.append(issue)
+            else:
+                ok_frames.append(
+                    {
+                        "base_frame": base_frame,
+                        "confirm_frame": confirm_frame,
+                        "triple_frame": triple_frame,
+                        "base_api": base_api,
+                        "triple_api": triple_api,
+                    }
+                )
 
+        ok_frames_by_symbol[symbol] = ok_frames
         if broken:
             broken_by_symbol[symbol] = broken
         else:
@@ -320,9 +336,13 @@ def audit_broken_frames(symbols=None):
         "symbols_checked": len(symbols),
         "total_pairs": len(TRIPLING_PAIRS),
         "broken_by_symbol": broken_by_symbol,
+        "ok_frames_by_symbol": ok_frames_by_symbol,
         "ok_symbols": ok_symbols,
         "broken_frame_count": sum(
             len(items) for items in broken_by_symbol.values()
+        ),
+        "ok_frame_count": sum(
+            len(items) for items in ok_frames_by_symbol.values()
         ),
     }
 

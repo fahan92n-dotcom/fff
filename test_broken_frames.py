@@ -57,17 +57,15 @@ class TestAuditBrokenFrames(unittest.TestCase):
         reasons = {item["reason"] for item in issues}
         self.assertIn("missing_raw_base", reasons)
 
-        # Frames built purely from 1m with enough candles should stay healthy.
-        small_1m_bases = {
-            base
-            for base, _c, _t, api, _tapi in TRIPLING_PAIRS
-            if api == "1m" and _tapi == "1m"
-        }
-        broken_bases = {item["base_frame"] for item in issues}
-        healthy_small = small_1m_bases - broken_bases
-        self.assertTrue(healthy_small)
-        self.assertIn(9, healthy_small)
-        self.assertIn(45, healthy_small)
+        ok_frames = report["ok_frames_by_symbol"]["AAAUSDT"]
+        self.assertGreater(len(ok_frames), 0)
+        ok_bases = {item["base_frame"] for item in ok_frames}
+        self.assertIn(9, ok_bases)
+        self.assertIn(45, ok_bases)
+        self.assertEqual(
+            len(ok_frames) + len(issues),
+            len(TRIPLING_PAIRS),
+        )
 
     def test_all_ok_when_cache_is_deep(self):
         raw_1m = _ohlcv(rows=MIN_CANDLES * 90 + 100, freq="1min")
@@ -91,16 +89,50 @@ class TestAuditBrokenFrames(unittest.TestCase):
         self.assertEqual(report["broken_by_symbol"], {})
         self.assertEqual(report["ok_symbols"], ["BTCUSDT"])
         self.assertEqual(report["broken_frame_count"], 0)
+        self.assertEqual(report["ok_frame_count"], len(TRIPLING_PAIRS))
+        self.assertEqual(
+            len(report["ok_frames_by_symbol"]["BTCUSDT"]),
+            len(TRIPLING_PAIRS),
+        )
 
 
 class TestBrokenFramesCommand(unittest.TestCase):
-    def test_command_lists_symbol_and_frames(self):
+    def test_command_lists_ok_and_broken_frames(self):
         fake_report = {
             "ready": True,
             "symbols_checked": 2,
             "total_pairs": len(TRIPLING_PAIRS),
             "broken_frame_count": 2,
+            "ok_frame_count": len(TRIPLING_PAIRS) - 2 + len(TRIPLING_PAIRS),
             "ok_symbols": ["ETHUSDT"],
+            "ok_frames_by_symbol": {
+                "BTCUSDT": [
+                    {
+                        "base_frame": 9,
+                        "confirm_frame": 27,
+                        "triple_frame": 3,
+                        "base_api": "1m",
+                        "triple_api": "1m",
+                    },
+                    {
+                        "base_frame": 60,
+                        "confirm_frame": 180,
+                        "triple_frame": 20,
+                        "base_api": "60m",
+                        "triple_api": "1m",
+                    },
+                ],
+                "ETHUSDT": [
+                    {
+                        "base_frame": pair[0],
+                        "confirm_frame": pair[1],
+                        "triple_frame": pair[2],
+                        "base_api": pair[3],
+                        "triple_api": pair[4],
+                    }
+                    for pair in TRIPLING_PAIRS
+                ],
+            },
             "broken_by_symbol": {
                 "BTCUSDT": [
                     {
@@ -144,9 +176,66 @@ class TestBrokenFramesCommand(unittest.TestCase):
         message, chat_id = sent[0]
         self.assertEqual(chat_id, "42")
         self.assertIn("BTCUSDT", message)
+        self.assertIn("فريمان صالحان", message)
         self.assertIn("فريمان معطوبان", message)
+        self.assertIn("❌", message)
         self.assertIn("240m / 720m / 80m", message)
         self.assertIn("210m / 630m / 70m", message)
+        self.assertIn("✅ الصالح:", message)
+        self.assertIn("9m", message)
+        self.assertIn("ETHUSDT", message)
+
+    def test_single_symbol_lists_healthy_triples(self):
+        fake_report = {
+            "ready": True,
+            "symbols_checked": 1,
+            "total_pairs": len(TRIPLING_PAIRS),
+            "broken_frame_count": 1,
+            "ok_frame_count": 1,
+            "ok_symbols": [],
+            "ok_frames_by_symbol": {
+                "BTCUSDT": [
+                    {
+                        "base_frame": 9,
+                        "confirm_frame": 27,
+                        "triple_frame": 3,
+                        "base_api": "1m",
+                        "triple_api": "1m",
+                    }
+                ]
+            },
+            "broken_by_symbol": {
+                "BTCUSDT": [
+                    {
+                        "base_frame": 240,
+                        "confirm_frame": 720,
+                        "triple_frame": 80,
+                        "base_api": "60m",
+                        "triple_api": "1m",
+                        "reason": "min_candles",
+                        "detail": "شموع غير كافية على الأساسي (45/300)",
+                        "candle_count": 45,
+                    }
+                ]
+            },
+        }
+        sent = []
+
+        with (
+            patch.object(bot, "audit_broken_frames", return_value=fake_report),
+            patch.object(
+                bot,
+                "send_telegram",
+                side_effect=lambda message, chat_id=None: sent.append(
+                    (message, chat_id)
+                ),
+            ),
+        ):
+            bot._dispatch_command("/broken_frames BTCUSDT", "7")
+
+        message = sent[0][0]
+        self.assertIn("الصالحة:", message)
+        self.assertIn("✅ <code>9m / 27m / 3m</code>", message)
 
     def test_arabic_alias_accepts_optional_symbol(self):
         captured = {}
@@ -168,12 +257,19 @@ class TestBrokenFramesCommand(unittest.TestCase):
                 "symbols_checked": 3,
                 "total_pairs": 16,
                 "broken_by_symbol": {},
+                "ok_frames_by_symbol": {
+                    "A": [],
+                    "B": [],
+                    "C": [],
+                },
                 "ok_symbols": ["A", "B", "C"],
                 "broken_frame_count": 0,
+                "ok_frame_count": 48,
             }
         )
         self.assertEqual(len(chunks), 1)
-        self.assertIn("كل الفريمات شغّالة", chunks[0])
+        self.assertIn("كل الفريمات صالحة", chunks[0])
+        self.assertIn("صالح / معطوب", chunks[0])
 
 
 if __name__ == "__main__":
