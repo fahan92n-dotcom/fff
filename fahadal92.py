@@ -68,6 +68,8 @@ from state_manager import (
     _store_step5_waiters, _promote_candidates, _set_step8_survivors,
     _clear_waiting_candidate, abandon_waiting_candidate,
     _purge_orphaned_ready_timestamps, _update_last_complete_step,
+    record_broken_frames_snapshot, get_broken_frames_history,
+    aggregate_broken_frames_history,
 )
 from cascade_pipeline import (
     TRIPLING_PAIRS, TIMEFRAME_CHAIN, NEXT_TF, TF_TO_API,
@@ -483,16 +485,99 @@ def format_broken_frames_report(report, *, detail_symbol=False):
     return _pack_telegram_chunks(blocks)
 
 
-def handle_broken_frames_command(chat_id, symbol=None):
-    """معالج أمر /broken_frames — فحص صالح/معطوب لكل العملات أو لعملة واحدة."""
+def format_broken_frames_week_report(aggregate):
+    """Format last-7-days broken-frame history into Telegram HTML chunks."""
+    snapshots = aggregate.get("snapshots", 0)
+    by_symbol = aggregate.get("by_symbol") or {}
+    first_time = aggregate.get("first_time")
+    last_time = aggregate.get("last_time")
+
+    if snapshots == 0:
+        return [
+            "🗓️ <b>الفريمات المعطوبة — آخر 7 أيام</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "ما فيه سجل محفوظ بعد.\n"
+            "البوت يبدأ يحفظ فحصاً كل 6 ساعات (وفي كل طلب "
+            "<code>/broken_frames</code>).\n"
+            "بعد ما يتراكم السجل، نفس الأمر يعرض المعطوب خلال الأسبوع."
+        ]
+
+    range_txt = ""
+    if first_time and last_time:
+        range_txt = (
+            f"من <code>{first_time.strftime('%Y-%m-%d %H:%M')}</code> "
+            f"إلى <code>{last_time.strftime('%Y-%m-%d %H:%M')}</code> UTC\n"
+        )
+
+    if not by_symbol:
+        return [
+            "🗓️ <b>الفريمات المعطوبة — آخر 7 أيام</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"لقطات محفوظة: <b>{snapshots}</b>\n"
+            f"{range_txt}"
+            "✅ خلال الفترة ما سُجّل أي فريم معطوب."
+        ]
+
+    total_issues = sum(len(items) for items in by_symbol.values())
+    header = (
+        "🗓️ <b>الفريمات المعطوبة — آخر 7 أيام</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"لقطات محفوظة: <b>{snapshots}</b>\n"
+        f"{range_txt}"
+        f"عملات ظهرت فيها معطوب: <b>{len(by_symbol)}</b>\n"
+        f"فريمات معطوبة (فريدة): <b>{total_issues}</b>\n"
+    )
+
+    blocks = [header]
+    for symbol in sorted(by_symbol):
+        entries = by_symbol[symbol]
+        lines = [
+            f"• <code>{html_escape(symbol)}</code> — "
+            f"{_arabic_broken_frame_count(len(entries))} "
+            f"(خلال {snapshots} لقطة):"
+        ]
+        for entry in entries:
+            detail = html_escape(str(entry.get("last_detail") or ""))
+            seen = entry.get("last_seen")
+            seen_txt = (
+                seen.strftime("%m-%d %H:%M") if seen is not None else "?"
+            )
+            lines.append(
+                f"  ❌ <code>{_format_frame_triple(entry)}</code> — "
+                f"ظهر {entry['count']}× | آخر سبب: {detail} "
+                f"| آخر ظهور: <code>{seen_txt}</code>"
+            )
+        blocks.append("\n".join(lines))
+
+    return _pack_telegram_chunks(blocks)
+
+
+def handle_broken_frames_command(chat_id, symbol=None, *, week=False):
+    """معالج أمر /broken_frames — فحص حي أو سجل الأسبوع الماضي."""
+    if week:
+        snapshots = get_broken_frames_history(days=7)
+        # Include a fresh live snapshot in the week view when data is ready.
+        live = audit_broken_frames()
+        if live.get("ready"):
+            record_broken_frames_snapshot(live, force=True)
+            snapshots = get_broken_frames_history(days=7)
+        aggregate = aggregate_broken_frames_history(snapshots)
+        for chunk in format_broken_frames_week_report(aggregate):
+            send_telegram(chunk, chat_id)
+        return
+
     symbols = None
     detail_symbol = False
     if symbol:
         symbols = [symbol.upper().replace("/", "").strip()]
         detail_symbol = True
     report = audit_broken_frames(symbols=symbols)
+    # Full-market live checks feed the weekly history; single-symbol does not.
+    if symbols is None:
+        record_broken_frames_snapshot(report, force=True)
     for chunk in format_broken_frames_report(report, detail_symbol=detail_symbol):
         send_telegram(chunk, chat_id)
+
 
 def get_top_hard_filters(signal_type="buy", top_n=3, max_pass_pct=10.0):
     """
@@ -883,10 +968,16 @@ def _dispatch_command_inner(txt, chat_id):
     elif txt in ("/diag_failures", "/diag"):
         handle_diag_command(chat_id)
 
+    elif txt in ("/broken_frames_week", "/فريمات_اسبوع", "/فريمات_أسبوع"):
+        handle_broken_frames_command(chat_id, week=True)
     elif txt.startswith("/broken_frames") or txt.startswith("/فريمات"):
         parts = txt.split()
-        symbol = parts[1] if len(parts) > 1 else None
-        handle_broken_frames_command(chat_id, symbol)
+        arg = parts[1] if len(parts) > 1 else None
+        week_aliases = {"week", "أسبوع", "اسبوع", "الماضي", "weekly"}
+        if arg and arg.lower() in week_aliases:
+            handle_broken_frames_command(chat_id, week=True)
+        else:
+            handle_broken_frames_command(chat_id, arg)
 
     # المساعدة
     elif txt == "/help":
@@ -904,6 +995,7 @@ def _dispatch_command_inner(txt, chat_id):
             "🧪 <code>/diag_failures</code> أو <code>/diag</code> — تشخيص أسباب ضعف الإشارات\n"
             "🛠️ <code>/broken_frames</code> أو <code>/فريمات</code> — فحص صالح/معطوب لكل العملات\n"
             "🛠️ <code>/broken_frames BTCUSDT</code> — نفس الفحص لعملة واحدة بالتفصيل\n"
+            "🗓️ <code>/broken_frames week</code> أو <code>/فريمات اسبوع</code> — المعطوب آخر 7 أيام\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>🎯 الناجحون (شراء):</b>\n"
             "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"

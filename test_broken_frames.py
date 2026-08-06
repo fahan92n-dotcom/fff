@@ -1,12 +1,14 @@
 """Tests for broken-frames audit and Telegram report command."""
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pandas as pd
 
 import cascade_pipeline as pipeline
 import fahadal92 as bot
+import state_manager as state
 from cascade_steps import TRIPLING_PAIRS
 from indicators import MIN_CANDLES
 
@@ -270,6 +272,124 @@ class TestBrokenFramesCommand(unittest.TestCase):
         self.assertEqual(len(chunks), 1)
         self.assertIn("كل الفريمات صالحة", chunks[0])
         self.assertIn("صالح / معطوب", chunks[0])
+
+    def test_week_alias_routes_to_week_handler(self):
+        captured = {}
+
+        def fake_handle(chat_id, symbol=None, *, week=False):
+            captured["chat_id"] = chat_id
+            captured["symbol"] = symbol
+            captured["week"] = week
+
+        with patch.object(bot, "handle_broken_frames_command", side_effect=fake_handle):
+            bot._dispatch_command("/broken_frames week", "11")
+            self.assertTrue(captured["week"])
+            bot._dispatch_command("/فريمات اسبوع", "11")
+            self.assertTrue(captured["week"])
+            bot._dispatch_command("/فريمات_اسبوع", "11")
+            self.assertTrue(captured["week"])
+
+
+class TestBrokenFramesHistory(unittest.TestCase):
+    def setUp(self):
+        with state.broken_frames_history_lock:
+            state.broken_frames_history.clear()
+            state.last_broken_frames_snapshot_at["at"] = None
+
+    def test_aggregate_counts_occurrences_across_snapshots(self):
+        t1 = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
+        t2 = t1 + timedelta(hours=6)
+        snapshots = [
+            {
+                "time": t1,
+                "broken_by_symbol": {
+                    "BTCUSDT": [
+                        {
+                            "base_frame": 240,
+                            "confirm_frame": 720,
+                            "triple_frame": 80,
+                            "detail": "شموع غير كافية",
+                        }
+                    ]
+                },
+            },
+            {
+                "time": t2,
+                "broken_by_symbol": {
+                    "BTCUSDT": [
+                        {
+                            "base_frame": 240,
+                            "confirm_frame": 720,
+                            "triple_frame": 80,
+                            "detail": "شموع غير كافية (40/300)",
+                        }
+                    ],
+                    "ETHUSDT": [
+                        {
+                            "base_frame": 90,
+                            "confirm_frame": 270,
+                            "triple_frame": 30,
+                            "detail": "بيانات المصدر 30m ناقصة",
+                        }
+                    ],
+                },
+            },
+        ]
+        aggregate = state.aggregate_broken_frames_history(snapshots)
+        self.assertEqual(aggregate["snapshots"], 2)
+        self.assertEqual(aggregate["by_symbol"]["BTCUSDT"][0]["count"], 2)
+        self.assertEqual(
+            aggregate["by_symbol"]["BTCUSDT"][0]["last_detail"],
+            "شموع غير كافية (40/300)",
+        )
+        self.assertEqual(aggregate["by_symbol"]["ETHUSDT"][0]["count"], 1)
+
+    def test_week_report_uses_history(self):
+        fake_live = {
+            "ready": True,
+            "symbols_checked": 1,
+            "total_pairs": len(TRIPLING_PAIRS),
+            "broken_frame_count": 0,
+            "ok_frame_count": len(TRIPLING_PAIRS),
+            "broken_by_symbol": {},
+            "ok_frames_by_symbol": {"BTCUSDT": []},
+            "ok_symbols": ["BTCUSDT"],
+        }
+        t1 = datetime.now(timezone.utc) - timedelta(days=1)
+        with state.broken_frames_history_lock:
+            state.broken_frames_history.append(
+                {
+                    "time": t1,
+                    "symbols_checked": 1,
+                    "broken_frame_count": 1,
+                    "broken_by_symbol": {
+                        "BTCUSDT": [
+                            {
+                                "base_frame": 240,
+                                "confirm_frame": 720,
+                                "triple_frame": 80,
+                                "detail": "شموع غير كافية",
+                            }
+                        ]
+                    },
+                }
+            )
+
+        sent = []
+        with (
+            patch.object(bot, "audit_broken_frames", return_value=fake_live),
+            patch.object(
+                bot,
+                "send_telegram",
+                side_effect=lambda message, chat_id=None: sent.append(message),
+            ),
+        ):
+            bot._dispatch_command("/broken_frames week", "5")
+
+        self.assertTrue(sent)
+        self.assertIn("آخر 7 أيام", sent[0])
+        self.assertIn("BTCUSDT", sent[0])
+        self.assertIn("240m / 720m / 80m", sent[0])
 
 
 if __name__ == "__main__":
