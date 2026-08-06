@@ -193,6 +193,7 @@ def _stage5_still_valid(candidate, signal_type):
 
     smi, _, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
     current_smi = float(smi.iloc[-1])
+    variant = candidate.get("variant") if isinstance(candidate.get("variant"), dict) else {}
 
     if signal_type == "buy":
         if current_smi > -40:
@@ -223,10 +224,11 @@ def _stage5_still_valid(candidate, signal_type):
         df_base, ribbon_direction, cache_key=None
     ):
         return False
-    if not check_donchian_trend_ribbon(
-        df_confirm, ribbon_direction, cache_key=None
-    ):
-        return False
+    if not variant.get("skip_donchian_confirm"):
+        if not check_donchian_trend_ribbon(
+            df_confirm, ribbon_direction, cache_key=None
+        ):
+            return False
     if not confirm_macd_ok:
         return False
     return True
@@ -297,6 +299,8 @@ def _build_candidate(
     get_resampled,
     get_raw,
     ready_since=None,
+    variant=None,
+    df_btc_base=None,
 ):
     return {
         "sym": symbol,
@@ -312,6 +316,8 @@ def _build_candidate(
         "get_raw": get_raw,
         "ready_since": ready_since,
         "disable_ribbon_cache": True,
+        "variant": variant or {},
+        "df_btc_base": df_btc_base,
     }
 
 
@@ -323,8 +329,11 @@ def _scan_pair_side(
     start,
     end,
     raw_1m,
+    variant=None,
+    btc_raw_by_tf=None,
 ):
     """Replay one symbol × tripling pair × side; return signal dicts."""
+    variant = variant or {}
     base_frame, confirm_frame, triple_frame, base_api, triple_api = pair
     raw_base = raw_by_tf.get(base_api, pd.DataFrame())
     raw_triple = raw_by_tf.get(triple_api, pd.DataFrame())
@@ -341,6 +350,12 @@ def _scan_pair_side(
         or len(df_base_full) < MIN_CANDLES
     ):
         return []
+
+    btc_base_full = None
+    if variant.get("btc_corr_min") is not None and btc_raw_by_tf:
+        btc_raw = btc_raw_by_tf.get(base_api, pd.DataFrame())
+        if not btc_raw.empty:
+            btc_base_full = resample_ohlcv_closed(btc_raw, base_frame)
 
     # asof-aware resampler closed over mutable tip time
     asof_box = [None]
@@ -360,6 +375,11 @@ def _scan_pair_side(
         if key not in full_cache:
             full_cache[key] = resample_ohlcv_closed(raw_df, minutes)
         return _slice_closed(full_cache[key], minutes, asof_box[0])
+
+    def _btc_base_at(asof):
+        if btc_base_full is None:
+            return None
+        return _slice_closed(btc_base_full, base_frame, asof)
 
     signals = []
     waiting = False
@@ -448,6 +468,8 @@ def _scan_pair_side(
             get_resampled,
             get_raw,
             ready_since=ready_since,
+            variant=variant,
+            df_btc_base=_btc_base_at(asof),
         )
 
         if waiting:
@@ -487,6 +509,8 @@ def _scan_pair_side(
                     get_resampled,
                     get_raw,
                     ready_since=ready_since,
+                    variant=variant,
+                    df_btc_base=_btc_base_at(tip_asof),
                 )
                 if (
                     tip_candidate["df_base"].empty
@@ -546,24 +570,20 @@ def scan_week_trades(
     days=WEEK_DAYS,
     now=None,
     progress_callback=None,
+    variant=None,
+    preloaded_raw=None,
+    btc_raw_by_tf=None,
 ):
     """
     Fetch/replay strategy trades for the last ``days`` and classify outcomes.
 
-    Returns dict:
-      {
-        "ready": bool,
-        "start": datetime,
-        "end": datetime,
-        "symbols_scanned": int,
-        "wins": [...],
-        "losses": [...],
-        "opens": [...],
-      }
+    ``variant`` is an optional experiment override dict (see strategy_variants).
+    ``preloaded_raw`` maps symbol -> raw_by_tf to avoid re-fetching across experiments.
     """
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     end = now
+    variant = variant or {}
 
     if symbols is None:
         with symbols_cache_lock:
@@ -581,7 +601,13 @@ def scan_week_trades(
             "wins": [],
             "losses": [],
             "opens": [],
+            "total": 0,
+            "variant": variant,
         }
+
+    needs_btc = variant.get("btc_corr_min") is not None
+    if needs_btc and btc_raw_by_tf is None:
+        btc_raw_by_tf = _ensure_symbol_raw("BTCUSDT")
 
     all_signals = []
     total = len(symbols)
@@ -595,7 +621,10 @@ def scan_week_trades(
                 log.exception("week scan progress callback failed")
 
         try:
-            raw_by_tf = _ensure_symbol_raw(symbol)
+            if preloaded_raw is not None and symbol in preloaded_raw:
+                raw_by_tf = preloaded_raw[symbol]
+            else:
+                raw_by_tf = _ensure_symbol_raw(symbol)
             raw_1m = raw_by_tf.get("1m", pd.DataFrame())
             if raw_1m.empty:
                 continue
@@ -610,6 +639,8 @@ def scan_week_trades(
                             start,
                             end,
                             raw_1m,
+                            variant=variant,
+                            btc_raw_by_tf=btc_raw_by_tf,
                         )
                     )
         except Exception:
@@ -632,6 +663,7 @@ def scan_week_trades(
         "losses": losses,
         "opens": opens,
         "total": len(deduped),
+        "variant": variant,
     }
 
 

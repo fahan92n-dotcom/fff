@@ -455,6 +455,44 @@ def check_confirm_rsi_not_overbought(df, lookback=30, threshold=70):
     rsi = calc_rsi_tv(df["close"], period=14)
     return not bool((rsi.iloc[-lookback:] >= threshold).any())
 
+
+def calc_close_correlation(df_a, df_b, lookback=50):
+    """
+    Pearson correlation of log-returns between two OHLCV frames aligned on ``ts``.
+
+    Returns None when there is not enough overlapping history.
+    """
+    if (
+        df_a is None
+        or df_b is None
+        or getattr(df_a, "empty", True)
+        or getattr(df_b, "empty", True)
+        or lookback < 2
+    ):
+        return None
+    left = df_a[["ts", "close"]].rename(columns={"close": "close_a"})
+    right = df_b[["ts", "close"]].rename(columns={"close": "close_b"})
+    merged = left.merge(right, on="ts", how="inner")
+    if len(merged) < lookback + 1:
+        return None
+    window = merged.tail(lookback + 1)
+    ret_a = np.log(window["close_a"].astype(float)).diff().dropna()
+    ret_b = np.log(window["close_b"].astype(float)).diff().dropna()
+    if len(ret_a) < lookback or len(ret_b) < lookback:
+        return None
+    corr = ret_a.corr(ret_b)
+    if pd.isna(corr):
+        return None
+    return float(corr)
+
+
+def check_btc_correlation(df_alt, df_btc, lookback=50, min_corr=0.5):
+    """True when alt/BTC close-return correlation is at least ``min_corr``."""
+    corr = calc_close_correlation(df_alt, df_btc, lookback=lookback)
+    if corr is None:
+        return False
+    return corr >= float(min_corr)
+
 def check_rsi_closed_oversold(df, threshold=35):
     if len(df) < WARMUP_RSI:
         return False
