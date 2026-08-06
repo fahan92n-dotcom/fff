@@ -61,7 +61,10 @@ EXPERIMENT_VARIANTS = (
     ),
     StrategyVariant(
         id="ema_confirm",
-        title_ar="2) EMA50 على فريم التأكيد (شراء فوق / بيع تحت)",
+        title_ar=(
+            "2) EMA50 فريم التأكيد وقت الدخول: "
+            "شراء فوق EMA50 / بيع تحت EMA50"
+        ),
         ema_on_confirm=True,
         override_rsi_lookback=False,
     ),
@@ -87,7 +90,7 @@ EXPERIMENT_VARIANTS = (
         id="btc_corr",
         title_ar=(
             f"5) ارتباط CC مع BTC ≥ {DEFAULT_BTC_CORR_MIN:g} "
-            f"({DEFAULT_BTC_CORR_LOOKBACK} شمعة)"
+            f"على الفريم الأساسي ({DEFAULT_BTC_CORR_LOOKBACK} شمعة)"
         ),
         btc_corr_min=DEFAULT_BTC_CORR_MIN,
         btc_corr_lookback=DEFAULT_BTC_CORR_LOOKBACK,
@@ -275,8 +278,11 @@ def handle_experiments_command(chat_id, send_telegram):
         else:
             send_telegram(
                 "🧪 جاري تشغيل تجارب الاستراتيجية على آخر 7 أيام...\n"
-                "1) Baseline  2) EMA تأكيد  3) بدون Donchian تأكيد\n"
-                "4أ) بدون RSI تأكيد  4ب) RSI=50  5) CC مع BTC\n"
+                "1) Baseline\n"
+                "2) تأكيد EMA50 وقت الدخول (شراء فوق / بيع تحت)\n"
+                "3) بدون Donchian تأكيد\n"
+                "4أ) بدون RSI تأكيد  4ب) RSI=50\n"
+                "5) CC مع BTC ≥ 0.50 على الفريم الأساسي\n"
                 "ثم نرتّب ونطلع الأفضل.",
                 chat_id,
             )

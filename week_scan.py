@@ -300,7 +300,7 @@ def _build_candidate(
     get_raw,
     ready_since=None,
     variant=None,
-    df_btc_confirm=None,
+    df_btc_base=None,
 ):
     return {
         "sym": symbol,
@@ -317,7 +317,7 @@ def _build_candidate(
         "ready_since": ready_since,
         "disable_ribbon_cache": True,
         "variant": variant or {},
-        "df_btc_confirm": df_btc_confirm,
+        "df_btc_base": df_btc_base,
     }
 
 
@@ -351,11 +351,11 @@ def _scan_pair_side(
     ):
         return []
 
-    btc_confirm_full = None
+    btc_base_full = None
     if variant.get("btc_corr_min") is not None and btc_raw_by_tf:
         btc_raw = btc_raw_by_tf.get(base_api, pd.DataFrame())
         if not btc_raw.empty:
-            btc_confirm_full = resample_ohlcv_closed(btc_raw, confirm_frame)
+            btc_base_full = resample_ohlcv_closed(btc_raw, base_frame)
 
     # asof-aware resampler closed over mutable tip time
     asof_box = [None]
@@ -376,10 +376,10 @@ def _scan_pair_side(
             full_cache[key] = resample_ohlcv_closed(raw_df, minutes)
         return _slice_closed(full_cache[key], minutes, asof_box[0])
 
-    def _btc_confirm_at(asof):
-        if btc_confirm_full is None:
+    def _btc_base_at(asof):
+        if btc_base_full is None:
             return None
-        return _slice_closed(btc_confirm_full, confirm_frame, asof)
+        return _slice_closed(btc_base_full, base_frame, asof)
 
     signals = []
     waiting = False
@@ -469,7 +469,7 @@ def _scan_pair_side(
             get_raw,
             ready_since=ready_since,
             variant=variant,
-            df_btc_confirm=_btc_confirm_at(asof),
+            df_btc_base=_btc_base_at(asof),
         )
 
         if waiting:
@@ -510,7 +510,7 @@ def _scan_pair_side(
                     get_raw,
                     ready_since=ready_since,
                     variant=variant,
-                    df_btc_confirm=_btc_confirm_at(tip_asof),
+                    df_btc_base=_btc_base_at(tip_asof),
                 )
                 if (
                     tip_candidate["df_base"].empty

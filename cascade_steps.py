@@ -359,7 +359,9 @@ def _step6(candidate, rules):
 
     variant = _variant(candidate)
 
-    # Experiment: confirm-frame EMA50 tip filter (buy above / sell below).
+    # Experiment: at entry, confirm tip vs EMA50 —
+    # buy requires confirm ABOVE EMA50; sell requires confirm BELOW EMA50.
+    # Example: base 60m / confirm 180m / entry 20m → check 180m vs EMA50.
     if variant.get("ema_on_confirm"):
         if rules.signal_type == "buy":
             if not check_ema50_above(candidate["df_confirm"]):
@@ -380,13 +382,13 @@ def _step6(candidate, rules):
         ):
             return False, rules.confirm_rsi_reason
 
-    # Experiment: correlation with BTC on confirm frame (alts only).
+    # Experiment: correlation with BTC on the BASE frame (alts only).
     btc_corr_min = variant.get("btc_corr_min")
     if btc_corr_min is not None and candidate.get("sym") != "BTCUSDT":
-        df_btc = candidate.get("df_btc_confirm")
+        df_btc = candidate.get("df_btc_base")
         lookback = int(variant.get("btc_corr_lookback") or 50)
         if not check_btc_correlation(
-            candidate["df_confirm"],
+            candidate["df_base"],
             df_btc,
             lookback=lookback,
             min_corr=float(btc_corr_min),
