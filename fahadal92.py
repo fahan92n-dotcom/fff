@@ -79,7 +79,7 @@ from cascade_pipeline import (
     _has_higher_tf_saturation, _refresh_waiting_candidate,
     _refresh_and_validate_step5, _refresh_and_validate_step5_short,
     _run_step_batch, run_cascade_scan, run_short_cascade_scan,
-    quick_check_watcher, set_signal_handler,
+    quick_check_watcher, set_signal_handler, audit_broken_frames,
 )
 from main import (
     HealthHandler,
@@ -341,6 +341,91 @@ def handle_diag_command(chat_id):
     )
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
+
+
+def _arabic_frame_count(count):
+    """Arabic plural phrasing for broken-frame counts."""
+    if count == 1:
+        return "فريم واحد معطوب"
+    if count == 2:
+        return "فريمان معطوبان"
+    if 3 <= count <= 10:
+        return f"{count} فريمات معطوبة"
+    return f"{count} فريماً معطوباً"
+
+
+def format_broken_frames_report(report):
+    """Format audit_broken_frames() output into Telegram HTML chunks."""
+    if not report.get("ready"):
+        return [
+            "⏳ البيانات الأولية لم تكتمل بعد.\n"
+            "انتظر انتهاء التحميل ثم أعد طلب "
+            "<code>/broken_frames</code>."
+        ]
+
+    broken_by_symbol = report.get("broken_by_symbol") or {}
+    symbols_checked = report.get("symbols_checked", 0)
+    total_pairs = report.get("total_pairs", len(TRIPLING_PAIRS))
+    broken_frame_count = report.get("broken_frame_count", 0)
+    ok_count = len(report.get("ok_symbols") or [])
+
+    if not broken_by_symbol:
+        return [
+            "✅ <b>كل الفريمات شغّالة</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"تم فحص <b>{symbols_checked}</b> عملة × "
+            f"<b>{total_pairs}</b> فريم ثلاثي.\n"
+            "ما في أي فريم متخطّى بسبب نقص بيانات أو شموع."
+        ]
+
+    header = (
+        "🛠️ <b>تقرير الفريمات المعطوبة</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"عملات فيها مشاكل: <b>{len(broken_by_symbol)}</b> / {symbols_checked}\n"
+        f"إجمالي الفريمات المعطوبة: <b>{broken_frame_count}</b>\n"
+        f"عملات سليمة بالكامل: <b>{ok_count}</b>\n"
+    )
+
+    blocks = [header]
+    for symbol in sorted(broken_by_symbol):
+        issues = broken_by_symbol[symbol]
+        lines = [
+            f"• <code>{html_escape(symbol)}</code> — "
+            f"{_arabic_frame_count(len(issues))}:"
+        ]
+        for issue in issues:
+            frames = (
+                f"{issue['base_frame']}m / "
+                f"{issue['confirm_frame']}m / "
+                f"{issue['triple_frame']}m"
+            )
+            detail = html_escape(str(issue.get("detail") or issue.get("reason")))
+            lines.append(f"  ◦ <code>{frames}</code> — {detail}")
+        blocks.append("\n".join(lines))
+
+    # Pack into Telegram-safe chunks (~4000 chars).
+    chunks = []
+    current = ""
+    for block in blocks:
+        candidate = block if not current else f"{current}\n\n{block}"
+        if len(candidate) > 4000 and current:
+            chunks.append(current)
+            current = block
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def handle_broken_frames_command(chat_id, symbol=None):
+    """معالج أمر /broken_frames — يعرض الفريمات التي يتخطاها الماسح."""
+    symbols = None
+    if symbol:
+        symbols = [symbol.upper().replace("/", "").strip()]
+    report = audit_broken_frames(symbols=symbols)
+    for chunk in format_broken_frames_report(report):
+        send_telegram(chunk, chat_id)
 
 def get_top_hard_filters(signal_type="buy", top_n=3, max_pass_pct=10.0):
     """
@@ -731,6 +816,11 @@ def _dispatch_command_inner(txt, chat_id):
     elif txt in ("/diag_failures", "/diag"):
         handle_diag_command(chat_id)
 
+    elif txt.startswith("/broken_frames") or txt.startswith("/فريمات"):
+        parts = txt.split()
+        symbol = parts[1] if len(parts) > 1 else None
+        handle_broken_frames_command(chat_id, symbol)
+
     # المساعدة
     elif txt == "/help":
         send_telegram(
@@ -745,6 +835,7 @@ def _dispatch_command_inner(txt, chat_id):
             "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
             "🔴 <code>/cascade_diag_sell</code> أو <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
             "🧪 <code>/diag_failures</code> أو <code>/diag</code> — تشخيص أسباب ضعف الإشارات\n"
+            "🛠️ <code>/broken_frames</code> أو <code>/فريمات</code> — الفريمات المعطوبة لكل عملة\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>🎯 الناجحون (شراء):</b>\n"
             "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"
