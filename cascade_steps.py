@@ -12,9 +12,12 @@ from indicators import (
     WARMUP_MACD,
     WARMUP_SMI,
     calc_smi,
+    check_btc_correlation,
     check_confirm_rsi_not_overbought,
     check_confirm_rsi_not_oversold,
     check_donchian_trend_ribbon,
+    check_ema50_above,
+    check_ema50_below,
     check_ema50_closed_above_since,
     check_ema50_closed_below_since,
     check_macd_green,
@@ -322,7 +325,15 @@ def _step3(candidate, rules):
     )
 
 
+def _variant(candidate):
+    """Optional experiment overrides attached on the candidate (live path: {})."""
+    value = candidate.get("variant")
+    return value if isinstance(value, dict) else {}
+
+
 def _step4(candidate, rules):
+    if _variant(candidate).get("skip_donchian_confirm"):
+        return True, "passed"
     return _ribbon_step(
         candidate,
         rules,
@@ -345,12 +356,43 @@ def _step6(candidate, rules):
     since_ts = _ready_since(candidate, rules)
     if not rules.ema_check(candidate["df_base"], since_ts):
         return False, rules.ema_reason
-    if not rules.confirm_rsi_check(
-        candidate["df_confirm"],
-        lookback=30,
-        threshold=rules.confirm_rsi_threshold,
-    ):
-        return False, rules.confirm_rsi_reason
+
+    variant = _variant(candidate)
+
+    # Experiment: confirm-frame EMA50 tip filter (buy above / sell below).
+    if variant.get("ema_on_confirm"):
+        if rules.signal_type == "buy":
+            if not check_ema50_above(candidate["df_confirm"]):
+                return False, "ema50_confirm"
+        elif not check_ema50_below(candidate["df_confirm"]):
+            return False, "ema50_confirm"
+
+    # Experiment: RSI confirm lookback (None disables the filter).
+    if "confirm_rsi_lookback" in variant:
+        rsi_lookback = variant.get("confirm_rsi_lookback")
+    else:
+        rsi_lookback = 30
+    if rsi_lookback is not None:
+        if not rules.confirm_rsi_check(
+            candidate["df_confirm"],
+            lookback=int(rsi_lookback),
+            threshold=rules.confirm_rsi_threshold,
+        ):
+            return False, rules.confirm_rsi_reason
+
+    # Experiment: correlation with BTC on confirm frame (alts only).
+    btc_corr_min = variant.get("btc_corr_min")
+    if btc_corr_min is not None and candidate.get("sym") != "BTCUSDT":
+        df_btc = candidate.get("df_btc_confirm")
+        lookback = int(variant.get("btc_corr_lookback") or 50)
+        if not check_btc_correlation(
+            candidate["df_confirm"],
+            df_btc,
+            lookback=lookback,
+            min_corr=float(btc_corr_min),
+        ):
+            return False, "btc_corr"
+
     return True, "passed"
 
 
