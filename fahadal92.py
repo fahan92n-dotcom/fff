@@ -102,6 +102,7 @@ from telegram_bot import (
     send_telegram,
     set_command_handler,
 )
+from week_scan import handle_week_command
 
 def get_report(period="today", signal_type=None):
     now = datetime.now(timezone.utc)
@@ -895,7 +896,8 @@ def _dispatch_command_inner(txt, chat_id):
     elif txt in ("2", "/yesterday"):
         send_telegram(get_report("yesterday"), chat_id)
     elif txt in ("3", "/week"):
-        send_telegram(get_report("week"), chat_id)
+        # Fetch last-7-days strategy trades from market data (not in-memory storage).
+        handle_week_command(chat_id, send_telegram)
 
     # فحص العملة
     elif txt.startswith("/check5"):
@@ -987,7 +989,8 @@ def _dispatch_command_inner(txt, chat_id):
             "<b>📊 التقارير:</b>\n"
             "1️⃣ <code>1</code> أو <code>/today</code> — إشارات اليوم\n"
             "2️⃣ <code>2</code> أو <code>/yesterday</code> — إشارات أمس\n"
-            "3️⃣ <code>3</code> أو <code>/week</code> — آخر 7 أيام\n"
+            "3️⃣ <code>3</code> أو <code>/week</code> — صفقات الاستراتيجية آخر 7 أيام "
+            "(نجاح +1% / خسارة ارتداد 0.70%)\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>🔍 التحليل:</b>\n"
             "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"

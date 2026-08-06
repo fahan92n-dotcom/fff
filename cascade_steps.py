@@ -206,8 +206,13 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
         return False
 
     native_api = TF_TO_API.get(higher_tf, candidate["base_api"])
-    raw_native = get_cached(candidate["sym"], native_api)
-    if raw_native.empty:
+    get_raw = candidate.get("get_raw")
+    raw_native = (
+        get_raw(candidate["sym"], native_api)
+        if callable(get_raw)
+        else get_cached(candidate["sym"], native_api)
+    )
+    if raw_native is None or getattr(raw_native, "empty", True):
         return False
 
     higher_frame = get_resampled(
@@ -243,6 +248,9 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
 
 
 def _ready_since(candidate, rules):
+    # Historical replay injects ready_since on the candidate to avoid live STATE.
+    if candidate.get("ready_since") is not None:
+        return candidate["ready_since"]
     return get_step1_ready_since(
         candidate["sym"],
         candidate["base_frame"],
@@ -286,11 +294,14 @@ def _step2(candidate, rules):
 
 
 def _ribbon_step(candidate, rules, frame_key, api_key, direction, reason):
-    key = (
-        candidate["sym"],
-        candidate[api_key],
-        candidate[f"{frame_key}_frame"],
-    )
+    if candidate.get("disable_ribbon_cache"):
+        key = None
+    else:
+        key = (
+            candidate["sym"],
+            candidate[api_key],
+            candidate[f"{frame_key}_frame"],
+        )
     if not check_donchian_trend_ribbon(
         candidate[f"df_{frame_key}"],
         direction,
