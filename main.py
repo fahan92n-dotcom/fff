@@ -9,6 +9,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from binance_data import (
@@ -34,6 +35,7 @@ from binance_data import (
 )
 from cascade_pipeline import (
     TIMEFRAME_CHAIN,
+    audit_broken_frames,
     quick_check_watcher,
     run_cascade_scan,
     run_short_cascade_scan,
@@ -42,7 +44,11 @@ from cascade_pipeline import (
 from config import PORT
 from indicators import _ribbon_cache, _ribbon_cache_lock
 from state_manager import (
+    BROKEN_FRAMES_SNAPSHOT_INTERVAL,
     cleanup_alerted_keys,
+    last_broken_frames_snapshot_at,
+    broken_frames_history_lock,
+    record_broken_frames_snapshot,
     trades_history,
     trades_lock,
 )
@@ -247,9 +253,26 @@ def start_background_services():
     return server
 
 
+def _should_snapshot_broken_frames():
+    """True when the periodic broken-frames audit is due."""
+    if not fast_prefetch_done.is_set():
+        return False
+    now = datetime.now(timezone.utc)
+    with broken_frames_history_lock:
+        last_at = last_broken_frames_snapshot_at.get("at")
+    if last_at is None:
+        return True
+    return now - last_at >= BROKEN_FRAMES_SNAPSHOT_INTERVAL
+
+
 def heartbeat_once():
     """Clean expired state and log one process heartbeat."""
     cleanup_alerted_keys()
+    if _should_snapshot_broken_frames():
+        try:
+            record_broken_frames_snapshot(audit_broken_frames(), force=False)
+        except Exception:  # pylint: disable=broad-exception-caught
+            log.exception("broken-frames snapshot failed during heartbeat")
     with ohlcv_cache_lock:
         cache_size = len(ohlcv_cache)
     with trades_lock:

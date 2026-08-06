@@ -68,6 +68,8 @@ from state_manager import (
     _store_step5_waiters, _promote_candidates, _set_step8_survivors,
     _clear_waiting_candidate, abandon_waiting_candidate,
     _purge_orphaned_ready_timestamps, _update_last_complete_step,
+    record_broken_frames_snapshot, get_broken_frames_history,
+    aggregate_broken_frames_history,
 )
 from cascade_pipeline import (
     TRIPLING_PAIRS, TIMEFRAME_CHAIN, NEXT_TF, TF_TO_API,
@@ -79,7 +81,7 @@ from cascade_pipeline import (
     _has_higher_tf_saturation, _refresh_waiting_candidate,
     _refresh_and_validate_step5, _refresh_and_validate_step5_short,
     _run_step_batch, run_cascade_scan, run_short_cascade_scan,
-    quick_check_watcher, set_signal_handler,
+    quick_check_watcher, set_signal_handler, audit_broken_frames,
 )
 from main import (
     HealthHandler,
@@ -341,6 +343,241 @@ def handle_diag_command(chat_id):
     )
     for i in range(0, len(msg), 4000):
         send_telegram(msg[i:i + 4000], chat_id)
+
+
+def _arabic_broken_frame_count(count):
+    """Arabic plural phrasing for broken-frame counts."""
+    if count == 1:
+        return "فريم واحد معطوب"
+    if count == 2:
+        return "فريمان معطوبان"
+    if 3 <= count <= 10:
+        return f"{count} فريمات معطوبة"
+    return f"{count} فريماً معطوباً"
+
+
+def _arabic_ok_frame_count(count):
+    """Arabic plural phrasing for healthy-frame counts."""
+    if count == 1:
+        return "فريم واحد صالح"
+    if count == 2:
+        return "فريمان صالحان"
+    if 3 <= count <= 10:
+        return f"{count} فريمات صالحة"
+    return f"{count} فريماً صالحاً"
+
+
+def _format_frame_triple(item):
+    """Compact base/confirm/triple label for Telegram."""
+    return (
+        f"{item['base_frame']}m / "
+        f"{item['confirm_frame']}m / "
+        f"{item['triple_frame']}m"
+    )
+
+
+def _pack_telegram_chunks(blocks):
+    """Pack text blocks into Telegram-safe chunks (~4000 chars)."""
+    chunks = []
+    current = ""
+    for block in blocks:
+        candidate = block if not current else f"{current}\n\n{block}"
+        if len(candidate) > 4000 and current:
+            chunks.append(current)
+            current = block
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def format_broken_frames_report(report, *, detail_symbol=False):
+    """
+    Format audit into Telegram HTML chunks showing صالح vs معطوب.
+
+    For a full ~100-coin scan: list broken frames in detail, and healthy frames
+    as a compact base-frame list. For a single-symbol query (`detail_symbol`),
+    list every healthy triple explicitly.
+    """
+    if not report.get("ready"):
+        return [
+            "⏳ البيانات الأولية لم تكتمل بعد.\n"
+            "انتظر انتهاء التحميل ثم أعد طلب "
+            "<code>/broken_frames</code>."
+        ]
+
+    broken_by_symbol = report.get("broken_by_symbol") or {}
+    ok_frames_by_symbol = report.get("ok_frames_by_symbol") or {}
+    ok_symbols = list(report.get("ok_symbols") or [])
+    symbols_checked = report.get("symbols_checked", 0)
+    total_pairs = report.get("total_pairs", len(TRIPLING_PAIRS))
+    broken_frame_count = report.get("broken_frame_count", 0)
+    ok_frame_count = report.get(
+        "ok_frame_count",
+        sum(len(items) for items in ok_frames_by_symbol.values()),
+    )
+
+    header = (
+        "🛠️ <b>فحص الفريمات (صالح / معطوب)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"العملات المفحوصة: <b>{symbols_checked}</b> × "
+        f"<b>{total_pairs}</b> فريم\n"
+        f"✅ فريمات صالحة: <b>{ok_frame_count}</b>\n"
+        f"❌ فريمات معطوبة: <b>{broken_frame_count}</b>\n"
+        f"عملات سليمة بالكامل: <b>{len(ok_symbols)}</b>\n"
+        f"عملات فيها معطوب: <b>{len(broken_by_symbol)}</b>\n"
+    )
+
+    if not broken_by_symbol:
+        ok_names = ", ".join(f"<code>{html_escape(s)}</code>" for s in sorted(ok_symbols))
+        body = (
+            f"{header}\n"
+            "✅ <b>كل الفريمات صالحة</b> — ما في أي فريم متخطّى.\n"
+        )
+        if detail_symbol and ok_symbols:
+            symbol = ok_symbols[0]
+            ok_frames = ok_frames_by_symbol.get(symbol) or []
+            lines = [body + f"<b>الصالحة لـ</b> <code>{html_escape(symbol)}</code>:"]
+            for frame in ok_frames:
+                lines.append(f"  ✅ <code>{_format_frame_triple(frame)}</code>")
+            return _pack_telegram_chunks(["\n".join(lines)])
+        if ok_names:
+            body += f"العملات: {ok_names}"
+        return [body]
+
+    blocks = [header]
+
+    for symbol in sorted(broken_by_symbol):
+        issues = broken_by_symbol[symbol]
+        ok_frames = ok_frames_by_symbol.get(symbol) or []
+        lines = [
+            f"• <code>{html_escape(symbol)}</code> — "
+            f"{_arabic_ok_frame_count(len(ok_frames))} / "
+            f"{_arabic_broken_frame_count(len(issues))}:"
+        ]
+        for issue in issues:
+            detail = html_escape(str(issue.get("detail") or issue.get("reason")))
+            lines.append(
+                f"  ❌ <code>{_format_frame_triple(issue)}</code> — {detail}"
+            )
+        if ok_frames:
+            if detail_symbol:
+                lines.append("  <b>الصالحة:</b>")
+                for frame in ok_frames:
+                    lines.append(f"  ✅ <code>{_format_frame_triple(frame)}</code>")
+            else:
+                # Compact: base frames only, keeps 100-coin reports readable.
+                bases = ", ".join(f"{frame['base_frame']}m" for frame in ok_frames)
+                lines.append(f"  ✅ الصالح: <code>{bases}</code>")
+        else:
+            lines.append("  ✅ الصالح: لا يوجد")
+        blocks.append("\n".join(lines))
+
+    if ok_symbols:
+        names = ", ".join(
+            f"<code>{html_escape(symbol)}</code>" for symbol in sorted(ok_symbols)
+        )
+        blocks.append(
+            f"✅ <b>عملات كل فريماتها صالحة ({len(ok_symbols)}):</b>\n{names}"
+        )
+
+    return _pack_telegram_chunks(blocks)
+
+
+def format_broken_frames_week_report(aggregate):
+    """Format last-7-days broken-frame history into Telegram HTML chunks."""
+    snapshots = aggregate.get("snapshots", 0)
+    by_symbol = aggregate.get("by_symbol") or {}
+    first_time = aggregate.get("first_time")
+    last_time = aggregate.get("last_time")
+
+    if snapshots == 0:
+        return [
+            "🗓️ <b>الفريمات المعطوبة — آخر 7 أيام</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "ما فيه سجل محفوظ بعد.\n"
+            "البوت يبدأ يحفظ فحصاً كل 6 ساعات (وفي كل طلب "
+            "<code>/broken_frames</code>).\n"
+            "بعد ما يتراكم السجل، نفس الأمر يعرض المعطوب خلال الأسبوع."
+        ]
+
+    range_txt = ""
+    if first_time and last_time:
+        range_txt = (
+            f"من <code>{first_time.strftime('%Y-%m-%d %H:%M')}</code> "
+            f"إلى <code>{last_time.strftime('%Y-%m-%d %H:%M')}</code> UTC\n"
+        )
+
+    if not by_symbol:
+        return [
+            "🗓️ <b>الفريمات المعطوبة — آخر 7 أيام</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"لقطات محفوظة: <b>{snapshots}</b>\n"
+            f"{range_txt}"
+            "✅ خلال الفترة ما سُجّل أي فريم معطوب."
+        ]
+
+    total_issues = sum(len(items) for items in by_symbol.values())
+    header = (
+        "🗓️ <b>الفريمات المعطوبة — آخر 7 أيام</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"لقطات محفوظة: <b>{snapshots}</b>\n"
+        f"{range_txt}"
+        f"عملات ظهرت فيها معطوب: <b>{len(by_symbol)}</b>\n"
+        f"فريمات معطوبة (فريدة): <b>{total_issues}</b>\n"
+    )
+
+    blocks = [header]
+    for symbol in sorted(by_symbol):
+        entries = by_symbol[symbol]
+        lines = [
+            f"• <code>{html_escape(symbol)}</code> — "
+            f"{_arabic_broken_frame_count(len(entries))} "
+            f"(خلال {snapshots} لقطة):"
+        ]
+        for entry in entries:
+            detail = html_escape(str(entry.get("last_detail") or ""))
+            seen = entry.get("last_seen")
+            seen_txt = (
+                seen.strftime("%m-%d %H:%M") if seen is not None else "?"
+            )
+            lines.append(
+                f"  ❌ <code>{_format_frame_triple(entry)}</code> — "
+                f"ظهر {entry['count']}× | آخر سبب: {detail} "
+                f"| آخر ظهور: <code>{seen_txt}</code>"
+            )
+        blocks.append("\n".join(lines))
+
+    return _pack_telegram_chunks(blocks)
+
+
+def handle_broken_frames_command(chat_id, symbol=None, *, week=False):
+    """معالج أمر /broken_frames — فحص حي أو سجل الأسبوع الماضي."""
+    if week:
+        snapshots = get_broken_frames_history(days=7)
+        # Include a fresh live snapshot in the week view when data is ready.
+        live = audit_broken_frames()
+        if live.get("ready"):
+            record_broken_frames_snapshot(live, force=True)
+            snapshots = get_broken_frames_history(days=7)
+        aggregate = aggregate_broken_frames_history(snapshots)
+        for chunk in format_broken_frames_week_report(aggregate):
+            send_telegram(chunk, chat_id)
+        return
+
+    symbols = None
+    detail_symbol = False
+    if symbol:
+        symbols = [symbol.upper().replace("/", "").strip()]
+        detail_symbol = True
+    report = audit_broken_frames(symbols=symbols)
+    # Full-market live checks feed the weekly history; single-symbol does not.
+    if symbols is None:
+        record_broken_frames_snapshot(report, force=True)
+    for chunk in format_broken_frames_report(report, detail_symbol=detail_symbol):
+        send_telegram(chunk, chat_id)
+
 
 def get_top_hard_filters(signal_type="buy", top_n=3, max_pass_pct=10.0):
     """
@@ -731,6 +968,17 @@ def _dispatch_command_inner(txt, chat_id):
     elif txt in ("/diag_failures", "/diag"):
         handle_diag_command(chat_id)
 
+    elif txt in ("/broken_frames_week", "/فريمات_اسبوع", "/فريمات_أسبوع"):
+        handle_broken_frames_command(chat_id, week=True)
+    elif txt.startswith("/broken_frames") or txt.startswith("/فريمات"):
+        parts = txt.split()
+        arg = parts[1] if len(parts) > 1 else None
+        week_aliases = {"week", "أسبوع", "اسبوع", "الماضي", "weekly"}
+        if arg and arg.lower() in week_aliases:
+            handle_broken_frames_command(chat_id, week=True)
+        else:
+            handle_broken_frames_command(chat_id, arg)
+
     # المساعدة
     elif txt == "/help":
         send_telegram(
@@ -745,6 +993,9 @@ def _dispatch_command_inner(txt, chat_id):
             "🟢 <code>/cascade_diag</code> أو <code>/سبب_شراء</code> — تقرير Cascade الشراء\n"
             "🔴 <code>/cascade_diag_sell</code> أو <code>/سبب_بيع</code> — تقرير Cascade البيع\n"
             "🧪 <code>/diag_failures</code> أو <code>/diag</code> — تشخيص أسباب ضعف الإشارات\n"
+            "🛠️ <code>/broken_frames</code> أو <code>/فريمات</code> — فحص صالح/معطوب لكل العملات\n"
+            "🛠️ <code>/broken_frames BTCUSDT</code> — نفس الفحص لعملة واحدة بالتفصيل\n"
+            "🗓️ <code>/broken_frames week</code> أو <code>/فريمات اسبوع</code> — المعطوب آخر 7 أيام\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>🎯 الناجحون (شراء):</b>\n"
             "🟢 <code>/survivors6</code> — الناجحون حتى الخطوة 6\n"

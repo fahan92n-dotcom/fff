@@ -74,5 +74,17 @@ class CascadeStateStore:
     step5_entry_time: dict = field(default_factory=dict)
     step5_entry_time_lock: threading.Lock = field(default_factory=threading.Lock)
 
+    # Daily/periodic broken-frame audit snapshots for weekly history reports.
+    # Bound keeps ~2 weeks at one snapshot every 6 hours.
+    broken_frames_history: deque = field(
+        default_factory=lambda: deque(maxlen=56)
+    )
+    broken_frames_history_lock: threading.Lock = field(
+        default_factory=threading.Lock
+    )
+    last_broken_frames_snapshot_at: dict = field(
+        default_factory=lambda: {"at": None}
+    )
+
 
 STATE = CascadeStateStore()

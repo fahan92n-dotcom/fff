@@ -163,6 +163,190 @@ def _build_tripling_candidates(symbols, get_resampled):
     return candidates
 
 
+def _classify_broken_frame(
+    raw_by_tf,
+    symbol,
+    base_frame,
+    confirm_frame,
+    triple_frame,
+    base_api,
+    triple_api,
+    get_resampled,
+):
+    """Return a broken-frame record when a tripling pair cannot build, else None."""
+    raw_base = raw_by_tf.get(base_api, pd.DataFrame())
+    raw_triple = raw_by_tf.get(triple_api, pd.DataFrame())
+
+    if raw_base is None or getattr(raw_base, "empty", True):
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "missing_raw_base",
+            "detail": f"بيانات المصدر {base_api} ناقصة",
+            "candle_count": 0,
+        }
+
+    if raw_triple is None or getattr(raw_triple, "empty", True):
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "missing_raw_triple",
+            "detail": f"بيانات مصدر التثليث {triple_api} ناقصة",
+            "candle_count": 0,
+        }
+
+    df_base = get_resampled(raw_base, symbol, base_api, base_frame)
+    if df_base is None or getattr(df_base, "empty", True):
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "empty_resample_base",
+            "detail": f"إعادة العينة للفريم الأساسي {base_frame}m فارغة",
+            "candle_count": 0,
+        }
+
+    df_confirm = get_resampled(raw_base, symbol, base_api, confirm_frame)
+    if df_confirm is None or getattr(df_confirm, "empty", True):
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "empty_resample_confirm",
+            "detail": f"إعادة العينة لفريم التأكيد {confirm_frame}m فارغة",
+            "candle_count": len(df_base),
+        }
+
+    df_triple = get_resampled(raw_triple, symbol, triple_api, triple_frame)
+    if df_triple is None or getattr(df_triple, "empty", True):
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "empty_resample_triple",
+            "detail": f"إعادة العينة لفريم التثليث {triple_frame}m فارغة",
+            "candle_count": len(df_base),
+        }
+
+    candle_count = len(df_base)
+    if candle_count < MIN_CANDLES:
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "min_candles",
+            "detail": f"شموع غير كافية على الأساسي ({candle_count}/{MIN_CANDLES})",
+            "candle_count": candle_count,
+        }
+
+    return None
+
+
+def audit_broken_frames(symbols=None):
+    """
+    Inspect every symbol × TRIPLING_PAIRS entry and classify frames as ok/broken.
+
+    Mirrors the silent skips in `_build_tripling_candidates` so the report matches
+    what the scanner actually drops. Returns both healthy and broken frames per
+    symbol so a full ~100-coin audit can show صالح vs معطوب clearly.
+    """
+    if not fast_prefetch_done.is_set():
+        return {
+            "ready": False,
+            "symbols_checked": 0,
+            "total_pairs": len(TRIPLING_PAIRS),
+            "broken_by_symbol": {},
+            "ok_frames_by_symbol": {},
+            "ok_symbols": [],
+            "broken_frame_count": 0,
+            "ok_frame_count": 0,
+        }
+
+    if symbols is None:
+        with symbols_cache_lock:
+            symbols = list(symbols_cache)
+    else:
+        symbols = list(symbols)
+
+    _, get_resampled = _new_resampler()
+    broken_by_symbol = {}
+    ok_frames_by_symbol = {}
+    ok_symbols = []
+
+    for symbol in symbols:
+        raw_by_tf = {
+            "1m": get_cached(symbol, "1m"),
+            "30m": get_cached(symbol, "30m"),
+            "60m": get_cached(symbol, "60m"),
+        }
+        broken = []
+        ok_frames = []
+        for (
+            base_frame,
+            confirm_frame,
+            triple_frame,
+            base_api,
+            triple_api,
+        ) in TRIPLING_PAIRS:
+            issue = _classify_broken_frame(
+                raw_by_tf,
+                symbol,
+                base_frame,
+                confirm_frame,
+                triple_frame,
+                base_api,
+                triple_api,
+                get_resampled,
+            )
+            if issue is not None:
+                broken.append(issue)
+            else:
+                ok_frames.append(
+                    {
+                        "base_frame": base_frame,
+                        "confirm_frame": confirm_frame,
+                        "triple_frame": triple_frame,
+                        "base_api": base_api,
+                        "triple_api": triple_api,
+                    }
+                )
+
+        ok_frames_by_symbol[symbol] = ok_frames
+        if broken:
+            broken_by_symbol[symbol] = broken
+        else:
+            ok_symbols.append(symbol)
+
+    return {
+        "ready": True,
+        "symbols_checked": len(symbols),
+        "total_pairs": len(TRIPLING_PAIRS),
+        "broken_by_symbol": broken_by_symbol,
+        "ok_frames_by_symbol": ok_frames_by_symbol,
+        "ok_symbols": ok_symbols,
+        "broken_frame_count": sum(
+            len(items) for items in broken_by_symbol.values()
+        ),
+        "ok_frame_count": sum(
+            len(items) for items in ok_frames_by_symbol.values()
+        ),
+    }
+
+
 def _run_step_batch(
     candidates,
     step_fn,

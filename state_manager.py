@@ -40,6 +40,11 @@ step7_ready_since = STATE.step7_ready_since
 step7_ready_since_lock = STATE.step7_ready_since_lock
 step5_entry_time = STATE.step5_entry_time
 step5_entry_time_lock = STATE.step5_entry_time_lock
+broken_frames_history = STATE.broken_frames_history
+broken_frames_history_lock = STATE.broken_frames_history_lock
+last_broken_frames_snapshot_at = STATE.last_broken_frames_snapshot_at
+
+BROKEN_FRAMES_SNAPSHOT_INTERVAL = timedelta(hours=6)
 
 
 def cleanup_alerted_keys(expiry_hours=ALERT_EXPIRY_HOURS):
@@ -78,6 +83,145 @@ def save_signal(symbol, price, base_frame, confirm_frame, triple_frame, signal_t
                 "type": signal_type,
             }
         )
+
+
+def record_broken_frames_snapshot(report, *, force=False):
+    """
+    Store one lean broken-frames audit snapshot for weekly history.
+
+    Skips empty/not-ready reports. Unless ``force`` is set, also skips when a
+    snapshot was already recorded within BROKEN_FRAMES_SNAPSHOT_INTERVAL.
+    """
+    if not report or not report.get("ready"):
+        return False
+
+    now = datetime.now(timezone.utc)
+    with broken_frames_history_lock:
+        last_at = last_broken_frames_snapshot_at.get("at")
+        if (
+            not force
+            and last_at is not None
+            and now - last_at < BROKEN_FRAMES_SNAPSHOT_INTERVAL
+        ):
+            return False
+
+        lean_broken = {}
+        for symbol, issues in (report.get("broken_by_symbol") or {}).items():
+            lean_broken[symbol] = [
+                {
+                    "base_frame": issue["base_frame"],
+                    "confirm_frame": issue["confirm_frame"],
+                    "triple_frame": issue["triple_frame"],
+                    "reason": issue.get("reason"),
+                    "detail": issue.get("detail"),
+                }
+                for issue in issues
+            ]
+
+        broken_frames_history.append(
+            {
+                "time": now,
+                "symbols_checked": int(report.get("symbols_checked") or 0),
+                "broken_frame_count": int(report.get("broken_frame_count") or 0),
+                "broken_by_symbol": lean_broken,
+            }
+        )
+        last_broken_frames_snapshot_at["at"] = now
+    return True
+
+
+def get_broken_frames_history(days=7):
+    """Return snapshots newer than ``days`` ago, oldest first."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    with broken_frames_history_lock:
+        rows = [
+            snapshot
+            for snapshot in broken_frames_history
+            if snapshot.get("time") and snapshot["time"] >= cutoff
+        ]
+    return rows
+
+
+def aggregate_broken_frames_history(snapshots):
+    """
+    Merge snapshots into per-symbol broken-frame occurrences for a period.
+
+    Returns:
+      {
+        "snapshots": int,
+        "first_time": datetime|None,
+        "last_time": datetime|None,
+        "by_symbol": {
+          "BTCUSDT": [
+            {
+              "base_frame": 240,
+              "confirm_frame": 720,
+              "triple_frame": 80,
+              "count": 3,
+              "last_detail": "...",
+              "last_seen": datetime,
+            },
+            ...
+          ]
+        }
+      }
+    """
+    by_key = {}
+    first_time = None
+    last_time = None
+
+    for snapshot in snapshots:
+        seen_at = snapshot.get("time")
+        if seen_at is not None:
+            if first_time is None or seen_at < first_time:
+                first_time = seen_at
+            if last_time is None or seen_at > last_time:
+                last_time = seen_at
+
+        for symbol, issues in (snapshot.get("broken_by_symbol") or {}).items():
+            for issue in issues:
+                key = (
+                    symbol,
+                    issue["base_frame"],
+                    issue["confirm_frame"],
+                    issue["triple_frame"],
+                )
+                entry = by_key.get(key)
+                if entry is None:
+                    by_key[key] = {
+                        "symbol": symbol,
+                        "base_frame": issue["base_frame"],
+                        "confirm_frame": issue["confirm_frame"],
+                        "triple_frame": issue["triple_frame"],
+                        "count": 1,
+                        "last_detail": issue.get("detail") or issue.get("reason"),
+                        "last_seen": seen_at,
+                    }
+                else:
+                    entry["count"] += 1
+                    if seen_at is not None and (
+                        entry["last_seen"] is None or seen_at >= entry["last_seen"]
+                    ):
+                        entry["last_seen"] = seen_at
+                        entry["last_detail"] = (
+                            issue.get("detail") or issue.get("reason")
+                        )
+
+    by_symbol = {}
+    for entry in by_key.values():
+        by_symbol.setdefault(entry["symbol"], []).append(entry)
+
+    for symbol in by_symbol:
+        by_symbol[symbol].sort(
+            key=lambda item: (-item["count"], item["base_frame"])
+        )
+
+    return {
+        "snapshots": len(snapshots),
+        "first_time": first_time,
+        "last_time": last_time,
+        "by_symbol": by_symbol,
+    }
 
 
 def get_candidate_key(candidate):
