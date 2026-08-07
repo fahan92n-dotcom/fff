@@ -42,7 +42,7 @@ SMI_BUY = 40
 RSI_MID = 50
 HALT_MAIN_MINUTES = 7 * 60  # 7h — stop, no level beyond 6h
 VISION_KLINES = "https://data-api.binance.vision/api/v3/klines"
-MIN_1M_BARS = 20_000
+MIN_1M_BARS = 45_000  # need ~100+ bars even on 6h for SMI warmup
 
 # main, confirm_min, confirm_stop, entry
 LEVELS = (
