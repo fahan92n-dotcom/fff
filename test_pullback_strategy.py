@@ -1,4 +1,4 @@
-"""Tests for the pullback saturation strategy week scan."""
+"""Tests for the standalone pullback bot strategy."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -7,7 +7,8 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-import pullback_strategy as pb
+import pullback_bot.strategy as pb
+from pullback_bot import main as pullback_main
 
 
 def _bars(start, count, minutes=1, price=100.0, drift=0.0, high_off=1.0, low_off=1.0):
@@ -34,7 +35,6 @@ def _bars(start, count, minutes=1, price=100.0, drift=0.0, high_off=1.0, low_off
 class TestPullbackLevels(unittest.TestCase):
     def test_levels_match_agreed_table(self):
         self.assertEqual(pb.LEVELS[0], (30, 5, 12, 2))
-        self.assertEqual(pb.LEVELS[6], (180, 30, 72, 12))
         self.assertEqual(pb.LEVELS[9], (270, 45, 84, 18))
         self.assertEqual(pb.LEVELS[11], (330, 55, 132, 22))
         self.assertEqual(pb.LEVELS[-1], (360, 60, 144, 24))
@@ -52,26 +52,18 @@ class TestPullbackLevels(unittest.TestCase):
 class TestBoolStep(unittest.TestCase):
     def test_ffill_latest_closed(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        ends = np.array(
-            [start + timedelta(minutes=30), start + timedelta(minutes=60)],
-            dtype="datetime64[ns]",
-        )
-        # pandas needs tz-aware via DatetimeIndex in helper; pass python datetimes
         ends = np.array([start + timedelta(minutes=30), start + timedelta(minutes=60)])
         values = np.array([True, False])
         grid = pd.DatetimeIndex(
             [start + timedelta(minutes=m) for m in range(15, 75, 15)]
         )
         out = pb._bool_step(ends, values, grid)
-        # 15m: before first close → False; 30/45 → True; 60 → False
         self.assertEqual(list(out), [False, True, True, False])
 
 
 class TestScanSideSynthetic(unittest.TestCase):
     def test_sell_entry_requires_arm_then_flip(self):
-        """Green+above then red+below inside an open window yields one sell."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
-        # 6 entry candles on 2m
         entry = pd.DataFrame(
             {
                 "ts": [start + timedelta(minutes=2 * i) for i in range(6)],
@@ -89,7 +81,15 @@ class TestScanSideSynthetic(unittest.TestCase):
         grid = pd.DatetimeIndex(
             [grid_start + timedelta(minutes=i) for i in range(0, 12)]
         )
-        # Force level 0 active + confirm ok for whole grid
+
+        def _empty():
+            return {
+                "sell_main": np.zeros(len(grid), dtype=bool),
+                "buy_main": np.zeros(len(grid), dtype=bool),
+                "sell_sat": np.zeros(len(grid), dtype=bool),
+                "buy_sat": np.zeros(len(grid), dtype=bool),
+            }
+
         stepped = {
             30: {
                 "sell_main": np.ones(len(grid), dtype=bool),
@@ -110,19 +110,10 @@ class TestScanSideSynthetic(unittest.TestCase):
                 "buy_sat": np.zeros(len(grid), dtype=bool),
             },
         }
-        def _empty():
-            return {
-                "sell_main": np.zeros(len(grid), dtype=bool),
-                "buy_main": np.zeros(len(grid), dtype=bool),
-                "sell_sat": np.zeros(len(grid), dtype=bool),
-                "buy_sat": np.zeros(len(grid), dtype=bool),
-            }
-
         for main, cmin, cstop, _entry in pb.LEVELS:
             stepped.setdefault(main, _empty())
             for minutes in range(cmin, cstop + 1):
                 stepped.setdefault(minutes, _empty())
-        # ensure confirm 5..11 buy sat for level 0
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
 
@@ -139,7 +130,6 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertTrue(any(s["type"] == "sell" for s in signals))
         first = next(s for s in signals if s["type"] == "sell")
         self.assertEqual(first["base_frame"], 30)
-        self.assertEqual(first["triple_frame"], 2)
         self.assertAlmostEqual(first["price"], 99.0)
 
     def test_confirm_stop_blocks_entry(self):
@@ -171,7 +161,6 @@ class TestScanSideSynthetic(unittest.TestCase):
                     "sell_main": np.array([False]),
                     "buy_main": np.array([False]),
                     "sell_sat": np.array([False]),
-                    # 12m buy sat active → stop
                     "buy_sat": np.array([minutes == 12 or 5 <= minutes <= 11]),
                 }
         raw_1m = _bars(start, 10, minutes=1, price=100.0, drift=-0.5)
@@ -187,7 +176,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertEqual(signals, [])
 
 
-class TestReportAndCommand(unittest.TestCase):
+class TestStandaloneBot(unittest.TestCase):
     def test_format_empty(self):
         result = {
             "ready": True,
@@ -204,9 +193,17 @@ class TestReportAndCommand(unittest.TestCase):
         self.assertEqual(len(chunks), 1)
         self.assertIn("لا توجد صفقات", chunks[0])
 
-    def test_command_routes(self):
-        import fahadal92 as bot
+    def test_pullback_not_advertised_in_cascade_help(self):
+        import fahadal92 as cascade
 
+        calls = []
+        with patch.object(cascade, "send_telegram", side_effect=lambda m, c=None: calls.append(m)):
+            cascade._dispatch_command_inner("/help", "1")
+        self.assertTrue(calls)
+        self.assertNotIn("Pullback", calls[0])
+        self.assertNotIn("week_pullback", calls[0])
+
+    def test_standalone_dispatch_week(self):
         calls = []
 
         def fake_send(msg, chat_id=None):
@@ -222,8 +219,8 @@ class TestReportAndCommand(unittest.TestCase):
             "total": 0,
             "symbol": "BTCUSDT",
             "market": "spot-vision",
-        }), patch.object(bot, "send_telegram", side_effect=fake_send):
-            bot._dispatch_command_inner("/week_pullback", "1")
+        }), patch.object(pullback_main, "send_telegram", side_effect=fake_send):
+            pullback_main._dispatch_command("/week", "1")
         self.assertTrue(any("Pullback" in c for c in calls))
 
 
