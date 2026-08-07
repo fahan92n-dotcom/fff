@@ -195,38 +195,45 @@ def check_macd_line_short(df, pct=0.40, base_frame=60):
 # Donchian
 # ------------------------------------------
 
-def calc_donchian_trend_pine(close_arr, high_arr, low_arr, length):
+def calc_donchian_trend_series(close_arr, high_arr, low_arr, length):
     """
-    Pine-exact Donchian trend replicating dchannel(len) from the Pine Script:
+    Pine-exact Donchian trend series replicating dchannel(len):
 
-        hh = highest(len)          -- rolling max of high INCLUDING current bar
-        ll = lowest(len)           -- rolling min of low  INCLUDING current bar
+        hh = highest(len)
+        ll = lowest(len)
         trend := close > hh[1] ? 1 : close < ll[1] ? -1 : nz(trend[1])
 
-    hh[1] / ll[1] in Pine = prior bar's rolling max/min, implemented here as
-    rolling(length).max/min().shift(1).  Trend is carried forward via ffill
-    (equivalent to nz(trend[1])).  Only closed-candle data should be passed.
-
-    Returns 1 (bullish), -1 (bearish), or 0 (insufficient data).
+    Returns a float Series of 1 (bullish), -1 (bearish), or 0 (unknown/warmup).
     """
     n = len(close_arr)
-    if n < length + 1:
-        return 0
+    if n == 0:
+        return pd.Series(dtype=float)
 
     high_s = pd.Series(high_arr, dtype=float)
     low_s = pd.Series(low_arr, dtype=float)
     close_s = pd.Series(close_arr, dtype=float)
 
-    # hh[1] / ll[1]: rolling max/min over `length` bars, shifted back 1 bar
+    if n < length + 1:
+        return pd.Series(0.0, index=close_s.index, dtype=float)
+
     hh = high_s.rolling(length, min_periods=length).max().shift(1)
     ll = low_s.rolling(length, min_periods=length).min().shift(1)
 
     raw = pd.Series(np.nan, index=close_s.index, dtype=float)
     raw[close_s.gt(hh).fillna(False)] = 1.0
     raw[close_s.lt(ll).fillna(False)] = -1.0
+    return raw.ffill().fillna(0.0)
 
-    # nz(trend[1]): carry the last known trend forward
-    trend = raw.ffill().fillna(0)
+
+def calc_donchian_trend_pine(close_arr, high_arr, low_arr, length):
+    """
+    Pine-exact Donchian trend replicating dchannel(len) from the Pine Script.
+
+    Returns 1 (bullish), -1 (bearish), or 0 (insufficient data).
+    """
+    trend = calc_donchian_trend_series(close_arr, high_arr, low_arr, length)
+    if trend.empty:
+        return 0
     try:
         return int(trend.iloc[-1])
     except (IndexError, TypeError, ValueError):
@@ -299,14 +306,19 @@ def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
 # EMA
 # ------------------------------------------
 
+def calc_ema(close, span=60):
+    """EMA على الإغلاق (adjust=False مطابقة TradingView/pandas الشائعة)."""
+    return close.ewm(span=int(span), adjust=False).mean()
+
+
 def check_ema50_below(df):
     """آخر شمعة تقفل تحت EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
-    ema = df["close"].ewm(span=50, adjust=False).mean()
+    ema = calc_ema(df["close"], span=50)
     return bool(df["close"].iloc[-1] < ema.iloc[-1])
 
 def check_ema50_above(df):
     """آخر شمعة تقفل فوق EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
-    ema = df["close"].ewm(span=50, adjust=False).mean()
+    ema = calc_ema(df["close"], span=50)
     return bool(df["close"].iloc[-1] > ema.iloc[-1])
 
 
