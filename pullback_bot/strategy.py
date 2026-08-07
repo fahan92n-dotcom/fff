@@ -12,16 +12,21 @@ Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 from html import escape as html_escape
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import requests
 
-from binance_data import get_session
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from indicators import (
     DONCHIAN_DLEN,
     WARMUP_SMI,
@@ -31,7 +36,6 @@ from indicators import (
     calc_smi,
     resample_ohlcv_closed,
 )
-from week_scan import DEDUPE_HOURS, LOSS_PCT, WEEK_DAYS, WIN_PCT, evaluate_outcome
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +47,11 @@ RSI_MID = 50
 HALT_MAIN_MINUTES = 7 * 60  # 7h — stop, no level beyond 6h
 VISION_KLINES = "https://data-api.binance.vision/api/v3/klines"
 MIN_1M_BARS = 45_000  # need ~100+ bars even on 6h for SMI warmup
+WIN_PCT = 1.0
+LOSS_PCT = 0.70
+WEEK_DAYS = 7
+DEDUPE_HOURS = 4
+_SESSION = requests.Session()
 
 # main, confirm_min, confirm_stop, entry
 LEVELS = (
@@ -75,6 +84,39 @@ def _utc(ts):
     return ts.astimezone(timezone.utc)
 
 
+def evaluate_outcome(
+    signal_type,
+    entry_price,
+    future_1m,
+    *,
+    win_pct=WIN_PCT,
+    loss_pct=LOSS_PCT,
+):
+    """Buy/sell win at ±win_pct; loss at adverse loss_pct. Same-bar both → loss."""
+    if future_1m is None or future_1m.empty or entry_price <= 0:
+        return "open", None, None
+
+    if signal_type == "buy":
+        tp = entry_price * (1.0 + win_pct / 100.0)
+        sl = entry_price * (1.0 - loss_pct / 100.0)
+        for row in future_1m.itertuples(index=False):
+            if float(row.low) <= sl:
+                return "loss", sl, _utc(row.ts)
+            if float(row.high) >= tp:
+                return "win", tp, _utc(row.ts)
+    elif signal_type == "sell":
+        tp = entry_price * (1.0 - win_pct / 100.0)
+        sl = entry_price * (1.0 + loss_pct / 100.0)
+        for row in future_1m.itertuples(index=False):
+            if float(row.high) >= sl:
+                return "loss", sl, _utc(row.ts)
+            if float(row.low) <= tp:
+                return "win", tp, _utc(row.ts)
+    else:
+        raise ValueError(f"Unsupported signal type: {signal_type}")
+    return "open", None, None
+
+
 def _all_needed_frames():
     frames = {HALT_MAIN_MINUTES}
     for main, confirm_min, confirm_stop, entry in LEVELS:
@@ -94,13 +136,11 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
     end_ms = int(time.time() * 1000)
     fetched = 0
     retries = 0
-    session = get_session()
-
     while fetched < target:
         batch = min(bin_max, target - fetched)
         start_ms = end_ms - batch * tf_ms
         try:
-            resp = session.get(
+            resp = _SESSION.get(
                 VISION_KLINES,
                 params={
                     "symbol": SYMBOL,
