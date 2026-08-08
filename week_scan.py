@@ -1,10 +1,10 @@
 """Historical week scan: fetch strategy trades from market data (not storage).
 
 `/week` replays the cascade on the last 7 days of OHLCV, then classifies each
-entry as:
-  - win  → price moved +1.00% in favor
-  - loss → price reversed 0.70% against
-  - open → neither level hit yet by the end of available data
+entry by base-frame outcome levels:
+  - 9m..27m   → win +0.67% / loss 0.51% against
+  - 30m..240m → win +1.00% / loss 0.80% against
+  - open      → neither level hit yet by the end of available data
 """
 
 from __future__ import annotations
@@ -63,11 +63,32 @@ from state_manager import ALERT_EXPIRY_HOURS
 
 log = logging.getLogger(__name__)
 
-WIN_PCT = 1.0
-LOSS_PCT = 0.70
+# Outcome levels by base timeframe (minutes).
+SHORT_TF_MAX = 27
+SHORT_WIN_PCT = 0.67
+SHORT_LOSS_PCT = 0.51
+LONG_WIN_PCT = 1.0
+LONG_LOSS_PCT = 0.80
+
+# Back-compat defaults = long-frame bucket (30m..240m).
+WIN_PCT = LONG_WIN_PCT
+LOSS_PCT = LONG_LOSS_PCT
 WEEK_DAYS = 7
 DEDUPE_HOURS = ALERT_EXPIRY_HOURS
 MIN_1M_BARS = 20_000
+
+
+def outcome_levels(base_frame):
+    """Return (win_pct, loss_pct) for a base timeframe in minutes."""
+    if base_frame is None:
+        return LONG_WIN_PCT, LONG_LOSS_PCT
+    try:
+        frame = int(base_frame)
+    except (TypeError, ValueError):
+        return LONG_WIN_PCT, LONG_LOSS_PCT
+    if frame <= SHORT_TF_MAX:
+        return SHORT_WIN_PCT, SHORT_LOSS_PCT
+    return LONG_WIN_PCT, LONG_LOSS_PCT
 
 _week_scan_lock = threading.Lock()
 _week_scan_running = False
@@ -408,10 +429,13 @@ def _scan_pair_side(
         if not (start <= entry["entry_ts"] < end and entry_end <= tip_asof):
             return False
         future = raw_1m.loc[raw_1m["ts"] > entry["entry_ts"]]
+        win_pct, loss_pct = outcome_levels(base_frame)
         outcome, exit_price, exit_ts = evaluate_outcome(
             signal_type,
             entry["price"],
             future,
+            win_pct=win_pct,
+            loss_pct=loss_pct,
         )
         signals.append(
             {
@@ -425,6 +449,8 @@ def _scan_pair_side(
                 "outcome": outcome,
                 "exit_price": exit_price,
                 "exit_ts": exit_ts,
+                "win_pct": win_pct,
+                "loss_pct": loss_pct,
             }
         )
         last_emitted_entry_end = entry_end
@@ -703,6 +729,12 @@ def format_week_trades_report(result):
     start = result["start"].strftime("%Y-%m-%d %H:%M")
     end = result["end"].strftime("%Y-%m-%d %H:%M")
     total = int(result.get("total") or 0)
+    levels_note = (
+        f"• 9–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
+        f"خسارة {SHORT_LOSS_PCT:g}%\n"
+        f"• 30–240م: ربح +{LONG_WIN_PCT:g}% | "
+        f"خسارة {LONG_LOSS_PCT:g}%"
+    )
 
     header = (
         "🗓️ <b>صفقات الاستراتيجية — آخر 7 أيام</b>\n"
@@ -710,9 +742,10 @@ def format_week_trades_report(result):
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         f"عملات مفحوصة: <b>{result.get('symbols_scanned', 0)}</b>\n"
         f"إجمالي الصفقات: <b>{total}</b>\n"
-        f"✅ نجاح (+{WIN_PCT:g}%): <b>{len(wins)}</b>\n"
-        f"❌ خسارة (−{LOSS_PCT:g}% ضد الاتجاه): <b>{len(losses)}</b>\n"
+        f"✅ نجاح: <b>{len(wins)}</b>\n"
+        f"❌ خسارة: <b>{len(losses)}</b>\n"
         f"⏳ مفتوحة: <b>{len(opens)}</b>\n"
+        f"معايير الخروج:\n{levels_note}\n"
     )
 
     if total == 0:
@@ -723,14 +756,14 @@ def format_week_trades_report(result):
 
     chunks = [header]
 
-    win_block = ["✅ <b>الناجحون</b> (تحقق +1%):"]
+    win_block = ["✅ <b>الناجحون</b>:"]
     if wins:
         win_block.extend(_format_trade_line(t) for t in wins)
     else:
         win_block.append("— لا يوجد")
     chunks.append("\n".join(win_block))
 
-    loss_block = ["❌ <b>الخاسرون</b> (ارتداد 0.70% ضد الصفقة):"]
+    loss_block = ["❌ <b>الخاسرون</b>:"]
     if losses:
         loss_block.extend(_format_trade_line(t) for t in losses)
     else:
@@ -738,7 +771,7 @@ def format_week_trades_report(result):
     chunks.append("\n".join(loss_block))
 
     if opens:
-        open_block = ["⏳ <b>مفتوحة</b> (ما وصل 1% ولا 0.70% ضدها بعد):"]
+        open_block = ["⏳ <b>مفتوحة</b> (لم يصل هدف الربح ولا وقف الخسارة بعد):"]
         open_block.extend(_format_trade_line(t) for t in opens)
         chunks.append("\n".join(open_block))
 
@@ -788,9 +821,11 @@ def handle_week_command(chat_id, send_telegram):
             )
         else:
             send_telegram(
-                "📡 جاري جلب صفقات الاستراتيجية لآخر 7 أيام من بيانات السوق...\n"
-                f"معيار النجاح: <b>+{WIN_PCT:g}%</b> | "
-                f"الخسارة: ارتداد <b>{LOSS_PCT:g}%</b> ضد الصفقة.",
+                "📡 جاري جلب صفقات الاستراتيجية الأساسية لآخر 7 أيام...\n"
+                f"• 9–{SHORT_TF_MAX}م: ربح <b>+{SHORT_WIN_PCT:g}%</b> | "
+                f"خسارة <b>{SHORT_LOSS_PCT:g}%</b>\n"
+                f"• 30–240م: ربح <b>+{LONG_WIN_PCT:g}%</b> | "
+                f"خسارة <b>{LONG_LOSS_PCT:g}%</b>",
                 chat_id,
             )
 

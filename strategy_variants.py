@@ -9,10 +9,14 @@ from html import escape as html_escape
 
 from binance_data import CUSTOM_SYMBOLS, fast_prefetch_done, symbols_cache, symbols_cache_lock
 from week_scan import (
-    LOSS_PCT,
-    WIN_PCT,
+    LONG_LOSS_PCT,
+    LONG_WIN_PCT,
+    SHORT_LOSS_PCT,
+    SHORT_TF_MAX,
+    SHORT_WIN_PCT,
     _ensure_symbol_raw,
     format_week_trades_report,
+    outcome_levels,
     scan_week_trades,
 )
 
@@ -99,24 +103,38 @@ EXPERIMENT_VARIANTS = (
 )
 
 
+def _trade_expectancy_points(trade, outcome):
+    """%-points contributed by one closed trade using its frame levels."""
+    win_pct = trade.get("win_pct")
+    loss_pct = trade.get("loss_pct")
+    if win_pct is None or loss_pct is None:
+        win_pct, loss_pct = outcome_levels(trade.get("base_frame"))
+    if outcome == "win":
+        return float(win_pct)
+    if outcome == "loss":
+        return -float(loss_pct)
+    return 0.0
+
+
 def score_scan_result(result):
     """
     Rank helper for a week-scan result.
 
-    Primary: expectancy in %-points = wins*WIN_PCT - losses*LOSS_PCT
+    Primary: expectancy in %-points from per-trade frame levels
     Secondary: win rate on closed trades
     Tertiary: closed trade count
     """
-    wins = len(result.get("wins") or [])
-    losses = len(result.get("losses") or [])
-    opens = len(result.get("opens") or [])
-    closed = wins + losses
-    expectancy = wins * WIN_PCT - losses * LOSS_PCT
-    win_rate = (wins / closed * 100.0) if closed else 0.0
+    wins = list(result.get("wins") or [])
+    losses = list(result.get("losses") or [])
+    opens = list(result.get("opens") or [])
+    closed = len(wins) + len(losses)
+    expectancy = sum(_trade_expectancy_points(trade, "win") for trade in wins)
+    expectancy += sum(_trade_expectancy_points(trade, "loss") for trade in losses)
+    win_rate = (len(wins) / closed * 100.0) if closed else 0.0
     return {
-        "wins": wins,
-        "losses": losses,
-        "opens": opens,
+        "wins": len(wins),
+        "losses": len(losses),
+        "opens": len(opens),
         "closed": closed,
         "total": int(result.get("total") or 0),
         "expectancy": expectancy,
@@ -222,10 +240,12 @@ def format_experiments_report(bundle):
         "🧪 <b>تجارب الاستراتيجية — آخر 7 أيام</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"عملات: <b>{bundle.get('symbols_scanned', 0)}</b>\n"
-        f"معيار النجاح: <b>+{WIN_PCT:g}%</b> | "
-        f"الخسارة: <b>{LOSS_PCT:g}%</b> ضد الصفقة\n"
-        f"الترتيب حسب التوقع: "
-        f"(نجاح×{WIN_PCT:g}) − (خسارة×{LOSS_PCT:g})\n"
+        f"معايير الخروج:\n"
+        f"• 9–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
+        f"خسارة {SHORT_LOSS_PCT:g}%\n"
+        f"• 30–240م: ربح +{LONG_WIN_PCT:g}% | "
+        f"خسارة {LONG_LOSS_PCT:g}%\n"
+        "الترتيب حسب مجموع نقاط٪ لكل صفقة حسب فريمها\n"
         "\n"
         f"🏆 <b>الأفضل الآن:</b> {html_escape(win_v.title_ar)}\n"
         f"صفقات مغلقة: <b>{win_s['closed']}</b> | "

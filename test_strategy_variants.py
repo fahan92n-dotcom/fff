@@ -128,12 +128,24 @@ class TestExperimentRanking(unittest.TestCase):
                 "total": 6,
             }
         )
-        # 2*1 - 2*0.7 = 0.6  vs  5*1 - 1*0.7 = 4.3
+        # Empty trades fall back to long-frame levels (1.0 / 0.80).
+        # 2*1 - 2*0.8 = 0.4  vs  5*1 - 1*0.8 = 4.2
         self.assertGreater(strong["expectancy"], weak["expectancy"])
         self.assertGreater(
             experiments.rank_key(strong),
             experiments.rank_key(weak),
         )
+
+    def test_score_uses_per_trade_frame_levels(self):
+        summary = experiments.score_scan_result(
+            {
+                "wins": [{"base_frame": 15, "win_pct": 0.67, "loss_pct": 0.51}],
+                "losses": [{"base_frame": 60, "win_pct": 1.0, "loss_pct": 0.80}],
+                "opens": [],
+                "total": 2,
+            }
+        )
+        self.assertAlmostEqual(summary["expectancy"], 0.67 - 0.80)
 
     def test_format_names_winner(self):
         variant = experiments.EXPERIMENT_VARIANTS[2]
