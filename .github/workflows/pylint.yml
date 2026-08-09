@@ -24,12 +24,20 @@ jobs:
       run: |
         pylint \
           binance_data.py \
+          binance_leverage_limits.py \
+          hyperliquid_leverage_limits.py \
+          bybit_leverage_limits.py \
+          bitget_leverage_limits.py \
+          gate_leverage_limits.py \
+          kucoin_leverage_limits.py \
+          okx_leverage_limits.py \
           cascade_pipeline.py \
           cascade_steps.py \
           config.py \
           fahadal92.py \
           indicators.py \
           main.py \
+          mexc_leverage_limits.py \
           state_manager.py \
           state_store.py \
           telegram_bot.py
@@ -39,12 +47,20 @@ jobs:
           --disable=all \
           --enable=broad-exception-caught \
           binance_data.py \
+          binance_leverage_limits.py \
+          hyperliquid_leverage_limits.py \
+          bybit_leverage_limits.py \
+          bitget_leverage_limits.py \
+          gate_leverage_limits.py \
+          kucoin_leverage_limits.py \
+          okx_leverage_limits.py \
           cascade_pipeline.py \
           cascade_steps.py \
           config.py \
           fahadal92.py \
           indicators.py \
           main.py \
+          mexc_leverage_limits.py \
           state_manager.py \
           state_store.py \
           telegram_bot.py
