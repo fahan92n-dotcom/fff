@@ -30,6 +30,7 @@ jobs:
           fahadal92.py \
           indicators.py \
           main.py \
+          mexc_leverage_limits.py \
           state_manager.py \
           state_store.py \
           telegram_bot.py
@@ -45,6 +46,7 @@ jobs:
           fahadal92.py \
           indicators.py \
           main.py \
+          mexc_leverage_limits.py \
           state_manager.py \
           state_store.py \
           telegram_bot.py

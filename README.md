@@ -14,6 +14,7 @@ Binance cascade scanner with Telegram notifications.
 - `binance_data.py` — Binance access and OHLCV caches
 - `indicators.py` — indicator calculations
 - `fahadal92.py` — legacy compatibility exports and Telegram commands
+- `mexc_leverage_limits.py` — standalone report of MEXC max position size per leverage
 
 ## Configuration
 
@@ -27,14 +28,21 @@ No Telegram credential is stored in the source tree.
 python fahadal92.py
 ```
 
+Max position size allowed on each MEXC USDT perpetual at a given leverage,
+ranked high to low:
+
+```bash
+python mexc_leverage_limits.py --leverage 100 --crypto-only --csv mexc_100x.csv
+```
+
 ## Verify
 
 ```bash
 python -m unittest discover -v
 pylint \
   binance_data.py cascade_pipeline.py cascade_steps.py config.py \
-  fahadal92.py indicators.py main.py state_manager.py state_store.py \
-  telegram_bot.py
+  fahadal92.py indicators.py main.py mexc_leverage_limits.py \
+  state_manager.py state_store.py telegram_bot.py
 ```
 
 CI runs both commands and separately rejects unexplained broad exception
