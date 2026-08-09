@@ -26,9 +26,16 @@ import requests
 
 log = logging.getLogger(__name__)
 
+TOOL_VERSION = "2026-08-09c"
+
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 BAPI_BASE = "https://www.binance.com/bapi/futures/v1"
 BAPI_V2_BASE = "https://www.binance.com/bapi/futures/v2"
+PUBLIC_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "clienttype": "web",
+    "lang": "en",
+}
 REQUEST_TIMEOUT = 30
 
 # لا توثّق Binance مساراً عاماً للشرائح، وقد تغيّر الصيغة دون إشعار، لذا تُجرّب
@@ -255,7 +262,7 @@ def fetch_public_brackets():
         try:
             response = requests.request(
                 method, url, json=body,
-                headers={"User-Agent": "Mozilla/5.0", "clienttype": "web"},
+                headers=PUBLIC_HEADERS,
                 timeout=REQUEST_TIMEOUT,
             )
         except requests.RequestException as exc:
@@ -382,6 +389,7 @@ def main():
     parser.add_argument("--quote", default="USDT", help="عملة التسعير، فارغة = الكل")
     parser.add_argument("--csv", metavar="PATH")
     args = parser.parse_args()
+    print(f"binance_leverage_limits {TOOL_VERSION}")
 
     try:
         rows = build_rows(args.leverage, quote=args.quote)
