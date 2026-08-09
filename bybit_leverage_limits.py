@@ -12,6 +12,7 @@ import requests
 
 log = logging.getLogger(__name__)
 
+TOOL_VERSION = "2026-08-09e"
 BYBIT_BASE = "https://api.bybit.com"
 REQUEST_TIMEOUT = 30
 
@@ -39,32 +40,22 @@ def _get(path, params=None):
     return payload["result"]
 
 
-def fetch_symbols():
-    """رموز العقود الخطية الدائمة المسعرّة بـ USDT."""
-    symbols = []
+def fetch_risk_limits(symbol=None):
+    """كل شرائح المخاطر مع تقليب الصفحات (15 رمزاً في الصفحة للخطّي)."""
+    rows = []
     cursor = None
     while True:
-        params = {"category": "linear", "limit": 1000}
+        params = {"category": "linear"}
+        if symbol:
+            params["symbol"] = symbol
         if cursor:
             params["cursor"] = cursor
-        result = _get("/v5/market/instruments-info", params)
-        for item in result.get("list") or []:
-            if (item.get("contractType") == "LinearPerpetual"
-                    and item.get("status") == "Trading"
-                    and item.get("quoteCoin") == "USDT"):
-                symbols.append(item["symbol"])
+        result = _get("/v5/market/risk-limit", params)
+        rows.extend(result.get("list") or [])
         cursor = result.get("nextPageCursor") or None
-        if not cursor:
+        if not cursor or symbol:
             break
-    return symbols
-
-
-def fetch_risk_limits(symbol=None):
-    """شرائح المخاطر؛ إن لم يُمرَّر رمز تُجلب لكل الأسواق المتاحة دفعة واحدة."""
-    params = {"category": "linear"}
-    if symbol:
-        params["symbol"] = symbol
-    return _get("/v5/market/risk-limit", params).get("list") or []
+    return rows
 
 
 def max_notional_at_leverage(tiers, leverage):
@@ -92,11 +83,6 @@ def build_rows(leverage):
     by_symbol = {}
     for tier in all_tiers:
         by_symbol.setdefault(tier["symbol"], []).append(tier)
-
-    # إن أعاد المسار العام قائمة فارغة أو جزئية، نمرّ على الرموز واحداً واحداً.
-    if not by_symbol:
-        for symbol in fetch_symbols():
-            by_symbol[symbol] = fetch_risk_limits(symbol)
 
     rows = []
     for symbol, tiers in by_symbol.items():
@@ -143,6 +129,7 @@ def main():
     parser.add_argument("--top", type=int, default=0)
     parser.add_argument("--csv", metavar="PATH")
     args = parser.parse_args()
+    print(f"bybit_leverage_limits {TOOL_VERSION}")
 
     try:
         rows = build_rows(args.leverage)
