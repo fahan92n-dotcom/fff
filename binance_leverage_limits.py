@@ -65,6 +65,7 @@ def _unwrap(data):
     """يفتح أغلفة list/rows/result المتداخلة حتى يصل إلى قائمة أو قاموس رموز.
 
     لا يُفتح الغلاف إذا كان الكائن نفسه يحمل رمزاً وشرائحه، حتى لا يُفقد الاسم.
+    غلاف موقع Binance الشائع هو {brackets: [...], version: N}.
     """
     seen = set()
     while isinstance(data, dict):
@@ -74,6 +75,12 @@ def _unwrap(data):
         if marker in seen:
             break
         seen.add(marker)
+
+        # غلاف الواجهة العامة: data.brackets + data.version
+        if "brackets" in data and "version" in data and isinstance(data.get("brackets"), (list, dict)):
+            data = data["brackets"]
+            continue
+
         next_value = next(
             (data[key] for key in WRAPPER_KEYS if isinstance(data.get(key), (list, dict))),
             None,
@@ -192,12 +199,16 @@ def _normalise_public(payload):
 def _structure_sample(payload):
     """ملخص قصير لبنية الرد يُستخدم في التشخيص بدل تفريغ JSON كامل."""
     payload = _coerce_payload(payload)
-    data = payload.get("data", payload) if isinstance(payload, dict) else payload
-    data = _unwrap(data)
+    raw_data = payload.get("data", payload) if isinstance(payload, dict) else payload
+    data = _unwrap(raw_data)
     if isinstance(payload, dict):
         top = sorted(payload.keys())
     else:
         top = [type(payload).__name__]
+
+    extra = ""
+    if isinstance(raw_data, dict) and raw_data is not data:
+        extra = f" envelope={sorted(raw_data.keys())[:8]};"
 
     if isinstance(data, dict):
         data_keys = sorted(data.keys())[:12]
@@ -217,7 +228,10 @@ def _structure_sample(payload):
             if isinstance(nested, list) and nested and isinstance(nested[0], dict):
                 detail += f" {key}[0]={sorted(nested[0].keys())[:10]}"
                 break
-    return f"top={top}; {detail}"
+        # إن كانت العناصر نفسها شرائح بلا رمز
+        if any(k in first for k in LEVERAGE_KEYS + CAP_KEYS):
+            detail += " (tier-shaped items)"
+    return f"top={top};{extra} {detail}"
 
 
 def _normalise_signed(payload):
