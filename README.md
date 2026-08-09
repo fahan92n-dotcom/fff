@@ -16,6 +16,7 @@ Binance cascade scanner with Telegram notifications.
 - `fahadal92.py` — legacy compatibility exports and Telegram commands
 - `mexc_leverage_limits.py` — standalone report of MEXC max position size per leverage
 - `binance_leverage_limits.py` — the same report for Binance notional brackets
+- `okx_leverage_limits.py` / `bybit_leverage_limits.py` / `hyperliquid_leverage_limits.py` — OKX, Bybit, Hyperliquid
 
 ## Configuration
 
@@ -35,20 +36,27 @@ ranked high to low:
 ```bash
 python mexc_leverage_limits.py --leverage 100 --crypto-only --csv mexc_100x.csv
 python binance_leverage_limits.py --leverage 100 --csv binance_100x.csv
+python okx_leverage_limits.py --leverage 100 --csv okx_100x.csv
+python bybit_leverage_limits.py --leverage 100 --csv bybit_100x.csv
+python hyperliquid_leverage_limits.py --leverage 40 --csv hl_40x.csv
 ```
 
 The Binance report needs a location Binance serves; from a restricted one it
 exits with HTTP 451. Set `BINANCE_API_KEY` and `BINANCE_API_SECRET` to fall
-back to the signed endpoint when the public one is unavailable.
+back to the signed endpoint when the public one is unavailable. Bybit similarly
+answers HTTP 403 from some regions — run it from a host Bybit serves
+(Singapore works). Hyperliquid's platform max is currently 40x (BTC only).
 
 ## Verify
 
 ```bash
 python -m unittest discover -v
 pylint \
-  binance_data.py binance_leverage_limits.py cascade_pipeline.py \
-  cascade_steps.py config.py fahadal92.py indicators.py main.py \
-  mexc_leverage_limits.py state_manager.py state_store.py telegram_bot.py
+  binance_data.py binance_leverage_limits.py bybit_leverage_limits.py \
+  cascade_pipeline.py cascade_steps.py config.py fahadal92.py \
+  hyperliquid_leverage_limits.py indicators.py main.py \
+  mexc_leverage_limits.py okx_leverage_limits.py state_manager.py \
+  state_store.py telegram_bot.py
 ```
 
 CI runs both commands and separately rejects unexplained broad exception
