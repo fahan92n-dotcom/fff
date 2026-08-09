@@ -24,6 +24,7 @@ jobs:
       run: |
         pylint \
           binance_data.py \
+          binance_leverage_limits.py \
           cascade_pipeline.py \
           cascade_steps.py \
           config.py \
@@ -40,6 +41,7 @@ jobs:
           --disable=all \
           --enable=broad-exception-caught \
           binance_data.py \
+          binance_leverage_limits.py \
           cascade_pipeline.py \
           cascade_steps.py \
           config.py \

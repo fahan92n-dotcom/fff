@@ -15,6 +15,7 @@ Binance cascade scanner with Telegram notifications.
 - `indicators.py` — indicator calculations
 - `fahadal92.py` — legacy compatibility exports and Telegram commands
 - `mexc_leverage_limits.py` — standalone report of MEXC max position size per leverage
+- `binance_leverage_limits.py` — the same report for Binance notional brackets
 
 ## Configuration
 
@@ -33,16 +34,21 @@ ranked high to low:
 
 ```bash
 python mexc_leverage_limits.py --leverage 100 --crypto-only --csv mexc_100x.csv
+python binance_leverage_limits.py --leverage 100 --csv binance_100x.csv
 ```
+
+The Binance report needs a location Binance serves; from a restricted one it
+exits with HTTP 451. Set `BINANCE_API_KEY` and `BINANCE_API_SECRET` to fall
+back to the signed endpoint when the public one is unavailable.
 
 ## Verify
 
 ```bash
 python -m unittest discover -v
 pylint \
-  binance_data.py cascade_pipeline.py cascade_steps.py config.py \
-  fahadal92.py indicators.py main.py mexc_leverage_limits.py \
-  state_manager.py state_store.py telegram_bot.py
+  binance_data.py binance_leverage_limits.py cascade_pipeline.py \
+  cascade_steps.py config.py fahadal92.py indicators.py main.py \
+  mexc_leverage_limits.py state_manager.py state_store.py telegram_bot.py
 ```
 
 CI runs both commands and separately rejects unexplained broad exception
