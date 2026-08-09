@@ -26,10 +26,18 @@ import requests
 log = logging.getLogger(__name__)
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
-PUBLIC_BRACKETS_URL = (
-    "https://www.binance.com/bapi/futures/v1/public/future/common/brackets"
-)
+BAPI_BASE = "https://www.binance.com/bapi/futures/v1"
 REQUEST_TIMEOUT = 30
+
+# لا توثّق Binance مساراً عاماً للشرائح، وقد تغيّر الصيغة دون إشعار، لذا تُجرّب
+# المرشّحات بالترتيب ويُبلَّغ عن سبب فشل كل واحد.
+PUBLIC_SOURCES = (
+    ("GET", f"{BAPI_BASE}/public/future/common/brackets", None),
+    ("GET", f"{BAPI_BASE}/friendly/future/common/brackets", None),
+    ("GET", f"{BAPI_BASE}/public/future/common/brackets?quoteAsset=USDT", None),
+    ("POST", f"{BAPI_BASE}/public/future/common/brackets", {}),
+    ("POST", f"{BAPI_BASE}/friendly/future/common/brackets", {}),
+)
 
 
 class BracketsUnavailable(RuntimeError):
@@ -37,15 +45,27 @@ class BracketsUnavailable(RuntimeError):
 
 
 def _normalise_public(payload):
-    """يحوّل رد المسار العام إلى {symbol: [(max_leverage, notional_cap), ...]}."""
+    """يحوّل رد المسار العام إلى {symbol: [(max_leverage, notional_cap), ...]}.
+
+    تختلف أسماء الحقول بين إصدارات المسار العام، فتُقبل التسميات المعروفة كلها.
+    """
+    entries = payload.get("data") if isinstance(payload, dict) else payload
     brackets = {}
-    for entry in payload.get("data") or []:
-        tiers = [
-            (tier.get("maxOpenPosLeverage"), tier.get("bracketNotionalCap"))
-            for tier in entry.get("riskBrackets") or []
-        ]
-        if tiers:
-            brackets[entry["symbol"]] = tiers
+    for entry in entries or []:
+        symbol = entry.get("symbol")
+        raw_tiers = entry.get("riskBrackets") or entry.get("brackets") or []
+        tiers = []
+        for tier in raw_tiers:
+            leverage = (tier.get("maxOpenPosLeverage")
+                        or tier.get("initialLeverage")
+                        or tier.get("maxLeverage"))
+            cap = (tier.get("bracketNotionalCap")
+                   or tier.get("notionalCap")
+                   or tier.get("maxNotionalValue"))
+            if leverage and cap:
+                tiers.append((leverage, cap))
+        if symbol and tiers:
+            brackets[symbol] = tiers
     return brackets
 
 
@@ -63,14 +83,40 @@ def _normalise_signed(payload):
 
 
 def fetch_public_brackets():
-    """يجلب الشرائح من المسار العام بلا مفاتيح."""
-    response = requests.get(
-        PUBLIC_BRACKETS_URL,
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=REQUEST_TIMEOUT,
-    )
-    response.raise_for_status()
-    return _normalise_public(response.json())
+    """يجرّب المرشّحات العامة بالترتيب، ويعيد أول رد يحمل شرائح فعلية.
+
+    يعيد (brackets, attempts) حيث attempts سجل نصّي لما جرى مع كل مرشّح.
+    """
+    attempts = []
+    for method, url, body in PUBLIC_SOURCES:
+        label = f"{method} {url}"
+        try:
+            response = requests.request(
+                method, url, json=body,
+                headers={"User-Agent": "Mozilla/5.0", "clienttype": "web"},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            attempts.append(f"{label} -> {type(exc).__name__}")
+            continue
+
+        if response.status_code != 200:
+            snippet = response.text[:120].replace("\n", " ")
+            attempts.append(f"{label} -> HTTP {response.status_code} {snippet}")
+            continue
+
+        try:
+            brackets = _normalise_public(response.json())
+        except ValueError:
+            attempts.append(f"{label} -> رد غير JSON")
+            continue
+
+        if brackets:
+            attempts.append(f"{label} -> OK ({len(brackets)} رمز)")
+            return brackets, attempts
+        attempts.append(f"{label} -> HTTP 200 بلا شرائح")
+
+    return {}, attempts
 
 
 def fetch_signed_brackets(api_key, api_secret):
@@ -89,22 +135,23 @@ def fetch_signed_brackets(api_key, api_secret):
 
 
 def load_brackets():
-    """يحاول المسار العام أولاً ثم الموقّع، ويشرح سبب الفشل إن تعذّر الاثنان."""
-    try:
-        return fetch_public_brackets()
-    except requests.RequestException as exc:
-        log.warning("تعذّر المسار العام: %s", exc)
-        public_error = exc
+    """يحاول المسارات العامة أولاً ثم الموقّع، ويشرح سبب الفشل إن تعذّر الجميع."""
+    brackets, attempts = fetch_public_brackets()
+    if brackets:
+        return brackets
 
     api_key = os.environ.get("BINANCE_API_KEY")
     api_secret = os.environ.get("BINANCE_API_SECRET")
-    if not (api_key and api_secret):
-        raise BracketsUnavailable(
-            "المسار العام غير متاح من هذا الموقع "
-            f"({public_error}). اضبط BINANCE_API_KEY و BINANCE_API_SECRET "
-            "أو شغّل الأداة من بيئة يصلها Binance."
-        )
-    return fetch_signed_brackets(api_key, api_secret)
+    if api_key and api_secret:
+        return fetch_signed_brackets(api_key, api_secret)
+
+    report = "\n  ".join(attempts)
+    raise BracketsUnavailable(
+        "تعذّر جلب شرائح الرافعة من أي مسار عام:\n  " + report
+        + "\n\nلا توثّق Binance مساراً عاماً للشرائح، فالحل الموثوق هو مفتاح "
+          "API للقراءة فقط: اضبط BINANCE_API_KEY و BINANCE_API_SECRET ثم أعد "
+          "التشغيل."
+    )
 
 
 def max_notional_at_leverage(tiers, leverage):

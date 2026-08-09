@@ -50,6 +50,18 @@ class TestPayloadNormalisation(unittest.TestCase):
     def test_symbol_without_brackets_is_skipped(self):
         self.assertEqual(bll._normalise_public({"data": [{"symbol": "X", "riskBrackets": []}]}), {})
 
+    def test_alternate_field_names_are_accepted(self):
+        payload = {"data": [{"symbol": "BTCUSDT", "brackets": [
+            {"maxLeverage": 100, "maxNotionalValue": 600_000},
+        ]}]}
+        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(100, 600_000)]})
+
+    def test_bare_list_payload_is_accepted(self):
+        payload = [{"symbol": "BTCUSDT", "brackets": [
+            {"initialLeverage": 125, "notionalCap": 50_000},
+        ]}]
+        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(125, 50_000)]})
+
 
 class TestBuildRows(unittest.TestCase):
     def setUp(self):
