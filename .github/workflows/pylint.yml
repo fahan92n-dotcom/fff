@@ -27,6 +27,7 @@ jobs:
           binance_leverage_limits.py \
           hyperliquid_leverage_limits.py \
           bybit_leverage_limits.py \
+          kucoin_leverage_limits.py \
           okx_leverage_limits.py \
           cascade_pipeline.py \
           cascade_steps.py \
@@ -47,6 +48,7 @@ jobs:
           binance_leverage_limits.py \
           hyperliquid_leverage_limits.py \
           bybit_leverage_limits.py \
+          kucoin_leverage_limits.py \
           okx_leverage_limits.py \
           cascade_pipeline.py \
           cascade_steps.py \

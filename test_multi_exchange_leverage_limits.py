@@ -6,6 +6,7 @@ import unittest
 import okx_leverage_limits as okx
 import bybit_leverage_limits as bybit
 import hyperliquid_leverage_limits as hl
+import kucoin_leverage_limits as kucoin
 
 
 class TestOkxTiers(unittest.TestCase):
@@ -42,6 +43,17 @@ class TestHyperliquidTiers(unittest.TestCase):
     def test_leverage_above_platform_max_is_unavailable(self):
         tiers = [{"lowerBound": "0.0", "maxLeverage": 40}]
         self.assertEqual(hl.max_notional_at_leverage(tiers, 100), (None, None))
+
+
+class TestKucoinTiers(unittest.TestCase):
+    def test_100x_takes_the_wider_tier_not_the_125x_tier(self):
+        tiers = [
+            {"maxLeverage": 125, "maxRiskLimit": 250000},
+            {"maxLeverage": 100, "maxRiskLimit": 600000},
+            {"maxLeverage": 50, "maxRiskLimit": 10000000},
+        ]
+        self.assertEqual(kucoin.max_notional_at_leverage(tiers, 100), (600000.0, 100.0))
+        self.assertEqual(kucoin.max_notional_at_leverage(tiers, 125), (250000.0, 125.0))
 
 
 if __name__ == "__main__":

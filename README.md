@@ -16,7 +16,7 @@ Binance cascade scanner with Telegram notifications.
 - `fahadal92.py` — legacy compatibility exports and Telegram commands
 - `mexc_leverage_limits.py` — standalone report of MEXC max position size per leverage
 - `binance_leverage_limits.py` — the same report for Binance notional brackets
-- `okx_leverage_limits.py` / `bybit_leverage_limits.py` / `hyperliquid_leverage_limits.py` — OKX, Bybit, Hyperliquid
+- `okx_leverage_limits.py` / `bybit_leverage_limits.py` / `hyperliquid_leverage_limits.py` / `kucoin_leverage_limits.py` — OKX, Bybit, Hyperliquid, KuCoin
 
 ## Configuration
 
@@ -39,6 +39,7 @@ python binance_leverage_limits.py --leverage 100 --csv binance_100x.csv
 python okx_leverage_limits.py --leverage 100 --csv okx_100x.csv
 python bybit_leverage_limits.py --leverage 100 --csv bybit_100x.csv
 python hyperliquid_leverage_limits.py --leverage 40 --csv hl_40x.csv
+python kucoin_leverage_limits.py --leverage 100 --csv kucoin_100x.csv
 ```
 
 The Binance report needs a location Binance serves; from a restricted one it
@@ -55,7 +56,7 @@ pylint \
   binance_data.py binance_leverage_limits.py bybit_leverage_limits.py \
   cascade_pipeline.py cascade_steps.py config.py fahadal92.py \
   hyperliquid_leverage_limits.py indicators.py main.py \
-  mexc_leverage_limits.py okx_leverage_limits.py state_manager.py \
+  mexc_leverage_limits.py kucoin_leverage_limits.py okx_leverage_limits.py state_manager.py \
   state_store.py telegram_bot.py
 ```
 
