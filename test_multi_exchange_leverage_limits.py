@@ -7,6 +7,8 @@ import okx_leverage_limits as okx
 import bybit_leverage_limits as bybit
 import hyperliquid_leverage_limits as hl
 import kucoin_leverage_limits as kucoin
+import bitget_leverage_limits as bitget
+import gate_leverage_limits as gate
 
 
 class TestOkxTiers(unittest.TestCase):
@@ -58,3 +60,23 @@ class TestKucoinTiers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBitgetTiers(unittest.TestCase):
+    def test_100x_uses_end_unit_of_eligible_tier(self):
+        tiers = [
+            {"leverage": "150", "endUnit": "200000"},
+            {"leverage": "100", "endUnit": "1000000"},
+            {"leverage": "50", "endUnit": "15000000"},
+        ]
+        self.assertEqual(bitget.max_notional_at_leverage(tiers, 100), (1000000.0, 100.0))
+
+
+class TestGateTiers(unittest.TestCase):
+    def test_100x_picks_widest_risk_limit(self):
+        tiers = [
+            {"leverage_max": "200", "risk_limit": "500000"},
+            {"leverage_max": "100", "risk_limit": "3000000"},
+            {"leverage_max": "50", "risk_limit": "15000000"},
+        ]
+        self.assertEqual(gate.max_notional_at_leverage(tiers, 100), (3000000.0, 100.0))

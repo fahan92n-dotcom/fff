@@ -16,7 +16,7 @@ Binance cascade scanner with Telegram notifications.
 - `fahadal92.py` — legacy compatibility exports and Telegram commands
 - `mexc_leverage_limits.py` — standalone report of MEXC max position size per leverage
 - `binance_leverage_limits.py` — the same report for Binance notional brackets
-- `okx_leverage_limits.py` / `bybit_leverage_limits.py` / `hyperliquid_leverage_limits.py` / `kucoin_leverage_limits.py` — OKX, Bybit, Hyperliquid, KuCoin
+- `okx_leverage_limits.py` / `bybit_leverage_limits.py` / `hyperliquid_leverage_limits.py` / `kucoin_leverage_limits.py` / `bitget_leverage_limits.py` / `gate_leverage_limits.py` — OKX, Bybit, Hyperliquid, KuCoin, Bitget, Gate
 
 ## Configuration
 
@@ -40,6 +40,8 @@ python okx_leverage_limits.py --leverage 100 --csv okx_100x.csv
 python bybit_leverage_limits.py --leverage 100 --csv bybit_100x.csv
 python hyperliquid_leverage_limits.py --leverage 40 --csv hl_40x.csv
 python kucoin_leverage_limits.py --leverage 100 --csv kucoin_100x.csv
+python bitget_leverage_limits.py --leverage 100 --csv bitget_100x.csv
+python gate_leverage_limits.py --leverage 100 --csv gate_100x.csv
 ```
 
 The Binance report needs a location Binance serves; from a restricted one it
