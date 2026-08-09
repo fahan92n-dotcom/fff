@@ -26,7 +26,7 @@ import requests
 
 log = logging.getLogger(__name__)
 
-TOOL_VERSION = "2026-08-09c"
+TOOL_VERSION = "2026-08-09d"
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 BAPI_BASE = "https://www.binance.com/bapi/futures/v1"
@@ -333,10 +333,19 @@ def load_brackets():
 
 
 def max_notional_at_leverage(tiers, leverage):
-    """أكبر قيمة مركز تسمح بها الرافعة المطلوبة، أو None إن لم تسمح بها شريحة."""
-    caps = [cap for max_leverage, cap in tiers
-            if max_leverage and cap and max_leverage >= leverage]
-    return max(caps) if caps else None
+    """أكبر قيمة مركز تسمح بها الرافعة المطلوبة، مع رافعة شريحتها.
+
+    المنطق: كل شريحة لها رافعة قصوى؛ الشريحة ذات الرافعة الأعلى يكون سقفها
+    أصغر. عند طلب 100x نأخذ كل الشرائح التي ما زالت تسمح بـ 100 أو أكثر،
+    ونختار أكبر سقف بينها — وهذا سقف شريحة الـ 100x لا شريحة الـ 150x.
+    يعيد (المبلغ، رافعة_الشريحة) أو (None, None).
+    """
+    eligible = [(cap, max_leverage) for max_leverage, cap in tiers
+                if max_leverage and cap and max_leverage >= leverage]
+    if not eligible:
+        return None, None
+    cap, tier_leverage = max(eligible, key=lambda item: item[0])
+    return cap, tier_leverage
 
 
 def build_rows(leverage, brackets=None, quote="USDT"):
@@ -347,12 +356,13 @@ def build_rows(leverage, brackets=None, quote="USDT"):
     for symbol, tiers in brackets.items():
         if quote and not symbol.endswith(quote):
             continue
-        notional = max_notional_at_leverage(tiers, leverage)
+        notional, tier_leverage = max_notional_at_leverage(tiers, leverage)
         if not notional:
             continue
         rows.append({
             "symbol": symbol,
-            "max_leverage": max(lev for lev, _ in tiers if lev),
+            "at_leverage": leverage,
+            "tier_leverage": tier_leverage,
             "max_amount_usdt": notional,
             "margin_needed_usdt": notional / leverage,
         })
@@ -363,11 +373,15 @@ def build_rows(leverage, brackets=None, quote="USDT"):
 
 def print_table(rows, leverage, total=None):
     """يطبع الجدول بصيغة مقروءة في الطرفية."""
-    print(f"{'#':>4}  {'SYMBOL':<20} {'MAXLEV':>7} {'MAX AMOUNT':>18} {'YOUR MARGIN':>14}")
-    print("-" * 68)
+    print(f"أقصى مبلغ صفقة عند رافعة {leverage:g}x بالضبط "
+          f"(كل شريحة أعلى من {leverage:g} لها سقف أصغر وتُستبعد تلقائياً)")
+    print(f"{'#':>4}  {'SYMBOL':<20} {'AT':>6} {'TIER':>6} "
+          f"{'MAX AMOUNT':>18} {'YOUR MARGIN':>14}")
+    print("-" * 74)
     for index, row in enumerate(rows, 1):
-        print(f"{index:>4}  {row['symbol']:<20} {row['max_leverage']:>7.0f} "
-              f"{row['max_amount_usdt']:>18,.0f} {row['margin_needed_usdt']:>14,.0f}")
+        print(f"{index:>4}  {row['symbol']:<20} {row['at_leverage']:>5.0f}x "
+              f"{row['tier_leverage']:>5.0f}x {row['max_amount_usdt']:>18,.0f} "
+              f"{row['margin_needed_usdt']:>14,.0f}")
     print(f"\n{total if total is not None else len(rows)} symbols "
           f"allow {leverage:g}x leverage.")
 

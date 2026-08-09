@@ -28,17 +28,25 @@ PUBLIC_PAYLOAD = {"data": [{
 
 class TestMaxNotional(unittest.TestCase):
     def test_takes_the_widest_bracket_allowing_the_leverage(self):
-        self.assertEqual(bll.max_notional_at_leverage(BTC_TIERS, 100), 600_000)
+        # شريحة 125 سقفها 50k، شريحة 100 سقفها 600k — عند 100x نأخذ الأكبر.
+        self.assertEqual(bll.max_notional_at_leverage(BTC_TIERS, 100), (600_000, 100))
 
     def test_top_leverage_is_confined_to_the_first_bracket(self):
-        self.assertEqual(bll.max_notional_at_leverage(BTC_TIERS, 125), 50_000)
+        self.assertEqual(bll.max_notional_at_leverage(BTC_TIERS, 125), (50_000, 125))
 
     def test_lower_leverage_unlocks_larger_positions(self):
-        self.assertEqual(bll.max_notional_at_leverage(BTC_TIERS, 20), 15_000_000)
+        self.assertEqual(bll.max_notional_at_leverage(BTC_TIERS, 20), (15_000_000, 20))
+
+    def test_higher_leverage_does_not_steal_the_lower_tier_cap(self):
+        amount_at_100, tier_100 = bll.max_notional_at_leverage(BTC_TIERS, 100)
+        amount_at_125, tier_125 = bll.max_notional_at_leverage(BTC_TIERS, 125)
+        self.assertGreater(amount_at_100, amount_at_125)
+        self.assertEqual(tier_100, 100)
+        self.assertEqual(tier_125, 125)
 
     def test_leverage_above_every_bracket_is_unavailable(self):
-        self.assertIsNone(bll.max_notional_at_leverage(BTC_TIERS, 126))
-        self.assertIsNone(bll.max_notional_at_leverage(ALT_TIERS, 100))
+        self.assertEqual(bll.max_notional_at_leverage(BTC_TIERS, 126), (None, None))
+        self.assertEqual(bll.max_notional_at_leverage(ALT_TIERS, 100), (None, None))
 
 
 class TestPayloadNormalisation(unittest.TestCase):
@@ -55,7 +63,7 @@ class TestPayloadNormalisation(unittest.TestCase):
         payload = {"data": [{"symbol": "BTCUSDT", "brackets": [
             {"maxLeverage": 100, "maxNotionalValue": 600_000},
         ]}]}
-        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(100, 600_000)]})
+        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(100.0, 600_000.0)]})
 
     def test_data_list_wrapper_is_unwrapped(self):
         payload = {"data": {"list": [
@@ -130,7 +138,7 @@ class TestPayloadNormalisation(unittest.TestCase):
         payload = [{"symbol": "BTCUSDT", "brackets": [
             {"initialLeverage": 125, "notionalCap": 50_000},
         ]}]
-        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(125, 50_000)]})
+        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(125.0, 50_000.0)]})
 
 
 class TestBuildRows(unittest.TestCase):
@@ -142,6 +150,8 @@ class TestBuildRows(unittest.TestCase):
         self.assertEqual([row["symbol"] for row in rows], ["BTCUSDT"])
         self.assertEqual(rows[0]["max_amount_usdt"], 600_000)
         self.assertEqual(rows[0]["margin_needed_usdt"], 6_000)
+        self.assertEqual(rows[0]["at_leverage"], 100)
+        self.assertEqual(rows[0]["tier_leverage"], 100)
 
     def test_quote_filter_can_be_disabled(self):
         rows = bll.build_rows(100, brackets=self.brackets, quote="")
