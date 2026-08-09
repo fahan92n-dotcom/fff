@@ -27,16 +27,21 @@ log = logging.getLogger(__name__)
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 BAPI_BASE = "https://www.binance.com/bapi/futures/v1"
+BAPI_V2_BASE = "https://www.binance.com/bapi/futures/v2"
 REQUEST_TIMEOUT = 30
 
 # لا توثّق Binance مساراً عاماً للشرائح، وقد تغيّر الصيغة دون إشعار، لذا تُجرّب
 # المرشّحات بالترتيب ويُبلَّغ عن سبب فشل كل واحد.
 PUBLIC_SOURCES = (
-    ("GET", f"{BAPI_BASE}/public/future/common/brackets", None),
     ("GET", f"{BAPI_BASE}/friendly/future/common/brackets", None),
+    ("GET", f"{BAPI_BASE}/public/future/common/brackets", None),
+    ("GET", f"{BAPI_BASE}/friendly/future/common/brackets?quoteAsset=USDT", None),
     ("GET", f"{BAPI_BASE}/public/future/common/brackets?quoteAsset=USDT", None),
-    ("POST", f"{BAPI_BASE}/public/future/common/brackets", {}),
+    ("GET", f"{BAPI_V2_BASE}/friendly/future/common/brackets", None),
+    ("GET", f"{BAPI_V2_BASE}/public/future/common/brackets", None),
     ("POST", f"{BAPI_BASE}/friendly/future/common/brackets", {}),
+    ("POST", f"{BAPI_BASE}/public/future/common/brackets", {}),
+    ("POST", f"{BAPI_BASE}/friendly/future/common/brackets", {"quoteAsset": "USDT"}),
 )
 
 
@@ -101,7 +106,7 @@ def fetch_public_brackets():
             continue
 
         if response.status_code != 200:
-            snippet = response.text[:120].replace("\n", " ")
+            snippet = " ".join(response.text[:200].split())
             attempts.append(f"{label} -> HTTP {response.status_code} {snippet}")
             continue
 
