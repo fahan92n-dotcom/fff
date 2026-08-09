@@ -101,6 +101,15 @@ class TestPayloadNormalisation(unittest.TestCase):
         self.assertEqual(bll._normalise_public({"data": ["BTCUSDT", "ETHUSDT"]}), {})
         self.assertEqual(bll._normalise_public({"data": {"BTCUSDT": "unexpected"}}), {})
 
+    def test_mixed_case_symbol_keys_are_accepted(self):
+        payload = {"data": {
+            "btcusdt": [
+                {"maxOpenPosLeverage": 100, "bracketNotionalCap": 600_000},
+            ],
+            "meta": "ignore-me",
+        }}
+        self.assertEqual(bll._normalise_public(payload), {"btcusdt": [(100.0, 600_000.0)]})
+
     def test_bare_list_payload_is_accepted(self):
         payload = [{"symbol": "BTCUSDT", "brackets": [
             {"initialLeverage": 125, "notionalCap": 50_000},

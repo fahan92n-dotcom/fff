@@ -102,6 +102,19 @@ def _coerce_payload(payload):
     return payload
 
 
+def _looks_like_tiers(value):
+    """هل القيمة شرائح رافعة أو كائن يحملها؟"""
+    if isinstance(value, list):
+        return bool(value) and isinstance(value[0], dict) and any(
+            key in value[0] for key in LEVERAGE_KEYS + CAP_KEYS
+        )
+    if isinstance(value, dict):
+        if any(isinstance(value.get(key), list) for key in TIER_LIST_KEYS):
+            return True
+        return any(key in value for key in LEVERAGE_KEYS + CAP_KEYS)
+    return False
+
+
 def _iter_entries(payload):
     """يستخرج أزواج (رمز، محتواه) من الأشكال المختلفة التي ترد بها البيانات."""
     payload = _coerce_payload(payload)
@@ -114,16 +127,26 @@ def _iter_entries(payload):
         if symbol:
             yield symbol, data
             return
-        for symbol, value in data.items():
-            if isinstance(symbol, str) and symbol.isupper():
-                yield symbol, value
+        for key, value in data.items():
+            if not isinstance(key, str) or key in WRAPPER_KEYS:
+                continue
+            if _looks_like_tiers(value):
+                nested = _symbol_of(value) if isinstance(value, dict) else None
+                yield nested or key, value
             elif isinstance(value, dict):
                 nested = _symbol_of(value)
-                if nested:
+                if nested and _looks_like_tiers(value):
                     yield nested, value
     elif isinstance(data, list):
         for entry in data:
-            if isinstance(entry, dict):
+            if not isinstance(entry, dict):
+                continue
+            if _looks_like_tiers(entry) and _symbol_of(entry):
+                yield _symbol_of(entry), entry
+            elif _looks_like_tiers(entry):
+                # قائمة شرائح بلا رمز؛ تُتجاهل لأنها لا تُنسب لعقد.
+                continue
+            else:
                 yield _symbol_of(entry), entry
 
 
