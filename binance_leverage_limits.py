@@ -49,50 +49,76 @@ class BracketsUnavailable(RuntimeError):
     """تعذّر جلب شرائح الرافعة من أي مصدر متاح."""
 
 
+LEVERAGE_KEYS = ("maxOpenPosLeverage", "initialLeverage", "maxLeverage", "leverage")
+CAP_KEYS = ("bracketNotionalCap", "notionalCap", "maxNotionalValue", "maxNotional")
+TIER_LIST_KEYS = ("riskBrackets", "brackets", "leverageBrackets", "tiers")
+
+
+def _iter_entries(payload):
+    """يستخرج أزواج (رمز، محتواه) من الأشكال المختلفة التي ترد بها البيانات."""
+    data = payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    if isinstance(data, dict):
+        for symbol, value in data.items():
+            yield symbol, value
+    elif isinstance(data, list):
+        for entry in data:
+            if isinstance(entry, dict):
+                yield entry.get("symbol") or entry.get("pair"), entry
+
+
+def _extract_tiers(value):
+    """يحوّل محتوى الرمز إلى [(أقصى رافعة، سقف القيمة), ...]."""
+    raw_tiers = value
+    if isinstance(value, dict):
+        for key in TIER_LIST_KEYS:
+            if isinstance(value.get(key), list):
+                raw_tiers = value[key]
+                break
+    if not isinstance(raw_tiers, list):
+        return []
+
+    tiers = []
+    for tier in raw_tiers:
+        if not isinstance(tier, dict):
+            continue
+        leverage = next((tier[k] for k in LEVERAGE_KEYS if tier.get(k)), None)
+        cap = next((tier[k] for k in CAP_KEYS if tier.get(k)), None)
+        if leverage and cap:
+            tiers.append((float(leverage), float(cap)))
+    return tiers
+
+
 def _normalise_public(payload):
     """يحوّل رد المسار العام إلى {symbol: [(max_leverage, notional_cap), ...]}.
 
-    تختلف أسماء الحقول بين إصدارات المسار العام، فتُقبل التسميات المعروفة كلها.
+    تختلف أسماء الحقول وبنية الرد بين إصدارات المسار العام، فتُقبل التسميات
+    المعروفة كلها سواء وردت البيانات كقائمة أو كقاموس مفاتيحه الرموز.
     """
-    entries = payload.get("data") if isinstance(payload, dict) else payload
     brackets = {}
-    for entry in entries or []:
-        symbol = entry.get("symbol")
-        raw_tiers = entry.get("riskBrackets") or entry.get("brackets") or []
-        tiers = []
-        for tier in raw_tiers:
-            leverage = (tier.get("maxOpenPosLeverage")
-                        or tier.get("initialLeverage")
-                        or tier.get("maxLeverage"))
-            cap = (tier.get("bracketNotionalCap")
-                   or tier.get("notionalCap")
-                   or tier.get("maxNotionalValue"))
-            if leverage and cap:
-                tiers.append((leverage, cap))
+    for symbol, value in _iter_entries(payload):
+        tiers = _extract_tiers(value)
         if symbol and tiers:
             brackets[symbol] = tiers
     return brackets
 
 
 def _normalise_signed(payload):
-    """يحوّل رد المسار الموقّع إلى نفس الشكل."""
-    brackets = {}
-    for entry in payload:
-        tiers = [
-            (tier.get("initialLeverage"), tier.get("notionalCap"))
-            for tier in entry.get("brackets") or []
-        ]
-        if tiers:
-            brackets[entry["symbol"]] = tiers
-    return brackets
+    """يحوّل رد المسار الموقّع إلى نفس الشكل.
+
+    الرد قائمة من {symbol, brackets} وهي إحدى البنى التي يقبلها المحلّل العام.
+    """
+    return _normalise_public(payload)
 
 
 def fetch_public_brackets():
     """يجرّب المرشّحات العامة بالترتيب، ويعيد أول رد يحمل شرائح فعلية.
 
-    يعيد (brackets, attempts) حيث attempts سجل نصّي لما جرى مع كل مرشّح.
+    يعيد (brackets, attempts, sample) حيث attempts سجل نصّي لما جرى مع كل
+    مرشّح، و sample مقتطف من أول رد ناجح تعذّر تحليله ليُشخَّص شكله.
     """
     attempts = []
+    sample = None
     for method, url, body in PUBLIC_SOURCES:
         label = f"{method} {url}"
         try:
@@ -111,17 +137,27 @@ def fetch_public_brackets():
             continue
 
         try:
-            brackets = _normalise_public(response.json())
+            payload = response.json()
         except ValueError:
             attempts.append(f"{label} -> رد غير JSON")
             continue
 
+        # شكل الرد غير موثّق وقد يتغيّر، فلا يُسمح لخطأ تحليل بإسقاط بقية المرشّحات.
+        try:
+            brackets = _normalise_public(payload)
+        except (AttributeError, TypeError, ValueError) as exc:
+            attempts.append(f"{label} -> HTTP 200 لكن التحليل فشل: {exc}")
+            sample = sample or (url, " ".join(response.text[:1500].split()))
+            continue
+
         if brackets:
             attempts.append(f"{label} -> OK ({len(brackets)} رمز)")
-            return brackets, attempts
-        attempts.append(f"{label} -> HTTP 200 بلا شرائح")
+            return brackets, attempts, sample
 
-    return {}, attempts
+        attempts.append(f"{label} -> HTTP 200 بلا شرائح")
+        sample = sample or (url, " ".join(response.text[:1500].split()))
+
+    return {}, attempts, sample
 
 
 def fetch_signed_brackets(api_key, api_secret):
@@ -141,8 +177,9 @@ def fetch_signed_brackets(api_key, api_secret):
 
 def load_brackets():
     """يحاول المسارات العامة أولاً ثم الموقّع، ويشرح سبب الفشل إن تعذّر الجميع."""
-    brackets, attempts = fetch_public_brackets()
+    brackets, attempts, sample = fetch_public_brackets()
     if brackets:
+        log.warning("%s", attempts[-1])
         return brackets
 
     api_key = os.environ.get("BINANCE_API_KEY")
@@ -151,12 +188,10 @@ def load_brackets():
         return fetch_signed_brackets(api_key, api_secret)
 
     report = "\n  ".join(attempts)
-    raise BracketsUnavailable(
-        "تعذّر جلب شرائح الرافعة من أي مسار عام:\n  " + report
-        + "\n\nلا توثّق Binance مساراً عاماً للشرائح، فالحل الموثوق هو مفتاح "
-          "API للقراءة فقط: اضبط BINANCE_API_KEY و BINANCE_API_SECRET ثم أعد "
-          "التشغيل."
-    )
+    message = "تعذّر جلب شرائح الرافعة من أي مسار عام:\n  " + report
+    if sample:
+        message += f"\n\nمقتطف من رد {sample[0]}:\n{sample[1]}"
+    raise BracketsUnavailable(message)
 
 
 def max_notional_at_leverage(tiers, leverage):

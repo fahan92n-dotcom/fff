@@ -56,6 +56,26 @@ class TestPayloadNormalisation(unittest.TestCase):
         ]}]}
         self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(100, 600_000)]})
 
+    def test_data_keyed_by_symbol_is_accepted(self):
+        payload = {"data": {"BTCUSDT": [
+            {"maxOpenPosLeverage": 125, "bracketNotionalCap": 50_000},
+            {"maxOpenPosLeverage": 100, "bracketNotionalCap": 600_000},
+        ]}}
+        self.assertEqual(
+            bll._normalise_public(payload),
+            {"BTCUSDT": [(125.0, 50_000.0), (100.0, 600_000.0)]},
+        )
+
+    def test_symbol_keyed_dict_wrapping_a_tier_list_is_accepted(self):
+        payload = {"data": {"BTCUSDT": {"riskBrackets": [
+            {"maxOpenPosLeverage": 100, "bracketNotionalCap": 600_000},
+        ]}}}
+        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(100.0, 600_000.0)]})
+
+    def test_unexpected_string_entries_do_not_raise(self):
+        self.assertEqual(bll._normalise_public({"data": ["BTCUSDT", "ETHUSDT"]}), {})
+        self.assertEqual(bll._normalise_public({"data": {"BTCUSDT": "unexpected"}}), {})
+
     def test_bare_list_payload_is_accepted(self):
         payload = [{"symbol": "BTCUSDT", "brackets": [
             {"initialLeverage": 125, "notionalCap": 50_000},
