@@ -1,5 +1,6 @@
 """Tests for Binance notional-bracket resolution at a requested leverage."""
 
+import json
 import unittest
 
 import binance_leverage_limits as bll
@@ -55,6 +56,30 @@ class TestPayloadNormalisation(unittest.TestCase):
             {"maxLeverage": 100, "maxNotionalValue": 600_000},
         ]}]}
         self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(100, 600_000)]})
+
+    def test_data_list_wrapper_is_unwrapped(self):
+        payload = {"data": {"list": [
+            {"symbol": "BTCUSDT", "riskBrackets": [
+                {"maxOpenPosLeverage": 100, "bracketNotionalCap": 600_000},
+            ]},
+            {"symbolName": "ETHUSDT", "brackets": [
+                {"maxOpenPosLeverage": 100, "bracketNotionalCap": 400_000},
+            ]},
+        ]}}
+        self.assertEqual(
+            bll._normalise_public(payload),
+            {"BTCUSDT": [(100.0, 600_000.0)], "ETHUSDT": [(100.0, 400_000.0)]},
+        )
+
+    def test_double_encoded_data_string_is_decoded(self):
+        inner = json.dumps([{
+            "symbol": "BTCUSDT",
+            "riskBrackets": [
+                {"maxOpenPosLeverage": 100, "bracketNotionalCap": 600_000},
+            ],
+        }])
+        payload = {"code": "000000", "data": inner}
+        self.assertEqual(bll._normalise_public(payload), {"BTCUSDT": [(100.0, 600_000.0)]})
 
     def test_data_keyed_by_symbol_is_accepted(self):
         payload = {"data": {"BTCUSDT": [

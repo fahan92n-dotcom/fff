@@ -14,6 +14,7 @@ BINANCE_API_KEY و BINANCE_API_SECRET موجودين في البيئة، تست�
 """
 import os
 import csv
+import json
 import time
 import hmac
 import hashlib
@@ -51,20 +52,79 @@ class BracketsUnavailable(RuntimeError):
 
 LEVERAGE_KEYS = ("maxOpenPosLeverage", "initialLeverage", "maxLeverage", "leverage")
 CAP_KEYS = ("bracketNotionalCap", "notionalCap", "maxNotionalValue", "maxNotional")
-TIER_LIST_KEYS = ("riskBrackets", "brackets", "leverageBrackets", "tiers")
+TIER_LIST_KEYS = (
+    "riskBrackets", "brackets", "leverageBrackets", "tiers",
+    "bracketList", "notionalBrackets", "leverageMarginBrackets",
+)
+SYMBOL_KEYS = ("symbol", "symbolName", "pair", "contractSymbol")
+# مفاتيح تغليف شائعة في ردود bapi؛ تُفتح قبل البحث عن الرموز.
+WRAPPER_KEYS = ("list", "rows", "result", "items")
+
+
+def _unwrap(data):
+    """يفتح أغلفة list/rows/result المتداخلة حتى يصل إلى قائمة أو قاموس رموز.
+
+    لا يُفتح الغلاف إذا كان الكائن نفسه يحمل رمزاً وشرائحه، حتى لا يُفقد الاسم.
+    """
+    seen = set()
+    while isinstance(data, dict):
+        if _symbol_of(data):
+            break
+        marker = id(data)
+        if marker in seen:
+            break
+        seen.add(marker)
+        next_value = next(
+            (data[key] for key in WRAPPER_KEYS if isinstance(data.get(key), (list, dict))),
+            None,
+        )
+        if next_value is None:
+            break
+        data = next_value
+    return data
+
+
+def _symbol_of(entry):
+    """يستخرج اسم الرمز من حقول التسمية المعروفة."""
+    return next((entry[key] for key in SYMBOL_KEYS if entry.get(key)), None)
+
+
+def _coerce_payload(payload):
+    """يفكّ التشفير المزدوج إن وردت البيانات كنص JSON داخل الحقل data."""
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if isinstance(payload, dict) and isinstance(payload.get("data"), str):
+        try:
+            payload = dict(payload)
+            payload["data"] = json.loads(payload["data"])
+        except ValueError:
+            pass
+    return payload
 
 
 def _iter_entries(payload):
     """يستخرج أزواج (رمز، محتواه) من الأشكال المختلفة التي ترد بها البيانات."""
+    payload = _coerce_payload(payload)
     data = payload.get("data", payload) if isinstance(payload, dict) else payload
+    data = _unwrap(data)
 
     if isinstance(data, dict):
+        # إما قاموس رموز→شرائح، أو كائن عقد واحد يحمل رمزه داخله.
+        symbol = _symbol_of(data)
+        if symbol:
+            yield symbol, data
+            return
         for symbol, value in data.items():
-            yield symbol, value
+            if isinstance(symbol, str) and symbol.isupper():
+                yield symbol, value
+            elif isinstance(value, dict):
+                nested = _symbol_of(value)
+                if nested:
+                    yield nested, value
     elif isinstance(data, list):
         for entry in data:
             if isinstance(entry, dict):
-                yield entry.get("symbol") or entry.get("pair"), entry
+                yield _symbol_of(entry), entry
 
 
 def _extract_tiers(value):
@@ -75,6 +135,9 @@ def _extract_tiers(value):
             if isinstance(value.get(key), list):
                 raw_tiers = value[key]
                 break
+        else:
+            # بعض الردود تضع الشرائح مباشرة تحت مفتاح list داخل كائن الرمز.
+            raw_tiers = _unwrap(value)
     if not isinstance(raw_tiers, list):
         return []
 
@@ -101,6 +164,37 @@ def _normalise_public(payload):
         if symbol and tiers:
             brackets[symbol] = tiers
     return brackets
+
+
+def _structure_sample(payload):
+    """ملخص قصير لبنية الرد يُستخدم في التشخيص بدل تفريغ JSON كامل."""
+    payload = _coerce_payload(payload)
+    data = payload.get("data", payload) if isinstance(payload, dict) else payload
+    data = _unwrap(data)
+    if isinstance(payload, dict):
+        top = sorted(payload.keys())
+    else:
+        top = [type(payload).__name__]
+
+    if isinstance(data, dict):
+        data_keys = sorted(data.keys())[:12]
+        first = next(iter(data.values()), None)
+        detail = f"data=dict keys={data_keys}"
+    elif isinstance(data, list):
+        first = data[0] if data else None
+        detail = f"data=list len={len(data)}"
+    else:
+        first = data
+        detail = f"data={type(data).__name__}"
+
+    if isinstance(first, dict):
+        detail += f" first_keys={sorted(first.keys())[:12]}"
+        for key in TIER_LIST_KEYS:
+            nested = first.get(key)
+            if isinstance(nested, list) and nested and isinstance(nested[0], dict):
+                detail += f" {key}[0]={sorted(nested[0].keys())[:10]}"
+                break
+    return f"top={top}; {detail}"
 
 
 def _normalise_signed(payload):
@@ -147,7 +241,7 @@ def fetch_public_brackets():
             brackets = _normalise_public(payload)
         except (AttributeError, TypeError, ValueError) as exc:
             attempts.append(f"{label} -> HTTP 200 لكن التحليل فشل: {exc}")
-            sample = sample or (url, " ".join(response.text[:1500].split()))
+            sample = sample or (url, _structure_sample(payload))
             continue
 
         if brackets:
@@ -155,7 +249,7 @@ def fetch_public_brackets():
             return brackets, attempts, sample
 
         attempts.append(f"{label} -> HTTP 200 بلا شرائح")
-        sample = sample or (url, " ".join(response.text[:1500].split()))
+        sample = sample or (url, _structure_sample(payload))
 
     return {}, attempts, sample
 
