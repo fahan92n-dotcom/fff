@@ -38,12 +38,21 @@ def _fetch(path):
 
 
 def max_volume_at_leverage(contract, leverage):
-    """أعلى شريحة مخاطر ما زالت تسمح بالرافعة المطلوبة، وسقف حجمها التراكمي.
+    """أكبر حجم مركز (بعدد العقود) تسمح به الرافعة المطلوبة.
 
-    ترفع MEXC نسبة الهامش الابتدائي بمقدار riskIncrImr مع كل شريحة، فتنخفض
-    الرافعة المتاحة كلما كبرت الصفقة. تعيد None إذا كانت الشريحة الأولى
-    نفسها دون الرافعة المطلوبة.
+    لكل عقد شرائح مخاطر: كلما كبر المركز انخفضت الرافعة المتاحة. تعيد الدالة
+    سقف أوسع شريحة ما زالت تسمح بالرافعة المطلوبة، أو None إذا لم تسمح بها
+    أي شريحة.
+
+    ترد MEXC الشرائح بأحد نمطين: جدول صريح في riskLimitCustom، أو نمط زيادة
+    تدريجية تُشتق فيه كل شريحة من riskBaseVol و riskIncrVol و riskIncrImr.
     """
+    custom_tiers = contract.get("riskLimitCustom")
+    if contract.get("riskLimitMode") == "CUSTOM" and custom_tiers:
+        allowed = [tier["maxVol"] for tier in custom_tiers
+                   if (tier.get("maxLeverage") or 0) >= leverage]
+        return max(allowed) if allowed else None
+
     base_imr = contract["initialMarginRate"]
     incr_imr = contract.get("riskIncrImr") or 0
     tier_count = max(1, contract.get("riskLevelLimit") or 1)
@@ -101,7 +110,7 @@ def build_rows(leverage, crypto_only=False):
 def print_table(rows, leverage, total=None):
     """يطبع الجدول بصيغة مقروءة في الطرفية."""
     print(f"{'#':>4}  {'SYMBOL':<20} {'PRICE':>13} {'MAXLEV':>7} "
-          f"{'MAX POSITION':>18} {'YOUR MARGIN':>14} {'MAX ORDER':>16}")
+          f"{'MAX AMOUNT':>18} {'YOUR MARGIN':>14} {'MAX ORDER':>16}")
     print("-" * 98)
     for index, row in enumerate(rows, 1):
         print(f"{index:>4}  {row['symbol']:<20} {row['price']:>13,.6g} "
