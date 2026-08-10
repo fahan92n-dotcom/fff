@@ -10,7 +10,8 @@ except ImportError:  # optional local helper; Railway/CI use real env vars
 
 if load_dotenv is not None:
     # Repo-root .env (gitignored) for local runs of `python -m pullback_bot`.
-    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    # override=True so edited .env values win over stale shell exports.
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
 
 
 def _read_port(value):
