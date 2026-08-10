@@ -1,1 +1,1 @@
-web: python fahadal92.py
+web: python -m pullback_bot

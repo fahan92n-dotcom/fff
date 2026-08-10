@@ -65,8 +65,8 @@ def run():
     )
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         log.error(
-            "Set PULLBACK_TELEGRAM_TOKEN and PULLBACK_TELEGRAM_CHAT_ID "
-            "(separate from the Cascade bot)."
+            "Set PULLBACK_TELEGRAM_TOKEN / PULLBACK_TELEGRAM_CHAT_ID "
+            "(or TELEGRAM_TOKEN / TELEGRAM_CHAT_ID)."
         )
     set_command_handler(_dispatch_command)
     delete_webhook()

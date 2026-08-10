@@ -22,10 +22,10 @@ python -m pullback_bot.strategy
 
 | المتغير | الوصف |
 |--|--|
-| `PULLBACK_TELEGRAM_TOKEN` | توكن بوت تيليجرام **الجديد** (لا تستخدم توكن Cascade) |
-| `PULLBACK_TELEGRAM_CHAT_ID` | معرّف المحادثة |
-| `PULLBACK_ALLOWED_CHAT_IDS` | اختياري، قائمة مفصولة بفواصل |
-| `PULLBACK_PORT` | منفذ الصحة (افتراضي 8081) |
+| `PULLBACK_TELEGRAM_TOKEN` أو `TELEGRAM_TOKEN` | توكن بوت تيليجرام |
+| `PULLBACK_TELEGRAM_CHAT_ID` أو `TELEGRAM_CHAT_ID` | معرّف المحادثة |
+| `PULLBACK_ALLOWED_CHAT_IDS` / `ALLOWED_CHAT_IDS` | اختياري، قائمة مفصولة بفواصل |
+| `PULLBACK_PORT` / `PORT` | منفذ الصحة (افتراضي 8081) |
 
 ## الأوامر (تيليجرام)
 
