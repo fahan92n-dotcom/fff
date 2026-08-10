@@ -1,29 +1,36 @@
 # Fahad
 
-Binance cascade scanner with Telegram notifications.
+Default deploy runs the **Pullback** bot: **BTCUSDT only**
+(SMI / EMA60 / Donchian / RSI). Cascade (multi-coin Futures) remains in the
+repo for reference but is not the start command.
 
 ## Structure
 
-- `main.py` — process lifecycle, health server, and worker supervision
+- `pullback_bot/` — BTC Pullback strategy bot (default)
+- `main.py` — Cascade process lifecycle (legacy multi-coin scanner)
 - `config.py` — environment-backed runtime configuration
-- `telegram_bot.py` — Telegram transport, polling, and signal delivery
-- `cascade_pipeline.py` — scan and quick-check orchestration
+- `telegram_bot.py` — Cascade Telegram transport
+- `cascade_pipeline.py` — Cascade scan orchestration
 - `cascade_steps.py` — LONG/SHORT stage predicates
 - `state_manager.py` — thread-safe state transitions
 - `state_store.py` — owned mutable collections and their locks
 - `binance_data.py` — Binance access and OHLCV caches
 - `indicators.py` — indicator calculations
-- `fahadal92.py` — legacy compatibility exports and Telegram commands
+- `fahadal92.py` — Cascade entry / Telegram commands (legacy)
 
 ## Configuration
 
-Set `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID`, and optionally
-`ALLOWED_CHAT_IDS`, `PORT`, and the Binance-related variables before running.
+Set `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` (or `PULLBACK_TELEGRAM_*`), and
+optionally `ALLOWED_CHAT_IDS` / `PORT` before running.
 No Telegram credential is stored in the source tree.
 
 ## Run
 
 ```bash
+# Default: BTC Pullback only
+python -m pullback_bot
+
+# Legacy Cascade (100 coins Futures) — do not use if you want BTC only
 python fahadal92.py
 ```
 
