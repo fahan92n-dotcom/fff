@@ -1,12 +1,17 @@
 """Pullback saturation strategy (SMI + EMA60 + Donchian + RSI) and week scan.
 
-Sell path example (30 = 5 = 2):
-  1) Main 30m sell-sat: SMI <= -40 and RSI < 50 at close
-  2) Counter buy-sat on any TF in 5..11; stop if 12m buy-sat appears
-  3) Larger main (45m) cancels 30m and becomes the active level
-  4) Arm on 2m while (1)+(2) hold: Donchian green + close > EMA60
-  5) Enter on later 2m while main still active and confirm-stop clear:
-     Donchian red + close < EMA60 (counter sat may already have ended)
+Flow:
+  1) Main sat on closed candle: SMI <= -40 (sell) / >= +40 (buy),
+     with RSI < 50 (sell) / > 50 (buy) on that main-TF candle.
+  2) Wait for reverse/counter sat on confirm TFs (inside the main sat).
+  3) Once a reverse-sat candle closes, start watching the entry TF.
+  4) Buy entry: Donchian red → green and close > EMA60.
+     Sell entry: Donchian green → red and close < EMA60.
+     (Reverse sat may already have cleared by the entry candle.)
+
+Sell path example (30 → 5..11 → 2):
+  Main 30m sell-sat → counter buy-sat on 5..11 (12m stops) → on 2m after
+  counter confirms, enter on green→red + below EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 """
@@ -341,20 +346,27 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if stop_feat is not None
             else np.zeros(len(grid), dtype=bool)
         )
-        # Arm only while counter-sat confirm is alive. Entry may happen after
-        # that confirm has already cleared (the flip ends the counter move).
-        arm_window = (active == level_idx) & confirm_any & ~confirm_stop_mask
+        # Reverse-sat confirm window: main active + counter sat closed + not stop.
+        # After the first confirmed reverse-sat close we keep watching (even if
+        # counter clears) until main dies, confirm-stop hits, or we enter.
+        confirm_window = (active == level_idx) & confirm_any & ~confirm_stop_mask
         hold_window = (active == level_idx) & ~confirm_stop_mask
 
         ends = pd.DatetimeIndex(pd.to_datetime(entry_df["end_ts"], utc=True))
-        armed = False
+        seen_counter = False
+        prev_green = False
+        prev_red = False
         for row_i, candle_end in enumerate(ends):
             if candle_end < start_ts or candle_end > end_ts_limit:
-                armed = False
+                seen_counter = False
+                prev_green = False
+                prev_red = False
                 continue
             pos = int(grid.searchsorted(candle_end, side="right") - 1)
             if pos < 0 or not hold_window[pos]:
-                armed = False
+                seen_counter = False
+                prev_green = False
+                prev_red = False
                 continue
 
             above = bool(entry_df["above_ema"].iloc[row_i])
@@ -363,54 +375,41 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             red = bool(entry_df["don_red"].iloc[row_i])
             price = float(entry_df["close"].iloc[row_i])
 
-            if is_sell:
-                if green and above and arm_window[pos]:
-                    armed = True
-                elif armed and red and below:
-                    future = raw_1m.loc[raw_1m["ts"] > candle_end]
-                    outcome, exit_price, exit_ts = evaluate_outcome(
-                        "sell", price, future
-                    )
-                    signals.append(
-                        {
-                            "symbol": SYMBOL,
-                            "type": "sell",
-                            "time": _utc(candle_end),
-                            "price": price,
-                            "base_frame": main,
-                            "confirm_frame": confirm_min,
-                            "triple_frame": entry,
-                            "confirm_stop": confirm_stop,
-                            "outcome": outcome,
-                            "exit_price": exit_price,
-                            "exit_ts": exit_ts,
-                        }
-                    )
-                    armed = False
-            else:
-                if red and below and arm_window[pos]:
-                    armed = True
-                elif armed and green and above:
-                    future = raw_1m.loc[raw_1m["ts"] > candle_end]
-                    outcome, exit_price, exit_ts = evaluate_outcome(
-                        "buy", price, future
-                    )
-                    signals.append(
-                        {
-                            "symbol": SYMBOL,
-                            "type": "buy",
-                            "time": _utc(candle_end),
-                            "price": price,
-                            "base_frame": main,
-                            "confirm_frame": confirm_min,
-                            "triple_frame": entry,
-                            "confirm_stop": confirm_stop,
-                            "outcome": outcome,
-                            "exit_price": exit_price,
-                            "exit_ts": exit_ts,
-                        }
-                    )
-                    armed = False
+            if confirm_window[pos]:
+                seen_counter = True
+
+            hit = False
+            if seen_counter:
+                if is_sell and prev_green and red and below:
+                    hit = True
+                elif (not is_sell) and prev_red and green and above:
+                    hit = True
+
+            if hit:
+                future = raw_1m.loc[raw_1m["ts"] > candle_end]
+                outcome, exit_price, exit_ts = evaluate_outcome(
+                    "sell" if is_sell else "buy", price, future
+                )
+                signals.append(
+                    {
+                        "symbol": SYMBOL,
+                        "type": "sell" if is_sell else "buy",
+                        "time": _utc(candle_end),
+                        "price": price,
+                        "base_frame": main,
+                        "confirm_frame": confirm_min,
+                        "triple_frame": entry,
+                        "confirm_stop": confirm_stop,
+                        "outcome": outcome,
+                        "exit_price": exit_price,
+                        "exit_ts": exit_ts,
+                    }
+                )
+                # One entry per reverse-sat episode; wait for a fresh counter.
+                seen_counter = False
+
+            prev_green = green
+            prev_red = red
     return signals
 
 
