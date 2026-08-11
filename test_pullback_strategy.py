@@ -144,6 +144,114 @@ class TestMainEmaFilter(unittest.TestCase):
         self.assertFalse(bool(feat["buy_main"].iloc[-1]))
 
 
+class TestSatFormationRsi(unittest.TestCase):
+    def test_episode_valid_only_when_formation_rsi_ok(self):
+        sat = np.array([False, True, True, False, True, True])
+        # Episode1 forms with RSI ok; episode2 forms with RSI bad.
+        rsi_ok = np.array([False, True, True, False, False, True])
+        out = pb._sat_episode_rsi_valid(sat, rsi_ok)
+        np.testing.assert_array_equal(
+            out, np.array([False, True, True, False, False, False])
+        )
+
+    def test_buy_main_dead_if_sat_formed_below_rsi50(self):
+        """Buy sat born with RSI<=50 stays invalid even after RSI rises."""
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        n = 400
+        closes = np.concatenate(
+            [np.full(300, 100.0), np.linspace(100.0, 130.0, n - 300)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        # Sat on for the whole series; RSI starts <=50 then rises above.
+        rsi = np.concatenate([np.full(200, 40.0), np.full(n - 200, 60.0)])
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(np.full(n, 50.0)),
+            pd.Series(np.full(n, 50.0)),
+            pd.Series(np.full(n, 50.0)),
+        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(rsi)):
+            feat = pb._frame_features(raw, 1)
+        self.assertIsNotNone(feat)
+        self.assertTrue(bool(feat["buy_sat"].iloc[-1]))
+        self.assertFalse(bool(feat["buy_main"].iloc[-1]))
+
+    def test_sell_main_dead_if_sat_formed_above_rsi50(self):
+        """Sell sat born with RSI>=50 stays invalid even after RSI drops."""
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        n = 400
+        closes = np.concatenate(
+            [np.full(300, 100.0), np.linspace(100.0, 70.0, n - 300)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        rsi = np.concatenate([np.full(200, 60.0), np.full(n - 200, 40.0)])
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(np.full(n, -50.0)),
+            pd.Series(np.full(n, -50.0)),
+            pd.Series(np.full(n, -50.0)),
+        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(rsi)):
+            feat = pb._frame_features(raw, 1)
+        self.assertIsNotNone(feat)
+        self.assertTrue(bool(feat["sell_sat"].iloc[-1]))
+        self.assertFalse(bool(feat["sell_main"].iloc[-1]))
+
+    def test_buy_main_ok_when_sat_forms_above_rsi50(self):
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        n = 400
+        closes = np.concatenate(
+            [np.full(300, 100.0), np.linspace(100.0, 130.0, n - 300)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        # No sat first half; sat starts only after RSI is already > 50.
+        smi = np.concatenate([np.full(250, 0.0), np.full(n - 250, 50.0)])
+        rsi = np.concatenate([np.full(200, 40.0), np.full(n - 200, 60.0)])
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(smi),
+            pd.Series(smi),
+            pd.Series(smi),
+        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(rsi)):
+            feat = pb._frame_features(raw, 1)
+        self.assertIsNotNone(feat)
+        self.assertTrue(bool(feat["buy_main"].iloc[-1]))
+
+
 class TestBoolStep(unittest.TestCase):
     def test_ffill_latest_closed(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
