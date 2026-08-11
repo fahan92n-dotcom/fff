@@ -15,7 +15,11 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from pullback_bot.config import PORT, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
-from pullback_bot.strategy import handle_pullback_week_command
+from pullback_bot.strategy import (
+    MONTH_DAYS,
+    WEEK_DAYS,
+    handle_pullback_week_command,
+)
 from pullback_bot.telegram_app import (
     delete_webhook,
     poll_telegram_commands,
@@ -39,29 +43,33 @@ class _HealthHandler(BaseHTTPRequestHandler):
 def _dispatch_command(txt, chat_id):
     text = (txt or "").strip()
     lower = text.lower()
-    if lower in ("/week", "1", "/start", "/help"):
-        if lower in ("/start", "/help"):
-            send_telegram(
-                "📋 <b>بوت استراتيجية Pullback (منفصل)</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "القواعد:\n"
-                "• تشبّع SMI رئيس عند إغلاق فوق +40 أو تحت −40\n"
-                "• شمعة التشبّع الرئيس: RSI &gt;50 شراء / &lt;50 بيع\n"
-                "  والإغلاق فوق EMA60 شراء / تحت EMA60 بيع\n"
-                "• داخله تشبّع عكسي؛ بعد إغلاقه نراقب الدخول\n"
-                "• شراء: دونشيان أخضر + فوق EMA60 على فريم الدخول\n"
-                "• بيع: دونشيان أحمر + تحت EMA60 على فريم الدخول\n"
-                "• إذا كان الشرطان متحققين من أول شمعة → رفض\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "1️⃣ <code>1</code> أو <code>/week</code> — صفقات BTC آخر 7 أيام\n"
-                "معيار النجاح: +1% | الخسارة: ارتداد 0.70%",
-                chat_id,
-            )
-            return
-        handle_pullback_week_command(chat_id, send_telegram)
+    if lower in ("/start", "/help"):
+        send_telegram(
+            "📋 <b>بوت استراتيجية Pullback (منفصل)</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "القواعد:\n"
+            "• تشبّع SMI رئيس عند إغلاق فوق +40 أو تحت −40\n"
+            "• شمعة التشبّع الرئيس: RSI &gt;50 شراء / &lt;50 بيع\n"
+            "  والإغلاق فوق EMA60 شراء / تحت EMA60 بيع\n"
+            "• داخله تشبّع عكسي؛ بعد إغلاقه نراقب الدخول\n"
+            "• شراء: دونشيان أخضر + فوق EMA60 على فريم الدخول\n"
+            "• بيع: دونشيان أحمر + تحت EMA60 على فريم الدخول\n"
+            "• إذا كان الشرطان متحققين من أول شمعة → رفض\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ <code>1</code> أو <code>/week</code> — آخر 7 أيام\n"
+            "2️⃣ <code>2</code> أو <code>/month</code> — آخر 30 يومًا\n"
+            "معيار النجاح: +1% | الخسارة: ارتداد 0.70%",
+            chat_id,
+        )
+        return
+    if lower in ("/week", "1"):
+        handle_pullback_week_command(chat_id, send_telegram, days=WEEK_DAYS)
+        return
+    if lower in ("/month", "2"):
+        handle_pullback_week_command(chat_id, send_telegram, days=MONTH_DAYS)
         return
     send_telegram(
-        "أمر غير معروف. أرسل <code>/help</code> أو <code>/week</code>.",
+        "أمر غير معروف. أرسل <code>/help</code> أو <code>/week</code> أو <code>/month</code>.",
         chat_id,
     )
 
@@ -85,7 +93,7 @@ def run():
 
     send_telegram(
         "✅ بوت <b>Pullback</b> اشتغل (منفصل عن Cascade).\n"
-        "أرسل <code>/week</code> لفحص BTC آخر 7 أيام."
+        "أرسل <code>/week</code> لآخر 7 أيام أو <code>/month</code> لآخر 30 يومًا."
     )
     poll_telegram_commands()
 
