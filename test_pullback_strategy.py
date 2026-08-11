@@ -120,7 +120,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertAlmostEqual(first["price"], 99.0)
 
     def test_sell_entry_cross_and_flip_on_different_candles(self):
-        """EMA cross first, Donchian flip later — enter when both are done."""
+        """Green+above seen first; EMA drop and flip on different candles."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -157,7 +157,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertAlmostEqual(first["price"], 99.0)
 
     def test_no_entry_without_ema_cross(self):
-        """Donchian flip alone (price already below EMA60) must not sell."""
+        """Price never above EMA60 → no green+above arm state → no sell."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -192,7 +192,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertEqual(signals, [])
 
     def test_no_entry_without_donchian_flip(self):
-        """EMA cross alone (Donchian stays green) must not sell."""
+        """Donchian stays green — red+below entry state never forms."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -225,6 +225,43 @@ class TestScanSideSynthetic(unittest.TestCase):
             raw_1m,
         )
         self.assertEqual(signals, [])
+
+    def test_buy_entry_red_below_then_green_above(self):
+        """Buy: Donchian red + below EMA60 first, enter on green + above."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [99.0, 99.5, 101.0],
+                "ema": [100.0, 100.0, 100.2],
+                "don": [-1, -1, 1],
+                "above_ema": [False, False, True],
+                "below_ema": [True, True, False],
+                "don_green": [False, False, True],
+                "don_red": [True, True, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["buy_main"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.4)
+        signals = pb._scan_side(
+            "buy",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertTrue(any(s["type"] == "buy" for s in signals))
+        first = next(s for s in signals if s["type"] == "buy")
+        self.assertAlmostEqual(first["price"], 101.0)
 
     def test_no_entry_without_reverse_sat(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
