@@ -1,10 +1,19 @@
 """Pullback saturation strategy (SMI + EMA60 + Donchian + RSI) and week scan.
 
-Sell path example (30 = 5 = 2):
+الاستراتيجية (المصدر):
+  - تشبّع رئيس على Stochastic SMI: إغلاق الشمعة فوق +40 أو تحت −40.
+  - داخله تشبّع عكسي على فريمات التأكيد؛ أول ما تُقفَل شمعة التشبّع العكسي
+    نبدأ نراقب الدخول على فريم الدخول.
+  - دخول شراء: إغلاق فوق EMA60 + Donchian من أحمر → أخضر.
+  - دخول بيع: إغلاق تحت EMA60 + Donchian من أخضر → أحمر.
+  - شمعة التشبّع في الفريم الرئيس: RSI فوق 50 للشراء وتحت 50 للبيع.
+
+Sell path example (30 → 5..11 → 2):
   1) Main 30m sell-sat: SMI <= -40 and RSI < 50 at close
   2) Counter buy-sat on any TF in 5..11; stop if 12m buy-sat appears
   3) Larger main (45m) cancels 30m and becomes the active level
   4) Arm on 2m while (1)+(2) hold: Donchian green + close > EMA60
+     (التشبّع العكسي مؤكَّد على إغلاق — نبدأ مراقبة الانعكاس)
   5) Enter on later 2m while main still active and confirm-stop clear:
      Donchian red + close < EMA60 (counter sat may already have ended)
 
