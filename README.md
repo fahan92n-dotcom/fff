@@ -22,7 +22,8 @@ repo for reference but is not the start command.
 
 Set `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` (or `PULLBACK_TELEGRAM_*`), and
 optionally `ALLOWED_CHAT_IDS` / `PORT` before running.
-No Telegram credential is stored in the source tree.
+Locally you can copy `.env.example` → `.env` (gitignored); the Pullback
+bot loads it via python-dotenv. No Telegram credential is stored in git.
 
 ## Run
 
