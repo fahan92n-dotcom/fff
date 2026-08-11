@@ -2,7 +2,8 @@
 
 Flow:
   1) Main sat on closed candle: SMI <= -40 (sell) / >= +40 (buy),
-     with RSI < 50 (sell) / > 50 (buy) on that main-TF candle.
+     with RSI < 50 (sell) / > 50 (buy) AND close below EMA60 (sell) /
+     above EMA60 (buy) on that main-TF candle.
   2) Wait for reverse/counter sat on confirm TFs (inside the main sat).
   3) Once a reverse-sat candle closes, start watching the entry TF.
   4) On the FIRST watched entry-TF candle:
@@ -15,9 +16,9 @@ Flow:
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
-  Main 30m sell-sat → counter buy-sat on 5..11 (12m stops) → on 2m after
-  counter confirms (not already red+below EMA60 on the first candle),
-  enter on the first candle red AND below EMA60.
+  Main 30m sell-sat (SMI/RSI/below EMA60) → counter buy-sat on 5..11
+  (12m stops) → on 2m after counter confirms (not already red+below
+  EMA60 on the first candle), enter on the first candle red AND below EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 """
@@ -218,13 +219,16 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
 
 
 def _frame_features(df_1m, minutes):
-    """Resample and compute SMI/RSI (and entry extras when needed)."""
+    """Resample and compute SMI/RSI/EMA60 for main and confirm frames."""
     df = resample_ohlcv_closed(df_1m, minutes)
     if df.empty or len(df) < max(WARMUP_SMI, EMA_SPAN + 5, DONCHIAN_DLEN + 2):
         return None
 
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     rsi = calc_rsi_tv(df["close"], period=14)
+    ema = calc_ema(df["close"], span=EMA_SPAN)
+    above_ema = df["close"] > ema
+    below_ema = df["close"] < ema
     end_ts = df["ts"] + pd.Timedelta(minutes=minutes)
     out = pd.DataFrame(
         {
@@ -233,8 +237,15 @@ def _frame_features(df_1m, minutes):
             "close": df["close"].to_numpy(),
             "smi": smi.to_numpy(),
             "rsi": rsi.to_numpy(),
-            "sell_main": ((smi <= SMI_SELL) & (rsi < RSI_MID)).to_numpy(),
-            "buy_main": ((smi >= SMI_BUY) & (rsi > RSI_MID)).to_numpy(),
+            "ema": ema.to_numpy(),
+            # Main sat: SMI + RSI mid + close on the correct side of EMA60.
+            "sell_main": (
+                (smi <= SMI_SELL) & (rsi < RSI_MID) & below_ema
+            ).to_numpy(),
+            "buy_main": (
+                (smi >= SMI_BUY) & (rsi > RSI_MID) & above_ema
+            ).to_numpy(),
+            # Confirm/counter sat: SMI only (no RSI/EMA filter).
             "sell_sat": (smi <= SMI_SELL).to_numpy(),
             "buy_sat": (smi >= SMI_BUY).to_numpy(),
         }
