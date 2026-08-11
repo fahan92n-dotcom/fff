@@ -120,7 +120,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertAlmostEqual(first["price"], 99.0)
 
     def test_sell_entry_cross_and_flip_on_different_candles(self):
-        """Green+above seen first; EMA drop and flip on different candles."""
+        """Conditions complete at different times; enter when both hold."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -156,8 +156,8 @@ class TestScanSideSynthetic(unittest.TestCase):
         first = next(s for s in signals if s["type"] == "sell")
         self.assertAlmostEqual(first["price"], 99.0)
 
-    def test_no_entry_without_ema_cross(self):
-        """Price never above EMA60 → no green+above arm state → no sell."""
+    def test_sell_entry_partial_start_state_is_fine(self):
+        """Start green+below (one condition already true); enter on red."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -189,10 +189,12 @@ class TestScanSideSynthetic(unittest.TestCase):
             start + timedelta(hours=1),
             raw_1m,
         )
-        self.assertEqual(signals, [])
+        self.assertTrue(any(s["type"] == "sell" for s in signals))
+        first = next(s for s in signals if s["type"] == "sell")
+        self.assertAlmostEqual(first["price"], 98.0)
 
     def test_no_entry_without_donchian_flip(self):
-        """Donchian stays green — red+below entry state never forms."""
+        """Donchian stays green — sell conditions never both hold."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -262,6 +264,80 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertTrue(any(s["type"] == "buy" for s in signals))
         first = next(s for s in signals if s["type"] == "buy")
         self.assertAlmostEqual(first["price"], 101.0)
+
+    def test_reject_if_both_conditions_true_at_start(self):
+        """Both conditions already true on the first watched candle → reject."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [99.0, 98.0, 97.0],
+                "ema": [100.0, 100.5, 100.2],
+                "don": [-1, -1, -1],
+                "above_ema": [False, False, False],
+                "below_ema": [True, True, True],
+                "don_green": [False, False, False],
+                "don_red": [True, True, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertEqual(signals, [])
+
+    def test_fresh_counter_after_rejection_rechecks(self):
+        """Rejected episode ends with the counter; a fresh one can enter."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(4)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(4)],
+                "close": [99.0, 98.5, 99.5, 98.0],
+                "ema": [100.0, 100.0, 100.0, 100.2],
+                "don": [-1, -1, 1, -1],
+                "above_ema": [False, False, False, False],
+                "below_ema": [True, True, True, True],
+                "don_green": [False, False, True, False],
+                "don_red": [True, True, False, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(4)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        # Counter sat on candle 0 (rejected: red+below already), gap on 1,
+        # fresh counter on 2 (green+below → watch), entry on 3 (red+below).
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.array([True, False, True, True])
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertTrue(any(s["type"] == "sell" for s in signals))
+        first = next(s for s in signals if s["type"] == "sell")
+        self.assertAlmostEqual(first["price"], 98.0)
 
     def test_no_entry_without_reverse_sat(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
