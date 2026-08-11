@@ -66,6 +66,14 @@ def _dispatch_update(update):
         return
     if chat_id not in ALLOWED_CHAT_IDS:
         log.warning("ignored unauthorized chat_id=%s", chat_id)
+        # Help the owner discover their private chat id for ALLOWED_CHAT_IDS.
+        send_telegram(
+            "غير مصرح لهذا الشات.\n"
+            f"Chat ID حقك: <code>{chat_id}</code>\n"
+            "أضفه إلى <code>PULLBACK_ALLOWED_CHAT_IDS</code> وأعد تشغيل البوت،"
+            " ثم أرسل <code>/week</code> من الخاص مع البوت (مو من القناة).",
+            chat_id,
+        )
         return
     if _command_handler is None:
         log.error("Pullback command handler is not configured")
