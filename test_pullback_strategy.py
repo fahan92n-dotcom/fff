@@ -61,8 +61,26 @@ class TestBoolStep(unittest.TestCase):
         self.assertEqual(list(out), [False, True, True, False])
 
 
+def _empty_stepped(grid):
+    return {
+        "sell_main": np.zeros(len(grid), dtype=bool),
+        "buy_main": np.zeros(len(grid), dtype=bool),
+        "sell_sat": np.zeros(len(grid), dtype=bool),
+        "buy_sat": np.zeros(len(grid), dtype=bool),
+    }
+
+
+def _fill_levels(stepped, grid):
+    for main, cmin, cstop, _entry in pb.LEVELS:
+        stepped.setdefault(main, _empty_stepped(grid))
+        for minutes in range(cmin, cstop + 1):
+            stepped.setdefault(minutes, _empty_stepped(grid))
+    return stepped
+
+
 class TestScanSideSynthetic(unittest.TestCase):
-    def test_sell_entry_requires_arm_then_flip(self):
+    def test_sell_entry_after_counter_then_donchian_flip(self):
+        """Main sat + reverse sat → green→red and above→below EMA60 on entry TF."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -81,39 +99,8 @@ class TestScanSideSynthetic(unittest.TestCase):
         grid = pd.DatetimeIndex(
             [grid_start + timedelta(minutes=i) for i in range(0, 12)]
         )
-
-        def _empty():
-            return {
-                "sell_main": np.zeros(len(grid), dtype=bool),
-                "buy_main": np.zeros(len(grid), dtype=bool),
-                "sell_sat": np.zeros(len(grid), dtype=bool),
-                "buy_sat": np.zeros(len(grid), dtype=bool),
-            }
-
-        stepped = {
-            30: {
-                "sell_main": np.ones(len(grid), dtype=bool),
-                "buy_main": np.zeros(len(grid), dtype=bool),
-                "sell_sat": np.ones(len(grid), dtype=bool),
-                "buy_sat": np.zeros(len(grid), dtype=bool),
-            },
-            5: {
-                "sell_main": np.zeros(len(grid), dtype=bool),
-                "buy_main": np.zeros(len(grid), dtype=bool),
-                "sell_sat": np.zeros(len(grid), dtype=bool),
-                "buy_sat": np.ones(len(grid), dtype=bool),
-            },
-            12: {
-                "sell_main": np.zeros(len(grid), dtype=bool),
-                "buy_main": np.zeros(len(grid), dtype=bool),
-                "sell_sat": np.zeros(len(grid), dtype=bool),
-                "buy_sat": np.zeros(len(grid), dtype=bool),
-            },
-        }
-        for main, cmin, cstop, _entry in pb.LEVELS:
-            stepped.setdefault(main, _empty())
-            for minutes in range(cmin, cstop + 1):
-                stepped.setdefault(minutes, _empty())
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
 
@@ -132,8 +119,76 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertEqual(first["base_frame"], 30)
         self.assertAlmostEqual(first["price"], 99.0)
 
+    def test_no_entry_if_ema_does_not_flip(self):
+        """Donchian flip alone is not enough — EMA side must flip too."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [99.0, 98.0, 97.0],
+                "ema": [100.0, 100.5, 100.2],
+                "don": [1, -1, -1],
+                "above_ema": [False, False, False],
+                "below_ema": [True, True, True],
+                "don_green": [True, False, False],
+                "don_red": [False, True, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertEqual(signals, [])
+
+    def test_no_entry_without_reverse_sat(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 99.0, 98.0],
+                "ema": [100.0, 100.5, 100.2],
+                "don": [1, -1, -1],
+                "above_ema": [True, False, False],
+                "below_ema": [False, True, True],
+                "don_green": [True, False, False],
+                "don_red": [False, True, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        # No counter buy-sat on 5..11
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertEqual(signals, [])
+
     def test_entry_allowed_after_confirm_clears(self):
-        """Counter-sat is required to arm, not to fire the entry flip."""
+        """Reverse sat must confirm once; entry flip may happen after it clears."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -151,23 +206,8 @@ class TestScanSideSynthetic(unittest.TestCase):
         grid = pd.DatetimeIndex(
             [start + timedelta(minutes=2 * (i + 1)) for i in range(4)]
         )
-
-        def _empty():
-            return {
-                "sell_main": np.zeros(len(grid), dtype=bool),
-                "buy_main": np.zeros(len(grid), dtype=bool),
-                "sell_sat": np.zeros(len(grid), dtype=bool),
-                "buy_sat": np.zeros(len(grid), dtype=bool),
-            }
-
-        stepped = {}
-        for main, cmin, cstop, _entry in pb.LEVELS:
-            stepped.setdefault(main, _empty())
-            for minutes in range(cmin, cstop + 1):
-                stepped.setdefault(minutes, _empty())
-        # Main 30m sell sat stays alive all four closes.
+        stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
-        # Counter buy-sat only on the arming candles; cleared before flip.
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.array([True, True, False, False])
 
