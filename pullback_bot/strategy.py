@@ -64,6 +64,7 @@ MIN_1M_BARS = 45_000  # need ~100+ bars even on 6h for SMI warmup
 WIN_PCT = 1.0
 LOSS_PCT = 0.70
 WEEK_DAYS = 7
+MONTH_DAYS = 30
 DEDUPE_HOURS = 4
 _SESSION = requests.Session()
 
@@ -460,13 +461,16 @@ def scan_pullback_week(
     end = now
 
     if raw_1m is None:
-        raw_1m = fetch_btc_1m_vision()
+        # Extra bars for indicator warmup above the scan window.
+        target = max(MIN_1M_BARS, int(days) * 1440 + 45_000)
+        raw_1m = fetch_btc_1m_vision(target=target)
     if raw_1m is None or raw_1m.empty:
         return {
             "ready": False,
             "reason": "no_data",
             "start": start,
             "end": end,
+            "days": int(days),
             "wins": [],
             "losses": [],
             "opens": [],
@@ -486,6 +490,7 @@ def scan_pullback_week(
             "ready": True,
             "start": start,
             "end": end,
+            "days": int(days),
             "wins": [],
             "losses": [],
             "opens": [],
@@ -525,6 +530,7 @@ def scan_pullback_week(
         "ready": True,
         "start": start,
         "end": end,
+        "days": int(days),
         "wins": wins,
         "losses": losses,
         "opens": opens,
@@ -565,9 +571,11 @@ def format_pullback_week_report(result):
     start = result["start"].strftime("%Y-%m-%d %H:%M")
     end = result["end"].strftime("%Y-%m-%d %H:%M")
     total = int(result.get("total") or 0)
+    days = int(result.get("days") or WEEK_DAYS)
+    period_label = f"آخر {days} يومًا" if days != 7 else "آخر 7 أيام"
 
     header = (
-        "🗓️ <b>صفقات Pullback (SMI/EMA60/Donchian/RSI) — آخر 7 أيام</b>\n"
+        f"🗓️ <b>صفقات Pullback (SMI/EMA60/Donchian/RSI) — {period_label}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملة: <code>{html_escape(result.get('symbol', SYMBOL))}</code> "
         f"(سوق: {html_escape(result.get('market', 'spot-vision'))})\n"
@@ -581,7 +589,7 @@ def format_pullback_week_report(result):
     if total == 0:
         return [
             header
-            + "\nلا توجد صفقات مطابقة لهذه الاستراتيجية خلال الأسبوع الماضي."
+            + f"\nلا توجد صفقات مطابقة لهذه الاستراتيجية خلال {period_label}."
         ]
 
     chunks = [header]
@@ -614,30 +622,32 @@ def format_pullback_week_report(result):
     return packed
 
 
-def handle_pullback_week_command(chat_id, send_telegram):
-    """Telegram entry for pullback strategy week scan (BTC only)."""
+def handle_pullback_week_command(chat_id, send_telegram, *, days=WEEK_DAYS):
+    """Telegram entry for pullback strategy scan (BTC only)."""
     global _scan_running
+    days = int(days)
+    period_label = f"آخر {days} يومًا" if days != 7 else "آخر 7 أيام"
     if not _scan_lock.acquire(blocking=False):
-        send_telegram("⏳ فحص Pullback للأسبوع يعمل الآن — انتظر.", chat_id)
+        send_telegram("⏳ فحص Pullback يعمل الآن — انتظر.", chat_id)
         return
     if _scan_running:
         _scan_lock.release()
-        send_telegram("⏳ فحص Pullback للأسبوع يعمل الآن — انتظر.", chat_id)
+        send_telegram("⏳ فحص Pullback يعمل الآن — انتظر.", chat_id)
         return
 
     _scan_running = True
     try:
         send_telegram(
             "📡 جاري فحص استراتيجية Pullback على <code>BTCUSDT</code> "
-            f"لآخر 7 أيام...\nمعيار النجاح: <b>+{WIN_PCT:g}%</b> | "
+            f"ل{period_label}...\nمعيار النجاح: <b>+{WIN_PCT:g}%</b> | "
             f"الخسارة: <b>{LOSS_PCT:g}%</b> ضد الصفقة.",
             chat_id,
         )
-        result = scan_pullback_week()
+        result = scan_pullback_week(days=days)
         for chunk in format_pullback_week_report(result):
             send_telegram(chunk, chat_id)
     except Exception as exc:
-        log.exception("pullback week command failed")
+        log.exception("pullback scan command failed")
         send_telegram(
             f"❌ فشل فحص Pullback: <code>{html_escape(str(exc))}</code>",
             chat_id,

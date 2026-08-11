@@ -609,6 +609,50 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertIn("EMA60", help_text)
         self.assertIn("تشبّع", help_text)
         self.assertIn("رفض", help_text)
+        self.assertIn("/month", help_text)
+
+    def test_standalone_dispatch_month(self):
+        calls = []
+
+        def fake_send(msg, chat_id=None):
+            calls.append(msg)
+
+        with patch.object(
+            pb,
+            "scan_pullback_week",
+            return_value={
+                "ready": True,
+                "start": datetime(2026, 7, 11, tzinfo=timezone.utc),
+                "end": datetime(2026, 8, 10, tzinfo=timezone.utc),
+                "days": 30,
+                "wins": [],
+                "losses": [],
+                "opens": [],
+                "total": 0,
+                "symbol": "BTCUSDT",
+                "market": "spot-vision",
+            },
+        ) as scan, patch.object(pullback_main, "send_telegram", side_effect=fake_send):
+            pullback_main._dispatch_command("/month", "1")
+        scan.assert_called_once()
+        self.assertEqual(scan.call_args.kwargs.get("days"), 30)
+        self.assertTrue(any("30" in c for c in calls))
+
+    def test_format_report_uses_days_label(self):
+        result = {
+            "ready": True,
+            "start": datetime(2026, 7, 11, tzinfo=timezone.utc),
+            "end": datetime(2026, 8, 10, tzinfo=timezone.utc),
+            "days": 30,
+            "wins": [],
+            "losses": [],
+            "opens": [],
+            "total": 0,
+            "symbol": "BTCUSDT",
+            "market": "spot-vision",
+        }
+        chunks = pb.format_pullback_week_report(result)
+        self.assertIn("آخر 30 يومًا", chunks[0])
 
 
 if __name__ == "__main__":
