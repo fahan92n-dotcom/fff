@@ -27,6 +27,9 @@ python -m pullback_bot.strategy
 | `PULLBACK_ALLOWED_CHAT_IDS` / `ALLOWED_CHAT_IDS` | اختياري، قائمة مفصولة بفواصل |
 | `PULLBACK_PORT` / `PORT` | منفذ الصحة (افتراضي 8081) |
 
+للتشغيل المحلي: انسخ `.env.example` إلى `.env` واملأ القيم.
+البوت يقرأ `.env` تلقائياً. على Railway ضع نفس المتغيرات كأسرار — لا ترفع `.env`.
+
 ## الأوامر (تيليجرام)
 
 - `/week` أو `1` — صفقات BTCUSDT آخر 7 أيام
