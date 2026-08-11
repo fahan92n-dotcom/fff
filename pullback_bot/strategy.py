@@ -5,14 +5,17 @@ Flow:
      with RSI < 50 (sell) / > 50 (buy) on that main-TF candle.
   2) Wait for reverse/counter sat on confirm TFs (inside the main sat).
   3) Once a reverse-sat candle closes, start watching the entry TF.
-  4) On entry TF only — both must flip together:
-     Buy:  Donchian red → green and close below EMA60 → above.
-     Sell: Donchian green → red and close above EMA60 → below.
+  4) On entry TF, two events must both happen (any order, not necessarily
+     on the same candle):
+     Buy:  close crosses EMA60 below → above, and Donchian red → green.
+     Sell: close crosses EMA60 above → below, and Donchian green → red.
+     Enter on the first candle where both have happened and the candle
+     still closes on the right side of EMA60 with the right Donchian color.
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
   Main 30m sell-sat → counter buy-sat on 5..11 (12m stops) → on 2m after
-  counter confirms, enter on green→red and above→below EMA60.
+  counter confirms, wait for above→below EMA60 and green→red, then enter.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 """
@@ -355,18 +358,20 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
 
         ends = pd.DatetimeIndex(pd.to_datetime(entry_df["end_ts"], utc=True))
         seen_counter = False
+        ema_crossed = False
+        don_flipped = False
         prev_green = False
         prev_red = False
         prev_above = False
         prev_below = False
         for row_i, candle_end in enumerate(ends):
             if candle_end < start_ts or candle_end > end_ts_limit:
-                seen_counter = False
+                seen_counter = ema_crossed = don_flipped = False
                 prev_green = prev_red = prev_above = prev_below = False
                 continue
             pos = int(grid.searchsorted(candle_end, side="right") - 1)
             if pos < 0 or not hold_window[pos]:
-                seen_counter = False
+                seen_counter = ema_crossed = don_flipped = False
                 prev_green = prev_red = prev_above = prev_below = False
                 continue
 
@@ -379,12 +384,25 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if confirm_window[pos]:
                 seen_counter = True
 
-            # Entry TF only: Donchian flip + EMA side flip together.
-            hit = False
+            # After the reverse-sat confirm, latch the two entry events.
+            # They may land on different candles, in any order:
+            #   EMA60 cross (below→above for buy, above→below for sell)
+            #   Donchian flip (red→green for buy, green→red for sell)
             if seen_counter:
-                if is_sell and prev_green and red and prev_above and below:
+                if is_sell:
+                    ema_crossed |= prev_above and below
+                    don_flipped |= prev_green and red
+                else:
+                    ema_crossed |= prev_below and above
+                    don_flipped |= prev_red and green
+
+            # Enter once both events happened and this candle still closes
+            # on the right side of EMA60 with the right Donchian color.
+            hit = False
+            if seen_counter and ema_crossed and don_flipped:
+                if is_sell and red and below:
                     hit = True
-                elif (not is_sell) and prev_red and green and prev_below and above:
+                elif (not is_sell) and green and above:
                     hit = True
 
             if hit:
@@ -408,7 +426,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
                     }
                 )
                 # One entry per reverse-sat episode; wait for a fresh counter.
-                seen_counter = False
+                seen_counter = ema_crossed = don_flipped = False
 
             prev_green = green
             prev_red = red
