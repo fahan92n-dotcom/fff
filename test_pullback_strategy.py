@@ -196,6 +196,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
 
@@ -235,6 +236,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
@@ -272,6 +274,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
@@ -309,6 +312,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
@@ -344,6 +348,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["buy_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["buy_sat"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["sell_sat"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.4)
@@ -381,6 +386,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
@@ -416,6 +422,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         # Counter sat on candle 0 (rejected: red+below already), gap on 1,
         # fresh counter on 2 (green+below → watch), entry on 3 (red+below).
         for minutes in range(5, 12):
@@ -454,6 +461,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         # No counter buy-sat on 5..11
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
         signals = pb._scan_side(
@@ -488,6 +496,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.array([True, True, False, False])
 
@@ -547,6 +556,85 @@ class TestScanSideSynthetic(unittest.TestCase):
             raw_1m,
         )
         self.assertEqual(signals, [])
+
+    def test_larger_smi_sat_cancels_smaller_even_without_rsi_ema(self):
+        """90m SMI sat alone cancels 60m; without RSI+EMA on 90m → no entry."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        # 60m entry TF is 4m; build candles that would otherwise sell-enter.
+        entry4 = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=4 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=4 * (i + 1)) for i in range(3)],
+                "close": [101.0, 99.0, 98.0],
+                "ema": [100.0, 100.5, 100.2],
+                "don": [1, -1, -1],
+                "above_ema": [True, False, False],
+                "below_ema": [False, True, True],
+                "don_green": [True, False, False],
+                "don_red": [False, True, True],
+            }
+        )
+        entry6 = entry4.copy()
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=4 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        # 60m fully ready to enter; 90m has SMI sat only (no sell_main).
+        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[90]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[90]["sell_main"] = np.zeros(len(grid), dtype=bool)
+        for minutes in range(10, 24):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(15, 36):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {4: entry4, 6: entry6},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertEqual(signals, [])
+
+    def test_smaller_enters_when_larger_has_no_smi_sat(self):
+        """Without larger SMI sat, 60m full main can still enter."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry4 = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=4 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=4 * (i + 1)) for i in range(3)],
+                "close": [101.0, 99.0, 98.0],
+                "ema": [100.0, 100.5, 100.2],
+                "don": [1, -1, -1],
+                "above_ema": [True, False, False],
+                "below_ema": [False, True, True],
+                "don_green": [True, False, False],
+                "don_red": [False, True, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=4 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(10, 24):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {4: entry4},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertTrue(any(s["base_frame"] == 60 for s in signals))
 
 
 class TestStandaloneBot(unittest.TestCase):
@@ -608,6 +696,7 @@ class TestStandaloneBot(unittest.TestCase):
         help_text = calls[0]
         self.assertIn("EMA60", help_text)
         self.assertIn("تشبّع", help_text)
+        self.assertIn("إلغاء", help_text)
         self.assertIn("رفض", help_text)
         self.assertIn("/month", help_text)
 
