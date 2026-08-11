@@ -5,17 +5,16 @@ Flow:
      with RSI < 50 (sell) / > 50 (buy) on that main-TF candle.
   2) Wait for reverse/counter sat on confirm TFs (inside the main sat).
   3) Once a reverse-sat candle closes, start watching the entry TF.
-  4) On entry TF, two events must both happen (any order, not necessarily
-     on the same candle):
-     Buy:  close crosses EMA60 below → above, and Donchian red → green.
-     Sell: close crosses EMA60 above → below, and Donchian green → red.
-     Enter on the first candle where both have happened and the candle
-     still closes on the right side of EMA60 with the right Donchian color.
+  4) On entry TF — two states, any number of candles apart:
+     Buy:  first a candle with Donchian red AND close below EMA60,
+           then enter on the first candle with Donchian green AND
+           close above EMA60.
+     Sell: mirror — green AND above EMA60 first, enter on red AND below.
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
   Main 30m sell-sat → counter buy-sat on 5..11 (12m stops) → on 2m after
-  counter confirms, wait for above→below EMA60 and green→red, then enter.
+  counter confirms: see green+above EMA60, enter on red+below EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 """
@@ -358,21 +357,14 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
 
         ends = pd.DatetimeIndex(pd.to_datetime(entry_df["end_ts"], utc=True))
         seen_counter = False
-        ema_crossed = False
-        don_flipped = False
-        prev_green = False
-        prev_red = False
-        prev_above = False
-        prev_below = False
+        armed = False
         for row_i, candle_end in enumerate(ends):
             if candle_end < start_ts or candle_end > end_ts_limit:
-                seen_counter = ema_crossed = don_flipped = False
-                prev_green = prev_red = prev_above = prev_below = False
+                seen_counter = armed = False
                 continue
             pos = int(grid.searchsorted(candle_end, side="right") - 1)
             if pos < 0 or not hold_window[pos]:
-                seen_counter = ema_crossed = don_flipped = False
-                prev_green = prev_red = prev_above = prev_below = False
+                seen_counter = armed = False
                 continue
 
             above = bool(entry_df["above_ema"].iloc[row_i])
@@ -384,22 +376,18 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if confirm_window[pos]:
                 seen_counter = True
 
-            # After the reverse-sat confirm, latch the two entry events.
-            # They may land on different candles, in any order:
-            #   EMA60 cross (below→above for buy, above→below for sell)
-            #   Donchian flip (red→green for buy, green→red for sell)
+            # Arm on the pre-entry state after the reverse-sat confirm:
+            # buy waits on Donchian red + close below EMA60; sell mirrors
+            # (green + above). Entry is the flipped state later — the two
+            # states may be any number of candles apart.
             if seen_counter:
                 if is_sell:
-                    ema_crossed |= prev_above and below
-                    don_flipped |= prev_green and red
+                    armed |= green and above
                 else:
-                    ema_crossed |= prev_below and above
-                    don_flipped |= prev_red and green
+                    armed |= red and below
 
-            # Enter once both events happened and this candle still closes
-            # on the right side of EMA60 with the right Donchian color.
             hit = False
-            if seen_counter and ema_crossed and don_flipped:
+            if armed:
                 if is_sell and red and below:
                     hit = True
                 elif (not is_sell) and green and above:
@@ -426,12 +414,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
                     }
                 )
                 # One entry per reverse-sat episode; wait for a fresh counter.
-                seen_counter = ema_crossed = don_flipped = False
-
-            prev_green = green
-            prev_red = red
-            prev_above = above
-            prev_below = below
+                seen_counter = armed = False
     return signals
 
 
