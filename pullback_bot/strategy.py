@@ -16,12 +16,14 @@ Flow:
   4) Once a reverse-sat candle closes, start watching the entry TF.
   5) On the entry TF after reverse sat starts:
      - Watching begins only after the reverse/counter sat forms.
-     - Both entry conditions must first be *unmet* (buy: not green and
-       not above EMA60; sell: not red and not below EMA60). If both
-       already hold on the first watched candle → reject the episode.
+     - Wait until both entry conditions are *unmet* (buy: not green and
+       not above EMA60; sell: not red and not below EMA60). If they
+       already hold when watching starts, do NOT reject — keep waiting
+       until they become unmet later.
      - Only after a both-unmet candle may we enter, on the first later
        candle where both hold together (buy: green AND above EMA60;
-       sell: red AND below EMA60). Partial states never arm entry.
+       sell: red AND below EMA60). Order between Donchian and EMA60
+       does not matter; partial states never arm entry.
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
@@ -429,10 +431,9 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
         # Episode state after reverse sat:
         # IDLE — no counter yet
         # WAIT_CLEAR — counter seen; waiting until BOTH entry conditions
-        #   are unmet (partial does not arm)
+        #   are unmet (if already held at start, wait — never reject)
         # ARMED — saw both-unmet; waiting for both to hold together
-        # REJECT — both already held when counter first appeared
-        IDLE, WAIT_CLEAR, ARMED, REJECT = 0, 1, 2, 3
+        IDLE, WAIT_CLEAR, ARMED = 0, 1, 2
         state = IDLE
         for row_i, candle_end in enumerate(ends):
             if candle_end < start_ts or candle_end > end_ts_limit:
@@ -459,15 +460,11 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
 
             if state == IDLE and counter_now:
                 # Counting starts at reverse-sat formation.
-                if both_hold:
-                    state = REJECT
-                elif both_clear:
+                # Already-aligned is fine — wait until both go unmet.
+                if both_clear:
                     state = ARMED
                 else:
                     state = WAIT_CLEAR
-            elif state == REJECT and not counter_now:
-                # Counter sat ended; a fresh one may start a new episode.
-                state = IDLE
             elif state == WAIT_CLEAR and both_clear:
                 state = ARMED
 
