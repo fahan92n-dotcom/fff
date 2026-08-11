@@ -596,6 +596,20 @@ class TestStandaloneBot(unittest.TestCase):
             pullback_main._dispatch_command("/week", "1")
         self.assertTrue(any("Pullback" in c for c in calls))
 
+    def test_help_lists_main_ema60_rule(self):
+        calls = []
+
+        def fake_send(msg, chat_id=None):
+            calls.append(msg)
+
+        with patch.object(pullback_main, "send_telegram", side_effect=fake_send):
+            pullback_main._dispatch_command("/help", "1")
+        self.assertEqual(len(calls), 1)
+        help_text = calls[0]
+        self.assertIn("EMA60", help_text)
+        self.assertIn("تشبّع", help_text)
+        self.assertIn("رفض", help_text)
+
 
 if __name__ == "__main__":
     unittest.main()
