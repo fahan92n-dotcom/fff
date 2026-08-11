@@ -80,7 +80,7 @@ def _fill_levels(stepped, grid):
 
 class TestScanSideSynthetic(unittest.TestCase):
     def test_sell_entry_after_counter_then_donchian_flip(self):
-        """Main sat + reverse sat → green→red flip closing below EMA60."""
+        """Main sat + reverse sat → EMA60 cross down + green→red flip."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -119,8 +119,45 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertEqual(first["base_frame"], 30)
         self.assertAlmostEqual(first["price"], 99.0)
 
-    def test_sell_entry_without_same_candle_ema_cross(self):
-        """EMA60 is a position filter: close already below EMA60 still enters."""
+    def test_sell_entry_cross_and_flip_on_different_candles(self):
+        """EMA cross first, Donchian flip later — enter when both are done."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 99.5, 99.0],
+                "ema": [100.0, 100.0, 100.2],
+                "don": [1, 1, -1],
+                "above_ema": [True, False, False],
+                "below_ema": [False, True, True],
+                "don_green": [True, True, False],
+                "don_red": [False, False, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertTrue(any(s["type"] == "sell" for s in signals))
+        first = next(s for s in signals if s["type"] == "sell")
+        self.assertAlmostEqual(first["price"], 99.0)
+
+    def test_no_entry_without_ema_cross(self):
+        """Donchian flip alone (price already below EMA60) must not sell."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -152,24 +189,22 @@ class TestScanSideSynthetic(unittest.TestCase):
             start + timedelta(hours=1),
             raw_1m,
         )
-        self.assertTrue(any(s["type"] == "sell" for s in signals))
-        first = next(s for s in signals if s["type"] == "sell")
-        self.assertAlmostEqual(first["price"], 98.0)
+        self.assertEqual(signals, [])
 
-    def test_no_entry_if_flip_closes_wrong_side_of_ema(self):
-        """Donchian green→red flip closing above EMA60 must not sell."""
+    def test_no_entry_without_donchian_flip(self):
+        """EMA cross alone (Donchian stays green) must not sell."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
                 "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
                 "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
-                "close": [103.0, 102.0, 101.0],
-                "ema": [100.0, 100.5, 100.2],
-                "don": [1, -1, -1],
-                "above_ema": [True, True, True],
-                "below_ema": [False, False, False],
-                "don_green": [True, False, False],
-                "don_red": [False, True, True],
+                "close": [101.0, 99.5, 99.0],
+                "ema": [100.0, 100.0, 100.2],
+                "don": [1, 1, 1],
+                "above_ema": [True, False, False],
+                "below_ema": [False, True, True],
+                "don_green": [True, True, True],
+                "don_red": [False, False, False],
             }
         )
         grid = pd.DatetimeIndex(
