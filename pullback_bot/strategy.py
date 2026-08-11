@@ -14,20 +14,21 @@ Flow:
      cancelled while the larger SMI sat is active.
   3) Wait for reverse/counter sat on confirm TFs (inside the owned main).
   4) Once a reverse-sat candle closes, start watching the entry TF.
-  5) On the FIRST watched entry-TF candle:
-     - If BOTH entry conditions already hold (buy: Donchian green AND
-       close above EMA60; sell: red AND below EMA60) → reject the
-       episode: no entry until a fresh counter sat starts a new one.
-     - Otherwise (one or both missing) wait: each condition may become
-       true at its own time, partial states in between are fine, and
-       enter on the first candle where both hold together.
+  5) On the entry TF after reverse sat starts:
+     - Watching begins only after the reverse/counter sat forms.
+     - Both entry conditions must first be *unmet* (buy: not green and
+       not above EMA60; sell: not red and not below EMA60). If both
+       already hold on the first watched candle → reject the episode.
+     - Only after a both-unmet candle may we enter, on the first later
+       candle where both hold together (buy: green AND above EMA60;
+       sell: red AND below EMA60). Partial states never arm entry.
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
   Main 30m SMI sell-sat formed with RSI < 50 (and EMA60 gate) → counter
-  buy-sat on 5..11 (12m stops) → on 2m after counter confirms (not
-  already red+below EMA60 on the first candle), enter on the first
-  candle red AND below EMA60.
+  buy-sat on 5..11 (12m stops) → on 2m after counter confirms, first see
+  not-red and not-below, then enter on the first candle red AND below
+  EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ SMI sat
 halts that side.
@@ -425,10 +426,13 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
         hold_window = owned
 
         ends = pd.DatetimeIndex(pd.to_datetime(entry_df["end_ts"], utc=True))
-        # Episode state: IDLE = no reverse sat seen; WATCH = waiting for the
-        # two entry conditions to complete; REJECT = both conditions already
-        # held on the first watched candle — dead until a fresh counter sat.
-        IDLE, WATCH, REJECT = 0, 1, 2
+        # Episode state after reverse sat:
+        # IDLE — no counter yet
+        # WAIT_CLEAR — counter seen; waiting until BOTH entry conditions
+        #   are unmet (partial does not arm)
+        # ARMED — saw both-unmet; waiting for both to hold together
+        # REJECT — both already held when counter first appeared
+        IDLE, WAIT_CLEAR, ARMED, REJECT = 0, 1, 2, 3
         state = IDLE
         for row_i, candle_end in enumerate(ends):
             if candle_end < start_ts or candle_end > end_ts_limit:
@@ -446,20 +450,30 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             price = float(entry_df["close"].iloc[row_i])
 
             counter_now = bool(confirm_window[pos])
-            both_hold = (red and below) if is_sell else (green and above)
+            if is_sell:
+                both_hold = red and below
+                both_clear = (not red) and (not below)
+            else:
+                both_hold = green and above
+                both_clear = (not green) and (not above)
 
             if state == IDLE and counter_now:
-                # First watched candle of a new episode: if both entry
-                # conditions already hold, reject — nothing flipped after
-                # the reverse sat. Otherwise start waiting for them.
-                state = REJECT if both_hold else WATCH
+                # Counting starts at reverse-sat formation.
+                if both_hold:
+                    state = REJECT
+                elif both_clear:
+                    state = ARMED
+                else:
+                    state = WAIT_CLEAR
             elif state == REJECT and not counter_now:
                 # Counter sat ended; a fresh one may start a new episode.
                 state = IDLE
+            elif state == WAIT_CLEAR and both_clear:
+                state = ARMED
 
-            # WATCH survives the counter clearing — the entry may complete
-            # after the reverse sat is over.
-            hit = state == WATCH and both_hold
+            # ARMED/WAIT_CLEAR survive the counter clearing — entry may
+            # complete after the reverse sat is over.
+            hit = state == ARMED and both_hold
 
             if hit:
                 future = raw_1m.loc[raw_1m["ts"] > candle_end]

@@ -361,8 +361,8 @@ class TestScanSideSynthetic(unittest.TestCase):
         first = next(s for s in signals if s["type"] == "sell")
         self.assertAlmostEqual(first["price"], 99.0)
 
-    def test_sell_entry_partial_start_state_is_fine(self):
-        """Start green+below (one condition already true); enter on red."""
+    def test_sell_entry_partial_start_does_not_enter(self):
+        """Partial at counter start (one condition true) never arms without both-clear."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -379,6 +379,43 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         grid = pd.DatetimeIndex(
             [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertEqual(signals, [])
+
+    def test_sell_entry_requires_both_clear_before_both_hold(self):
+        """After reverse sat: both unmet, then both hold → enter."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(4)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(4)],
+                # partial → both clear (green+above) → both hold (red+below)
+                "close": [99.0, 101.0, 101.0, 98.0],
+                "ema": [100.0, 100.0, 100.0, 100.2],
+                "don": [1, 1, 1, -1],
+                "above_ema": [False, True, True, False],
+                "below_ema": [True, False, False, True],
+                "don_green": [True, True, True, False],
+                "don_red": [False, False, False, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(4)]
         )
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
@@ -516,11 +553,12 @@ class TestScanSideSynthetic(unittest.TestCase):
             {
                 "ts": [start + timedelta(minutes=2 * i) for i in range(4)],
                 "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(4)],
-                "close": [99.0, 98.5, 99.5, 98.0],
+                # 0: both hold → reject; 1: gap; 2: both clear; 3: both hold → enter
+                "close": [99.0, 98.5, 101.0, 98.0],
                 "ema": [100.0, 100.0, 100.0, 100.2],
                 "don": [-1, -1, 1, -1],
-                "above_ema": [False, False, False, False],
-                "below_ema": [True, True, True, True],
+                "above_ema": [False, False, True, False],
+                "below_ema": [True, True, False, True],
                 "don_green": [False, False, True, False],
                 "don_red": [True, True, False, True],
             }
@@ -531,8 +569,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         stepped = _fill_levels({}, grid)
         stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        # Counter sat on candle 0 (rejected: red+below already), gap on 1,
-        # fresh counter on 2 (green+below → watch), entry on 3 (red+below).
+        # Counter sat on candle 0 (rejected), gap on 1, fresh on 2–3.
         for minutes in range(5, 12):
             stepped[minutes]["buy_sat"] = np.array([True, False, True, True])
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
