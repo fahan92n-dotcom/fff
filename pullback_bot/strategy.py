@@ -4,10 +4,14 @@ Flow:
   1) Hierarchy / cancel: largest main TF with SMI sat alone
      (SMI <= -40 sell / >= +40 buy) owns the side and cancels smaller
      mains. RSI and EMA60 are NOT required to cancel.
-  2) Entry gate on that owned main: SMI sat PLUS RSI < 50 (sell) /
-     > 50 (buy) AND close below EMA60 (sell) / above EMA60 (buy).
-     If SMI sat holds but RSI/EMA fail → no entry (and smaller stay
-     cancelled while the larger SMI sat is active).
+  2) Entry gate on that owned main: the SMI-sat *episode* is only
+     eligible if RSI was already on the correct side on the formation
+     candle (buy: RSI > 50 when buy-sat first turns on; sell: RSI < 50
+     when sell-sat first turns on). If sat forms on the wrong RSI side,
+     the whole episode is dead for entry — even if RSI later flips while
+     sat still holds. Eligible episodes still need close below EMA60
+     (sell) / above EMA60 (buy) for the main gate. Smaller mains stay
+     cancelled while the larger SMI sat is active.
   3) Wait for reverse/counter sat on confirm TFs (inside the owned main).
   4) Once a reverse-sat candle closes, start watching the entry TF.
   5) On the FIRST watched entry-TF candle:
@@ -20,9 +24,10 @@ Flow:
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
-  Main 30m SMI sell-sat (and RSI/EMA gate) → counter buy-sat on 5..11
-  (12m stops) → on 2m after counter confirms (not already red+below
-  EMA60 on the first candle), enter on the first candle red AND below EMA60.
+  Main 30m SMI sell-sat formed with RSI < 50 (and EMA60 gate) → counter
+  buy-sat on 5..11 (12m stops) → on 2m after counter confirms (not
+  already red+below EMA60 on the first candle), enter on the first
+  candle red AND below EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ SMI sat
 halts that side.
@@ -224,6 +229,31 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
     )
 
 
+def _sat_episode_rsi_valid(sat, rsi_ok):
+    """True on sat bars only if the episode's formation candle had RSI ok.
+
+    If buy/sell sat turns on while RSI is on the wrong side of 50, the
+    whole continuous sat episode stays invalid for main entry — even after
+    RSI later flips. A fresh episode (sat clears then returns) re-checks.
+    """
+    sat_arr = np.asarray(sat, dtype=bool)
+    ok_arr = np.asarray(rsi_ok, dtype=bool)
+    out = np.zeros(len(sat_arr), dtype=bool)
+    active = False
+    episode_ok = False
+    for i, is_sat in enumerate(sat_arr):
+        if not is_sat:
+            active = False
+            episode_ok = False
+            continue
+        if not active:
+            # Formation candle of a new sat episode.
+            active = True
+            episode_ok = bool(ok_arr[i])
+        out[i] = episode_ok
+    return out
+
+
 def _frame_features(df_1m, minutes):
     """Resample and compute SMI/RSI/EMA60 for main and confirm frames."""
     df = resample_ohlcv_closed(df_1m, minutes)
@@ -235,6 +265,14 @@ def _frame_features(df_1m, minutes):
     ema = calc_ema(df["close"], span=EMA_SPAN)
     above_ema = df["close"] > ema
     below_ema = df["close"] < ema
+    sell_sat = (smi <= SMI_SELL).to_numpy()
+    buy_sat = (smi >= SMI_BUY).to_numpy()
+    rsi_arr = rsi.to_numpy()
+    # Main entry eligible only if RSI was correct when sat formed.
+    sell_sat_rsi_ok = _sat_episode_rsi_valid(sell_sat, rsi_arr < RSI_MID)
+    buy_sat_rsi_ok = _sat_episode_rsi_valid(buy_sat, rsi_arr > RSI_MID)
+    above = above_ema.to_numpy()
+    below = below_ema.to_numpy()
     end_ts = df["ts"] + pd.Timedelta(minutes=minutes)
     out = pd.DataFrame(
         {
@@ -242,18 +280,14 @@ def _frame_features(df_1m, minutes):
             "end_ts": end_ts.to_numpy(),
             "close": df["close"].to_numpy(),
             "smi": smi.to_numpy(),
-            "rsi": rsi.to_numpy(),
+            "rsi": rsi_arr,
             "ema": ema.to_numpy(),
-            # Entry gate on owned main: SMI + RSI mid + EMA60 side.
-            "sell_main": (
-                (smi <= SMI_SELL) & (rsi < RSI_MID) & below_ema
-            ).to_numpy(),
-            "buy_main": (
-                (smi >= SMI_BUY) & (rsi > RSI_MID) & above_ema
-            ).to_numpy(),
+            # Entry gate: formation-RSI-valid sat + RSI still correct + EMA60.
+            "sell_main": sell_sat_rsi_ok & (rsi_arr < RSI_MID) & below,
+            "buy_main": buy_sat_rsi_ok & (rsi_arr > RSI_MID) & above,
             # Hierarchy cancel + confirm/counter: SMI only.
-            "sell_sat": (smi <= SMI_SELL).to_numpy(),
-            "buy_sat": (smi >= SMI_BUY).to_numpy(),
+            "sell_sat": sell_sat,
+            "buy_sat": buy_sat,
         }
     )
     return out
@@ -323,8 +357,8 @@ def _precompute_stepped(frame_data, grid):
 def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
     """Replay one side (sell/buy) across the hierarchy; return signal dicts.
 
-    Ownership / cancel uses SMI sat alone. Entry still needs full main
-    (SMI + RSI mid + EMA60 side).
+    Ownership / cancel uses SMI sat alone. Entry still needs a
+    formation-RSI-valid main episode plus EMA60 side.
     """
     is_sell = side == "sell"
     main_key = "sell_main" if is_sell else "buy_main"
@@ -382,7 +416,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if stop_feat is not None
             else np.zeros(len(grid), dtype=bool)
         )
-        # Owned by this main via SMI sat, and RSI+EMA gate open for entry.
+        # Owned by this main via SMI sat, and formation-RSI + EMA gate open.
         # Reverse-sat confirm window: then counter sat closed + not stop.
         # After the first confirmed reverse-sat close we keep watching (even if
         # counter clears) until main dies, confirm-stop hits, or we enter.
