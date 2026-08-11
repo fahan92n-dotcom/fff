@@ -5,13 +5,14 @@ Flow:
      with RSI < 50 (sell) / > 50 (buy) on that main-TF candle.
   2) Wait for reverse/counter sat on confirm TFs (inside the main sat).
   3) Once a reverse-sat candle closes, start watching the entry TF.
-  4) Buy entry: Donchian red → green and close > EMA60.
-     Sell entry: Donchian green → red and close < EMA60.
+  4) On entry TF only — both must flip together:
+     Buy:  Donchian red → green and close below EMA60 → above.
+     Sell: Donchian green → red and close above EMA60 → below.
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
   Main 30m sell-sat → counter buy-sat on 5..11 (12m stops) → on 2m after
-  counter confirms, enter on green→red + below EMA60.
+  counter confirms, enter on green→red and above→below EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 """
@@ -356,17 +357,17 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
         seen_counter = False
         prev_green = False
         prev_red = False
+        prev_above = False
+        prev_below = False
         for row_i, candle_end in enumerate(ends):
             if candle_end < start_ts or candle_end > end_ts_limit:
                 seen_counter = False
-                prev_green = False
-                prev_red = False
+                prev_green = prev_red = prev_above = prev_below = False
                 continue
             pos = int(grid.searchsorted(candle_end, side="right") - 1)
             if pos < 0 or not hold_window[pos]:
                 seen_counter = False
-                prev_green = False
-                prev_red = False
+                prev_green = prev_red = prev_above = prev_below = False
                 continue
 
             above = bool(entry_df["above_ema"].iloc[row_i])
@@ -378,11 +379,12 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if confirm_window[pos]:
                 seen_counter = True
 
+            # Entry TF only: Donchian flip + EMA side flip together.
             hit = False
             if seen_counter:
-                if is_sell and prev_green and red and below:
+                if is_sell and prev_green and red and prev_above and below:
                     hit = True
-                elif (not is_sell) and prev_red and green and above:
+                elif (not is_sell) and prev_red and green and prev_below and above:
                     hit = True
 
             if hit:
@@ -410,6 +412,8 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
 
             prev_green = green
             prev_red = red
+            prev_above = above
+            prev_below = below
     return signals
 
 
