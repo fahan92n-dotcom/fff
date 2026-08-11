@@ -132,6 +132,59 @@ class TestScanSideSynthetic(unittest.TestCase):
         self.assertEqual(first["base_frame"], 30)
         self.assertAlmostEqual(first["price"], 99.0)
 
+    def test_entry_allowed_after_confirm_clears(self):
+        """Counter-sat is required to arm, not to fire the entry flip."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(4)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(4)],
+                "close": [101.0, 102.0, 99.0, 98.0],
+                "ema": [99.5, 100.0, 100.5, 100.2],
+                "don": [1, 1, -1, -1],
+                "above_ema": [True, True, False, False],
+                "below_ema": [False, False, True, True],
+                "don_green": [True, True, False, False],
+                "don_red": [False, False, True, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(4)]
+        )
+
+        def _empty():
+            return {
+                "sell_main": np.zeros(len(grid), dtype=bool),
+                "buy_main": np.zeros(len(grid), dtype=bool),
+                "sell_sat": np.zeros(len(grid), dtype=bool),
+                "buy_sat": np.zeros(len(grid), dtype=bool),
+            }
+
+        stepped = {}
+        for main, cmin, cstop, _entry in pb.LEVELS:
+            stepped.setdefault(main, _empty())
+            for minutes in range(cmin, cstop + 1):
+                stepped.setdefault(minutes, _empty())
+        # Main 30m sell sat stays alive all four closes.
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        # Counter buy-sat only on the arming candles; cleared before flip.
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.array([True, True, False, False])
+
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+        )
+        self.assertTrue(any(s["type"] == "sell" for s in signals))
+        first = next(s for s in signals if s["type"] == "sell")
+        self.assertAlmostEqual(first["price"], 99.0)
+
     def test_confirm_stop_blocks_entry(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(

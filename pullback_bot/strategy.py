@@ -4,7 +4,9 @@ Sell path example (30 = 5 = 2):
   1) Main 30m sell-sat: SMI <= -40 and RSI < 50 at close
   2) Counter buy-sat on any TF in 5..11; stop if 12m buy-sat appears
   3) Larger main (45m) cancels 30m and becomes the active level
-  4) Entry on 2m: Donchian green + close > EMA60, then Donchian red + close < EMA60
+  4) Arm on 2m while (1)+(2) hold: Donchian green + close > EMA60
+  5) Enter on later 2m while main still active and confirm-stop clear:
+     Donchian red + close < EMA60 (counter sat may already have ended)
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 """
@@ -339,7 +341,10 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if stop_feat is not None
             else np.zeros(len(grid), dtype=bool)
         )
-        window = (active == level_idx) & confirm_any & ~confirm_stop_mask
+        # Arm only while counter-sat confirm is alive. Entry may happen after
+        # that confirm has already cleared (the flip ends the counter move).
+        arm_window = (active == level_idx) & confirm_any & ~confirm_stop_mask
+        hold_window = (active == level_idx) & ~confirm_stop_mask
 
         ends = pd.DatetimeIndex(pd.to_datetime(entry_df["end_ts"], utc=True))
         armed = False
@@ -348,7 +353,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
                 armed = False
                 continue
             pos = int(grid.searchsorted(candle_end, side="right") - 1)
-            if pos < 0 or not window[pos]:
+            if pos < 0 or not hold_window[pos]:
                 armed = False
                 continue
 
@@ -359,7 +364,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             price = float(entry_df["close"].iloc[row_i])
 
             if is_sell:
-                if green and above:
+                if green and above and arm_window[pos]:
                     armed = True
                 elif armed and red and below:
                     future = raw_1m.loc[raw_1m["ts"] > candle_end]
@@ -383,7 +388,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
                     )
                     armed = False
             else:
-                if red and below:
+                if red and below and arm_window[pos]:
                     armed = True
                 elif armed and green and above:
                     future = raw_1m.loc[raw_1m["ts"] > candle_end]
