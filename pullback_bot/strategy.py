@@ -1,12 +1,16 @@
 """Pullback saturation strategy (SMI + EMA60 + Donchian + RSI) and week scan.
 
 Flow:
-  1) Main sat on closed candle: SMI <= -40 (sell) / >= +40 (buy),
-     with RSI < 50 (sell) / > 50 (buy) AND close below EMA60 (sell) /
-     above EMA60 (buy) on that main-TF candle.
-  2) Wait for reverse/counter sat on confirm TFs (inside the main sat).
-  3) Once a reverse-sat candle closes, start watching the entry TF.
-  4) On the FIRST watched entry-TF candle:
+  1) Hierarchy / cancel: largest main TF with SMI sat alone
+     (SMI <= -40 sell / >= +40 buy) owns the side and cancels smaller
+     mains. RSI and EMA60 are NOT required to cancel.
+  2) Entry gate on that owned main: SMI sat PLUS RSI < 50 (sell) /
+     > 50 (buy) AND close below EMA60 (sell) / above EMA60 (buy).
+     If SMI sat holds but RSI/EMA fail → no entry (and smaller stay
+     cancelled while the larger SMI sat is active).
+  3) Wait for reverse/counter sat on confirm TFs (inside the owned main).
+  4) Once a reverse-sat candle closes, start watching the entry TF.
+  5) On the FIRST watched entry-TF candle:
      - If BOTH entry conditions already hold (buy: Donchian green AND
        close above EMA60; sell: red AND below EMA60) → reject the
        episode: no entry until a fresh counter sat starts a new one.
@@ -16,11 +20,12 @@ Flow:
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
-  Main 30m sell-sat (SMI/RSI/below EMA60) → counter buy-sat on 5..11
+  Main 30m SMI sell-sat (and RSI/EMA gate) → counter buy-sat on 5..11
   (12m stops) → on 2m after counter confirms (not already red+below
   EMA60 on the first candle), enter on the first candle red AND below EMA60.
 
-Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
+Buy path is the exact mirror. Main frames stop at 6h; 7h+ SMI sat
+halts that side.
 """
 
 from __future__ import annotations
@@ -239,14 +244,14 @@ def _frame_features(df_1m, minutes):
             "smi": smi.to_numpy(),
             "rsi": rsi.to_numpy(),
             "ema": ema.to_numpy(),
-            # Main sat: SMI + RSI mid + close on the correct side of EMA60.
+            # Entry gate on owned main: SMI + RSI mid + EMA60 side.
             "sell_main": (
                 (smi <= SMI_SELL) & (rsi < RSI_MID) & below_ema
             ).to_numpy(),
             "buy_main": (
                 (smi >= SMI_BUY) & (rsi > RSI_MID) & above_ema
             ).to_numpy(),
-            # Confirm/counter sat: SMI only (no RSI/EMA filter).
+            # Hierarchy cancel + confirm/counter: SMI only.
             "sell_sat": (smi <= SMI_SELL).to_numpy(),
             "buy_sat": (smi >= SMI_BUY).to_numpy(),
         }
@@ -316,20 +321,26 @@ def _precompute_stepped(frame_data, grid):
 
 
 def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
-    """Replay one side (sell/buy) across the hierarchy; return signal dicts."""
+    """Replay one side (sell/buy) across the hierarchy; return signal dicts.
+
+    Ownership / cancel uses SMI sat alone. Entry still needs full main
+    (SMI + RSI mid + EMA60 side).
+    """
     is_sell = side == "sell"
     main_key = "sell_main" if is_sell else "buy_main"
+    # Hierarchy cancel key: SMI-only (larger sat cancels smaller).
+    sat_key = "sell_sat" if is_sell else "buy_sat"
     confirm_key = "buy_sat" if is_sell else "sell_sat"
 
     active = np.full(len(grid), -1, dtype=int)
     halt = stepped.get(HALT_MAIN_MINUTES)
-    halt_sat = halt[main_key] if halt is not None else np.zeros(len(grid), dtype=bool)
+    halt_sat = halt[sat_key] if halt is not None else np.zeros(len(grid), dtype=bool)
 
     main_masks = []
     for main, _cmin, _cstop, _entry in LEVELS:
         feat = stepped.get(main)
         main_masks.append(
-            feat[main_key] if feat is not None else np.zeros(len(grid), dtype=bool)
+            feat[sat_key] if feat is not None else np.zeros(len(grid), dtype=bool)
         )
 
     stacked = np.vstack(main_masks) if main_masks else np.zeros((0, len(grid)), dtype=bool)
@@ -351,6 +362,13 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
         if entry_df is None:
             continue
 
+        main_feat = stepped.get(main)
+        main_ready = (
+            main_feat[main_key]
+            if main_feat is not None
+            else np.zeros(len(grid), dtype=bool)
+        )
+
         confirm_any = np.zeros(len(grid), dtype=bool)
         for minutes in range(confirm_min, confirm_stop):
             feat = stepped.get(minutes)
@@ -364,11 +382,13 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if stop_feat is not None
             else np.zeros(len(grid), dtype=bool)
         )
-        # Reverse-sat confirm window: main active + counter sat closed + not stop.
+        # Owned by this main via SMI sat, and RSI+EMA gate open for entry.
+        # Reverse-sat confirm window: then counter sat closed + not stop.
         # After the first confirmed reverse-sat close we keep watching (even if
         # counter clears) until main dies, confirm-stop hits, or we enter.
-        confirm_window = (active == level_idx) & confirm_any & ~confirm_stop_mask
-        hold_window = (active == level_idx) & ~confirm_stop_mask
+        owned = (active == level_idx) & main_ready & ~confirm_stop_mask
+        confirm_window = owned & confirm_any
+        hold_window = owned
 
         ends = pd.DatetimeIndex(pd.to_datetime(entry_df["end_ts"], utc=True))
         # Episode state: IDLE = no reverse sat seen; WATCH = waiting for the
