@@ -49,6 +49,101 @@ class TestPullbackLevels(unittest.TestCase):
         self.assertNotIn(12, accepted)
 
 
+class TestMainEmaFilter(unittest.TestCase):
+    def test_buy_main_requires_close_above_ema60(self):
+        """Main buy sat needs SMI/RSI AND close above EMA60 on that candle."""
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        # Flat then ramp so EMA60 lags below close near the end.
+        n = 400
+        closes = np.concatenate(
+            [np.full(300, 100.0), np.linspace(100.0, 130.0, n - 300)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(np.full(n, 50.0)),
+            pd.Series(np.full(n, 50.0)),
+            pd.Series(np.full(n, 50.0)),
+        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(np.full(n, 60.0))):
+            feat = pb._frame_features(raw, 1)
+        self.assertIsNotNone(feat)
+        # Last bar: close above EMA after the ramp → buy_main True.
+        self.assertTrue(bool(feat["buy_main"].iloc[-1]))
+        self.assertFalse(bool(feat["sell_main"].iloc[-1]))
+
+    def test_sell_main_requires_close_below_ema60(self):
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        n = 400
+        closes = np.concatenate(
+            [np.full(300, 100.0), np.linspace(100.0, 70.0, n - 300)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(np.full(n, -50.0)),
+            pd.Series(np.full(n, -50.0)),
+            pd.Series(np.full(n, -50.0)),
+        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(np.full(n, 40.0))):
+            feat = pb._frame_features(raw, 1)
+        self.assertIsNotNone(feat)
+        self.assertTrue(bool(feat["sell_main"].iloc[-1]))
+        self.assertFalse(bool(feat["buy_main"].iloc[-1]))
+
+    def test_buy_main_rejected_when_close_below_ema60(self):
+        """SMI/RSI buy-sat alone is not enough if close is below EMA60."""
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        n = 400
+        closes = np.concatenate(
+            [np.full(300, 100.0), np.linspace(100.0, 70.0, n - 300)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(np.full(n, 50.0)),
+            pd.Series(np.full(n, 50.0)),
+            pd.Series(np.full(n, 50.0)),
+        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(np.full(n, 60.0))):
+            feat = pb._frame_features(raw, 1)
+        self.assertIsNotNone(feat)
+        self.assertFalse(bool(feat["buy_main"].iloc[-1]))
+
+
 class TestBoolStep(unittest.TestCase):
     def test_ffill_latest_closed(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
