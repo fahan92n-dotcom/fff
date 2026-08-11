@@ -5,17 +5,19 @@ Flow:
      with RSI < 50 (sell) / > 50 (buy) on that main-TF candle.
   2) Wait for reverse/counter sat on confirm TFs (inside the main sat).
   3) Once a reverse-sat candle closes, start watching the entry TF.
-  4) Enter on the first entry-TF candle where BOTH conditions hold:
-     Buy:  Donchian green AND close above EMA60.
-     Sell: Donchian red AND close below EMA60.
-     Each condition may become true at its own time; partial states in
-     between (e.g. green but still below EMA60) are fine. No flip or
-     cross on any specific candle is required.
+  4) On the FIRST watched entry-TF candle:
+     - If BOTH entry conditions already hold (buy: Donchian green AND
+       close above EMA60; sell: red AND below EMA60) → reject the
+       episode: no entry until a fresh counter sat starts a new one.
+     - Otherwise (one or both missing) wait: each condition may become
+       true at its own time, partial states in between are fine, and
+       enter on the first candle where both hold together.
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
   Main 30m sell-sat → counter buy-sat on 5..11 (12m stops) → on 2m after
-  counter confirms, enter on the first candle red AND below EMA60.
+  counter confirms (not already red+below EMA60 on the first candle),
+  enter on the first candle red AND below EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ halts that side.
 """
@@ -357,14 +359,18 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
         hold_window = (active == level_idx) & ~confirm_stop_mask
 
         ends = pd.DatetimeIndex(pd.to_datetime(entry_df["end_ts"], utc=True))
-        seen_counter = False
+        # Episode state: IDLE = no reverse sat seen; WATCH = waiting for the
+        # two entry conditions to complete; REJECT = both conditions already
+        # held on the first watched candle — dead until a fresh counter sat.
+        IDLE, WATCH, REJECT = 0, 1, 2
+        state = IDLE
         for row_i, candle_end in enumerate(ends):
             if candle_end < start_ts or candle_end > end_ts_limit:
-                seen_counter = False
+                state = IDLE
                 continue
             pos = int(grid.searchsorted(candle_end, side="right") - 1)
             if pos < 0 or not hold_window[pos]:
-                seen_counter = False
+                state = IDLE
                 continue
 
             above = bool(entry_df["above_ema"].iloc[row_i])
@@ -373,18 +379,21 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             red = bool(entry_df["don_red"].iloc[row_i])
             price = float(entry_df["close"].iloc[row_i])
 
-            if confirm_window[pos]:
-                seen_counter = True
+            counter_now = bool(confirm_window[pos])
+            both_hold = (red and below) if is_sell else (green and above)
 
-            # Entry: first candle after the reverse-sat confirm where BOTH
-            # conditions hold together. Each may become true at its own
-            # time; partial states in between are fine.
-            hit = False
-            if seen_counter:
-                if is_sell and red and below:
-                    hit = True
-                elif (not is_sell) and green and above:
-                    hit = True
+            if state == IDLE and counter_now:
+                # First watched candle of a new episode: if both entry
+                # conditions already hold, reject — nothing flipped after
+                # the reverse sat. Otherwise start waiting for them.
+                state = REJECT if both_hold else WATCH
+            elif state == REJECT and not counter_now:
+                # Counter sat ended; a fresh one may start a new episode.
+                state = IDLE
+
+            # WATCH survives the counter clearing — the entry may complete
+            # after the reverse sat is over.
+            hit = state == WATCH and both_hold
 
             if hit:
                 future = raw_1m.loc[raw_1m["ts"] > candle_end]
@@ -407,7 +416,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
                     }
                 )
                 # One entry per reverse-sat episode; wait for a fresh counter.
-                seen_counter = False
+                state = IDLE
     return signals
 
 
