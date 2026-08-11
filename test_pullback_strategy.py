@@ -223,6 +223,22 @@ class TestStandaloneBot(unittest.TestCase):
             pullback_main._dispatch_command("/week", "1")
         self.assertTrue(any("Pullback" in c for c in calls))
 
+    def test_unauthorized_update_replies_with_chat_id(self):
+        import pullback_bot.telegram_app as tg
+
+        sent = []
+        with patch.object(tg, "ALLOWED_CHAT_IDS", frozenset({"999"})), patch.object(
+            tg,
+            "send_telegram",
+            side_effect=lambda message, chat_id=None: sent.append((message, chat_id)),
+        ):
+            tg._dispatch_update(
+                {"message": {"text": "/week", "chat": {"id": 123}}}
+            )
+        self.assertEqual(len(sent), 1)
+        self.assertIn("123", sent[0][0])
+        self.assertEqual(sent[0][1], "123")
+
 
 if __name__ == "__main__":
     unittest.main()
