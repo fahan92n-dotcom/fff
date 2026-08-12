@@ -356,12 +356,22 @@ def _precompute_stepped(frame_data, grid):
     return stepped
 
 
-def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol=SYMBOL):
+def _scan_side(
+    side,
+    stepped,
+    entry_data,
+    grid,
+    start,
+    end,
+    raw_1m,
+    symbol=SYMBOL,
+    use_donchian=True,
+):
     """Replay one side (sell/buy) across the hierarchy; return signal dicts.
 
     Ownership / cancel uses SMI sat alone. Entry needs a main episode
     whose *formation* candle had correct EMA60 side; live EMA after
-    that is not re-checked.
+    that is not re-checked. Donchian on the entry TF is optional.
     """
     is_sell = side == "sell"
     main_key = "sell_main" if is_sell else "buy_main"
@@ -453,11 +463,19 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol=SYMBO
 
             counter_now = bool(confirm_window[pos])
             if is_sell:
-                both_hold = red and below
-                both_clear = (not red) and (not below)
+                if use_donchian:
+                    both_hold = red and below
+                    both_clear = (not red) and (not below)
+                else:
+                    both_hold = below
+                    both_clear = not below
             else:
-                both_hold = green and above
-                both_clear = (not green) and (not above)
+                if use_donchian:
+                    both_hold = green and above
+                    both_clear = (not green) and (not above)
+                else:
+                    both_hold = above
+                    both_clear = not above
 
             if state == IDLE and counter_now:
                 # Counting starts at reverse-sat formation.
@@ -521,6 +539,7 @@ def scan_pullback_week(
     now=None,
     raw_1m=None,
     symbol=SYMBOL,
+    use_donchian=True,
 ):
     """Scan pullback strategy over the last ``days`` for one symbol."""
     now = _utc(now) or datetime.now(timezone.utc)
@@ -581,10 +600,30 @@ def scan_pullback_week(
     stepped = _precompute_stepped(frame_data, grid)
     all_signals = []
     all_signals.extend(
-        _scan_side("sell", stepped, entry_data, grid, start, end, raw_1m, symbol)
+        _scan_side(
+            "sell",
+            stepped,
+            entry_data,
+            grid,
+            start,
+            end,
+            raw_1m,
+            symbol,
+            use_donchian=use_donchian,
+        )
     )
     all_signals.extend(
-        _scan_side("buy", stepped, entry_data, grid, start, end, raw_1m, symbol)
+        _scan_side(
+            "buy",
+            stepped,
+            entry_data,
+            grid,
+            start,
+            end,
+            raw_1m,
+            symbol,
+            use_donchian=use_donchian,
+        )
     )
 
     deduped = _dedupe_signals(all_signals)
@@ -607,6 +646,7 @@ def scan_pullback_week(
         "market": "spot-vision",
         "symbol": symbol,
         "symbols_scanned": 1,
+        "use_donchian": use_donchian,
     }
 
 
@@ -616,6 +656,7 @@ def scan_pullback_symbols(
     days=MONTH_DAYS,
     now=None,
     raw_by_symbol=None,
+    use_donchian=True,
 ):
     """Scan the original pullback strategy on several symbols and merge."""
     now = _utc(now) or datetime.now(timezone.utc)
@@ -631,6 +672,7 @@ def scan_pullback_symbols(
             now=now,
             raw_1m=raw_by_symbol.get(symbol),
             symbol=symbol,
+            use_donchian=use_donchian,
         )
         per_symbol[symbol] = result
         if not result.get("ready"):
@@ -661,6 +703,7 @@ def scan_pullback_symbols(
         "per_symbol": per_symbol,
         "failed": failed,
         "symbols_scanned": len(symbols) - len(failed),
+        "use_donchian": use_donchian,
     }
 
 
@@ -780,13 +823,20 @@ def format_pullback_multi_report(result):
     summary = _summarize_trades(all_trades)
 
     header = (
-        f"🗓️ <b>Pullback الأصلي (SMI + EMA60 + عكس + دخول) — آخر {days} يومًا</b>\n"
+        f"🗓️ <b>Pullback (SMI + EMA60 + عكس + دخول"
+        f"{'' if result.get('use_donchian', True) else ' بدون Donchian'})"
+        f" — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         "الرئيسي: تشبع SMI، والإغلاق فوق EMA60 شراء / تحته بيع (عند تكوّن التشبع).\n"
-        "العكس: تشبع معاكس حتى رقم التوقف. الدخول: Donchian + EMA60 بعد العكس.\n"
-        f"ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%\n"
+        "العكس: تشبع معاكس حتى رقم التوقف. "
+        + (
+            "الدخول: Donchian + EMA60 بعد العكس.\n"
+            if result.get("use_donchian", True)
+            else "الدخول: EMA60 فقط بعد العكس (بدون Donchian وبدون RSI).\n"
+        )
+        + f"ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%\n"
     )
     if failed:
         header += f"⚠️ بلا بيانات: <code>{html_escape(', '.join(failed))}</code>\n"
@@ -910,11 +960,16 @@ def main():
         print()
 
 
-def main_multi(days=MONTH_DAYS):
+def main_multi(days=MONTH_DAYS, use_donchian=True):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     symbols = ("BTCUSDT", "ETHUSDT", "XRPUSDT")
-    log.info("Scanning original pullback on %s for %s days...", ",".join(symbols), days)
-    result = scan_pullback_symbols(symbols, days=days)
+    log.info(
+        "Scanning pullback on %s for %s days (donchian=%s)...",
+        ",".join(symbols),
+        days,
+        use_donchian,
+    )
+    result = scan_pullback_symbols(symbols, days=days, use_donchian=use_donchian)
     for chunk in format_pullback_multi_report(result):
         text = (
             chunk.replace("<b>", "")
@@ -930,6 +985,6 @@ if __name__ == "__main__":
     import sys
 
     if "--multi" in sys.argv:
-        main_multi()
+        main_multi(use_donchian="--no-donchian" not in sys.argv)
     else:
         main()

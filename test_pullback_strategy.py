@@ -1003,6 +1003,102 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertTrue(signals)
         self.assertTrue(all(s["symbol"] == "ETHUSDT" for s in signals))
 
+    def test_no_donchian_sell_enters_on_ema_only(self):
+        """Without Donchian, sell enters on close below EMA60 after a clear."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 101.0, 99.0],
+                "ema": [100.0, 100.0, 100.2],
+                "don": [1, 1, 1],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
+                "don_green": [True, True, True],
+                "don_red": [False, False, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        with_don = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=True,
+        )
+        without = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+        )
+        self.assertEqual(with_don, [])
+        self.assertTrue(any(s["type"] == "sell" for s in without))
+
+    def test_no_donchian_sell_enters_on_ema_only(self):
+        """Without Donchian, sell enters on close below EMA60 after a clear."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 101.0, 99.0],
+                "ema": [100.0, 100.0, 100.2],
+                "don": [1, 1, 1],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
+                "don_green": [True, True, True],
+                "don_red": [False, False, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        with_don = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=True,
+        )
+        without = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+        )
+        self.assertEqual(with_don, [])
+        self.assertTrue(any(s["type"] == "sell" for s in without))
+
     def test_multi_scan_merges_symbols(self):
         start = datetime(2026, 7, 1, tzinfo=timezone.utc)
         end = start + timedelta(days=30)
