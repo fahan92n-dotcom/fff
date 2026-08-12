@@ -966,6 +966,100 @@ class TestStandaloneBot(unittest.TestCase):
         chunks = pb.format_pullback_week_report(result)
         self.assertIn("آخر 30 يومًا", chunks[0])
 
+    def test_scan_side_uses_passed_symbol(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 99.0, 98.0],
+                "ema": [100.0, 100.5, 100.2],
+                "don": [1, -1, -1],
+                "above_ema": [True, False, False],
+                "below_ema": [False, True, True],
+                "don_green": [True, False, False],
+                "don_red": [False, True, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            "ETHUSDT",
+        )
+        self.assertTrue(signals)
+        self.assertTrue(all(s["symbol"] == "ETHUSDT" for s in signals))
+
+    def test_multi_scan_merges_symbols(self):
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=30)
+        btc = {
+            "symbol": "BTCUSDT",
+            "type": "buy",
+            "time": start + timedelta(days=1),
+            "price": 100.0,
+            "base_frame": 45,
+            "confirm_frame": 8,
+            "triple_frame": 3,
+            "confirm_stop": 18,
+            "outcome": "win",
+            "exit_price": 101.0,
+            "exit_ts": start + timedelta(days=1, hours=1),
+        }
+        eth = {
+            "symbol": "ETHUSDT",
+            "type": "sell",
+            "time": start + timedelta(days=2),
+            "price": 200.0,
+            "base_frame": 60,
+            "confirm_frame": 10,
+            "triple_frame": 4,
+            "confirm_stop": 24,
+            "outcome": "loss",
+            "exit_price": 201.4,
+            "exit_ts": start + timedelta(days=2, hours=1),
+        }
+
+        def fake_scan(*, symbol, **_kwargs):
+            trade = btc if symbol == "BTCUSDT" else eth
+            wins = [trade] if trade["outcome"] == "win" else []
+            losses = [trade] if trade["outcome"] == "loss" else []
+            return {
+                "ready": True,
+                "start": start,
+                "end": end,
+                "days": 30,
+                "wins": wins,
+                "losses": losses,
+                "opens": [],
+                "total": 1,
+                "market": "spot-vision",
+                "symbol": symbol,
+            }
+
+        with patch.object(pb, "scan_pullback_week", side_effect=fake_scan):
+            result = pb.scan_pullback_symbols(
+                ("BTCUSDT", "ETHUSDT"), days=30, now=end
+            )
+        self.assertEqual(result["total"], 2)
+        text = "\n".join(pb.format_pullback_multi_report(result))
+        self.assertIn("BTCUSDT", text)
+        self.assertIn("ETHUSDT", text)
+        self.assertIn("EMA60", text)
+
 
 if __name__ == "__main__":
     unittest.main()

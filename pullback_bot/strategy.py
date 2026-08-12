@@ -356,7 +356,7 @@ def _precompute_stepped(frame_data, grid):
     return stepped
 
 
-def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
+def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol=SYMBOL):
     """Replay one side (sell/buy) across the hierarchy; return signal dicts.
 
     Ownership / cancel uses SMI sat alone. Entry needs a main episode
@@ -480,7 +480,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
                 )
                 signals.append(
                     {
-                        "symbol": SYMBOL,
+                        "symbol": symbol,
                         "type": "sell" if is_sell else "buy",
                         "time": _utc(candle_end),
                         "price": price,
@@ -520,8 +520,9 @@ def scan_pullback_week(
     days=WEEK_DAYS,
     now=None,
     raw_1m=None,
+    symbol=SYMBOL,
 ):
-    """Scan BTCUSDT pullback strategy over the last ``days``."""
+    """Scan pullback strategy over the last ``days`` for one symbol."""
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     end = now
@@ -529,7 +530,9 @@ def scan_pullback_week(
     if raw_1m is None:
         # Extra bars for indicator warmup above the scan window.
         target = max(MIN_1M_BARS, int(days) * 1440 + 45_000)
-        raw_1m = fetch_btc_1m_vision(target=target)
+        log.info("Fetching %s 1m bars for %s...", target, symbol)
+        raw_1m = fetch_1m_vision(symbol, target=target)
+        log.info("%s bars: %s", symbol, 0 if raw_1m is None else len(raw_1m))
     if raw_1m is None or raw_1m.empty:
         return {
             "ready": False,
@@ -542,7 +545,7 @@ def scan_pullback_week(
             "opens": [],
             "total": 0,
             "market": "spot-vision",
-            "symbol": SYMBOL,
+            "symbol": symbol,
         }
 
     raw_1m = raw_1m.sort_values("ts").reset_index(drop=True)
@@ -562,7 +565,7 @@ def scan_pullback_week(
             "opens": [],
             "total": 0,
             "market": "spot-vision",
-            "symbol": SYMBOL,
+            "symbol": symbol,
             "symbols_scanned": 1,
         }
 
@@ -578,10 +581,10 @@ def scan_pullback_week(
     stepped = _precompute_stepped(frame_data, grid)
     all_signals = []
     all_signals.extend(
-        _scan_side("sell", stepped, entry_data, grid, start, end, raw_1m)
+        _scan_side("sell", stepped, entry_data, grid, start, end, raw_1m, symbol)
     )
     all_signals.extend(
-        _scan_side("buy", stepped, entry_data, grid, start, end, raw_1m)
+        _scan_side("buy", stepped, entry_data, grid, start, end, raw_1m, symbol)
     )
 
     deduped = _dedupe_signals(all_signals)
@@ -602,8 +605,62 @@ def scan_pullback_week(
         "opens": opens,
         "total": len(deduped),
         "market": "spot-vision",
-        "symbol": SYMBOL,
+        "symbol": symbol,
         "symbols_scanned": 1,
+    }
+
+
+def scan_pullback_symbols(
+    symbols=("BTCUSDT", "ETHUSDT", "XRPUSDT"),
+    *,
+    days=MONTH_DAYS,
+    now=None,
+    raw_by_symbol=None,
+):
+    """Scan the original pullback strategy on several symbols and merge."""
+    now = _utc(now) or datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+    end = now
+    raw_by_symbol = raw_by_symbol or {}
+    merged = []
+    per_symbol = {}
+    failed = []
+    for symbol in symbols:
+        result = scan_pullback_week(
+            days=days,
+            now=now,
+            raw_1m=raw_by_symbol.get(symbol),
+            symbol=symbol,
+        )
+        per_symbol[symbol] = result
+        if not result.get("ready"):
+            failed.append(symbol)
+            continue
+        merged.extend(result["wins"])
+        merged.extend(result["losses"])
+        merged.extend(result["opens"])
+
+    deduped = _dedupe_signals(merged)
+    wins = [s for s in deduped if s["outcome"] == "win"]
+    losses = [s for s in deduped if s["outcome"] == "loss"]
+    opens = [s for s in deduped if s["outcome"] == "open"]
+    wins.sort(key=lambda item: item["time"])
+    losses.sort(key=lambda item: item["time"])
+    opens.sort(key=lambda item: item["time"])
+    return {
+        "ready": True,
+        "start": start,
+        "end": end,
+        "days": int(days),
+        "wins": wins,
+        "losses": losses,
+        "opens": opens,
+        "total": len(deduped),
+        "market": "spot-vision",
+        "symbols": list(symbols),
+        "per_symbol": per_symbol,
+        "failed": failed,
+        "symbols_scanned": len(symbols) - len(failed),
     }
 
 
@@ -688,6 +745,118 @@ def format_pullback_week_report(result):
     return packed
 
 
+def _summarize_trades(trades):
+    wins = [t for t in trades if t["outcome"] == "win"]
+    losses = [t for t in trades if t["outcome"] == "loss"]
+    opens = [t for t in trades if t["outcome"] == "open"]
+    closed = len(wins) + len(losses)
+    pnl = WIN_PCT * len(wins) - LOSS_PCT * len(losses)
+    win_rate = (100.0 * len(wins) / closed) if closed else 0.0
+    return {
+        "wins": wins,
+        "losses": losses,
+        "opens": opens,
+        "total": len(trades),
+        "win_rate": win_rate,
+        "pnl": pnl,
+    }
+
+
+def format_pullback_multi_report(result):
+    """Plain-friendly HTML report for a multi-symbol original-strategy scan."""
+    if not result.get("ready"):
+        return ["⚠️ تعذر فحص استراتيجية الـ Pullback."]
+
+    wins = result.get("wins") or []
+    losses = result.get("losses") or []
+    opens = result.get("opens") or []
+    all_trades = list(wins) + list(losses) + list(opens)
+    all_trades.sort(key=lambda item: item["time"])
+    start = result["start"].strftime("%Y-%m-%d %H:%M")
+    end = result["end"].strftime("%Y-%m-%d %H:%M")
+    days = int(result.get("days") or MONTH_DAYS)
+    symbols = ", ".join(result.get("symbols") or [SYMBOL])
+    failed = result.get("failed") or []
+    summary = _summarize_trades(all_trades)
+
+    header = (
+        f"🗓️ <b>Pullback الأصلي (SMI + EMA60 + عكس + دخول) — آخر {days} يومًا</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"العملات: <code>{html_escape(symbols)}</code>\n"
+        f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
+        "الرئيسي: تشبع SMI، والإغلاق فوق EMA60 شراء / تحته بيع (عند تكوّن التشبع).\n"
+        "العكس: تشبع معاكس حتى رقم التوقف. الدخول: Donchian + EMA60 بعد العكس.\n"
+        f"ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%\n"
+    )
+    if failed:
+        header += f"⚠️ بلا بيانات: <code>{html_escape(', '.join(failed))}</code>\n"
+    header += (
+        f"الإجمالي: صفقات <b>{summary['total']}</b> | "
+        f"✅ {len(summary['wins'])} | ❌ {len(summary['losses'])} | "
+        f"⏳ {len(summary['opens'])} | "
+        f"نجاح {summary['win_rate']:.0f}% | "
+        f"صافي {summary['pnl']:+.2f}%\n"
+    )
+
+    chunks = [header]
+    symbol_lines = ["💱 <b>حسب العملة</b>"]
+    for symbol in result.get("symbols") or []:
+        sub = _summarize_trades([t for t in all_trades if t["symbol"] == symbol])
+        symbol_lines.append(
+            f"<code>{html_escape(symbol)}</code>: صفقات <b>{sub['total']}</b> | "
+            f"✅ {len(sub['wins'])} | ❌ {len(sub['losses'])} | "
+            f"نجاح {sub['win_rate']:.0f}% | صافي {sub['pnl']:+.2f}%"
+        )
+    chunks.append("\n".join(symbol_lines))
+
+    level_lines = ["📊 <b>حسب المستوى</b>"]
+    for main, cmin, cstop, entry in LEVELS:
+        sub = _summarize_trades(
+            [
+                t
+                for t in all_trades
+                if t["base_frame"] == main and t["triple_frame"] == entry
+            ]
+        )
+        if sub["total"] == 0:
+            continue
+        level_lines.append(
+            f"{main}م | عكس {cmin}–{cstop - 1} يتوقف {cstop} | دخول {entry}م: "
+            f"صفقات <b>{sub['total']}</b> | ✅ {len(sub['wins'])} | "
+            f"❌ {len(sub['losses'])} | نجاح {sub['win_rate']:.0f}% | "
+            f"صافي {sub['pnl']:+.2f}%"
+        )
+    if len(level_lines) == 1:
+        level_lines.append("— لا توجد صفقات")
+    chunks.append("\n".join(level_lines))
+
+    if all_trades:
+        trade_lines = ["📋 <b>الصفقات</b>"]
+        for trade in all_trades:
+            mark = {"win": "✅", "loss": "❌", "open": "⏳"}.get(
+                trade["outcome"], trade["outcome"]
+            )
+            trade_lines.append(f"{mark} {_format_trade_line(trade)}")
+        chunks.append("\n".join(trade_lines))
+    else:
+        chunks.append("لا توجد صفقات مطابقة خلال الفترة.")
+
+    packed = []
+    current = ""
+    for block in chunks:
+        if not current:
+            current = block
+            continue
+        if len(current) + 2 + len(block) > 3500:
+            packed.append(current)
+            current = block
+        else:
+            current = current + "\n\n" + block
+    if current:
+        packed.append(current)
+    return packed
+
+
 def handle_pullback_week_command(chat_id, send_telegram, *, days=WEEK_DAYS):
     """Telegram entry for pullback strategy scan (BTC only)."""
     global _scan_running
@@ -741,5 +910,26 @@ def main():
         print()
 
 
+def main_multi(days=MONTH_DAYS):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    symbols = ("BTCUSDT", "ETHUSDT", "XRPUSDT")
+    log.info("Scanning original pullback on %s for %s days...", ",".join(symbols), days)
+    result = scan_pullback_symbols(symbols, days=days)
+    for chunk in format_pullback_multi_report(result):
+        text = (
+            chunk.replace("<b>", "")
+            .replace("</b>", "")
+            .replace("<code>", "")
+            .replace("</code>", "")
+        )
+        print(text)
+        print()
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if "--multi" in sys.argv:
+        main_multi()
+    else:
+        main()
