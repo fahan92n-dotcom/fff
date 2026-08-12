@@ -152,8 +152,8 @@ def _all_needed_frames():
     return sorted(frames)
 
 
-def fetch_btc_1m_vision(target=MIN_1M_BARS):
-    """Fetch BTCUSDT 1m spot OHLCV via Binance Vision (geo-friendly mirror)."""
+def fetch_1m_vision(symbol=SYMBOL, target=MIN_1M_BARS):
+    """Fetch 1m spot OHLCV via Binance Vision (geo-friendly mirror)."""
     tf_ms = 60_000
     bin_max = 1000
     all_dfs = []
@@ -167,7 +167,7 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
             resp = _SESSION.get(
                 VISION_KLINES,
                 params={
-                    "symbol": SYMBOL,
+                    "symbol": symbol,
                     "interval": "1m",
                     "startTime": start_ms,
                     "endTime": end_ms,
@@ -226,6 +226,11 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
         .sort_values("ts")
         .reset_index(drop=True)
     )
+
+
+def fetch_btc_1m_vision(target=MIN_1M_BARS):
+    """Fetch BTCUSDT 1m spot OHLCV via Binance Vision."""
+    return fetch_1m_vision(SYMBOL, target=target)
 
 
 def _sat_episode_formation_valid(sat, formation_ok):
