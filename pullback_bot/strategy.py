@@ -4,14 +4,13 @@ Flow:
   1) Hierarchy / cancel: largest main TF with SMI sat alone
      (SMI <= -40 sell / >= +40 buy) owns the side and cancels smaller
      mains. RSI and EMA60 are NOT required to cancel.
-  2) Entry gate on that owned main: the SMI-sat *episode* is only
-     eligible if RSI was already on the correct side on the formation
-     candle (buy: RSI > 50 when buy-sat first turns on; sell: RSI < 50
-     when sell-sat first turns on). If sat forms on the wrong RSI side,
-     the whole episode is dead for entry — even if RSI later flips while
-     sat still holds. Eligible episodes still need close below EMA60
-     (sell) / above EMA60 (buy) for the main gate. Smaller mains stay
-     cancelled while the larger SMI sat is active.
+  2) Entry gate on that owned main: checked ONLY on the first closed
+     SMI-sat candle (formation). Buy needs RSI > 50 and close above
+     EMA60 on that candle; sell needs RSI < 50 and close below EMA60.
+     If formation fails, the whole sat episode is dead for entry — even
+     if RSI/EMA later become correct. If formation passes, later RSI/EMA
+     breaks do NOT kill the path while SMI sat remains. Smaller mains
+     stay cancelled while the larger SMI sat is active.
   3) Wait for reverse/counter sat on confirm TFs (inside the owned main).
   4) Once a reverse-sat candle closes, start watching the entry TF.
   5) On the entry TF after reverse sat starts:
@@ -271,11 +270,16 @@ def _frame_features(df_1m, minutes):
     sell_sat = (smi <= SMI_SELL).to_numpy()
     buy_sat = (smi >= SMI_BUY).to_numpy()
     rsi_arr = rsi.to_numpy()
-    # Main entry eligible only if RSI was correct when sat formed.
-    sell_sat_rsi_ok = _sat_episode_rsi_valid(sell_sat, rsi_arr < RSI_MID)
-    buy_sat_rsi_ok = _sat_episode_rsi_valid(buy_sat, rsi_arr > RSI_MID)
     above = above_ema.to_numpy()
     below = below_ema.to_numpy()
+    # Gate ONLY at first sat close: RSI side + close vs EMA60.
+    # Later RSI/EMA flips do not revoke a valid episode while sat holds.
+    sell_main = _sat_episode_rsi_valid(
+        sell_sat, (rsi_arr < RSI_MID) & below
+    )
+    buy_main = _sat_episode_rsi_valid(
+        buy_sat, (rsi_arr > RSI_MID) & above
+    )
     end_ts = df["ts"] + pd.Timedelta(minutes=minutes)
     out = pd.DataFrame(
         {
@@ -285,9 +289,8 @@ def _frame_features(df_1m, minutes):
             "smi": smi.to_numpy(),
             "rsi": rsi_arr,
             "ema": ema.to_numpy(),
-            # Entry gate: formation-RSI-valid sat + RSI still correct + EMA60.
-            "sell_main": sell_sat_rsi_ok & (rsi_arr < RSI_MID) & below,
-            "buy_main": buy_sat_rsi_ok & (rsi_arr > RSI_MID) & above,
+            "sell_main": sell_main,
+            "buy_main": buy_main,
             # Hierarchy cancel + confirm/counter: SMI only.
             "sell_sat": sell_sat,
             "buy_sat": buy_sat,
@@ -360,8 +363,9 @@ def _precompute_stepped(frame_data, grid):
 def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
     """Replay one side (sell/buy) across the hierarchy; return signal dicts.
 
-    Ownership / cancel uses SMI sat alone. Entry still needs a
-    formation-RSI-valid main episode plus EMA60 side.
+    Ownership / cancel uses SMI sat alone. Entry needs a main episode
+    whose *formation* candle had correct RSI + EMA60; live RSI/EMA
+    after that are not re-checked.
     """
     is_sell = side == "sell"
     main_key = "sell_main" if is_sell else "buy_main"
@@ -419,7 +423,8 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if stop_feat is not None
             else np.zeros(len(grid), dtype=bool)
         )
-        # Owned by this main via SMI sat, and formation-RSI + EMA gate open.
+        # Owned by this main via SMI sat, with a formation-valid episode
+        # (RSI+EMA60 only checked on the first sat close).
         # Reverse-sat confirm window: then counter sat closed + not stop.
         # After the first confirmed reverse-sat close we keep watching (even if
         # counter clears) until main dies, confirm-stop hits, or we enter.
