@@ -51,7 +51,7 @@ class TestPullbackLevels(unittest.TestCase):
 
 class TestMainEmaFilter(unittest.TestCase):
     def test_buy_main_requires_close_above_ema60(self):
-        """Main buy sat needs RSI + close above EMA60 on the formation candle."""
+        """Main buy sat needs close above EMA60 on the formation candle."""
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         n = 400
         closes = np.concatenate(
@@ -76,7 +76,7 @@ class TestMainEmaFilter(unittest.TestCase):
             pd.Series(smi),
             pd.Series(smi),
             pd.Series(smi),
-        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(np.full(n, 60.0))):
+        )):
             feat = pb._frame_features(raw, 1)
         self.assertIsNotNone(feat)
         self.assertTrue(bool(feat["buy_main"].iloc[-1]))
@@ -107,14 +107,14 @@ class TestMainEmaFilter(unittest.TestCase):
             pd.Series(smi),
             pd.Series(smi),
             pd.Series(smi),
-        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(np.full(n, 40.0))):
+        )):
             feat = pb._frame_features(raw, 1)
         self.assertIsNotNone(feat)
         self.assertTrue(bool(feat["sell_main"].iloc[-1]))
         self.assertFalse(bool(feat["buy_main"].iloc[-1]))
 
     def test_buy_main_rejected_when_close_below_ema60(self):
-        """Buy sat born below EMA60 is dead even with RSI > 50."""
+        """Buy sat born below EMA60 is dead for the whole episode."""
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         n = 400
         closes = np.concatenate(
@@ -139,24 +139,24 @@ class TestMainEmaFilter(unittest.TestCase):
             pd.Series(smi),
             pd.Series(smi),
             pd.Series(smi),
-        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(np.full(n, 60.0))):
+        )):
             feat = pb._frame_features(raw, 1)
         self.assertIsNotNone(feat)
         self.assertFalse(bool(feat["buy_main"].iloc[-1]))
 
 
-class TestSatFormationRsi(unittest.TestCase):
-    def test_episode_valid_only_when_formation_rsi_ok(self):
+class TestSatFormationEma(unittest.TestCase):
+    def test_episode_valid_only_when_formation_ok(self):
         sat = np.array([False, True, True, False, True, True])
-        # Episode1 forms with RSI ok; episode2 forms with RSI bad.
-        rsi_ok = np.array([False, True, True, False, False, True])
-        out = pb._sat_episode_rsi_valid(sat, rsi_ok)
+        # Episode1 forms with EMA ok; episode2 forms with EMA bad.
+        formation_ok = np.array([False, True, True, False, False, True])
+        out = pb._sat_episode_formation_valid(sat, formation_ok)
         np.testing.assert_array_equal(
             out, np.array([False, True, True, False, False, False])
         )
 
-    def test_buy_main_dead_if_sat_formed_below_rsi50(self):
-        """Buy sat born with RSI<=50 stays invalid even after RSI rises."""
+    def test_buy_main_ok_even_without_rsi_check(self):
+        """RSI is ignored — buy sat above EMA60 is valid for main entry."""
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         n = 400
         closes = np.concatenate(
@@ -176,20 +176,20 @@ class TestSatFormationRsi(unittest.TestCase):
                 }
             )
         raw = pd.DataFrame(rows)
-        # Sat on for the whole series; RSI starts <=50 then rises above.
-        rsi = np.concatenate([np.full(200, 40.0), np.full(n - 200, 60.0)])
+        # Sat forms only after price has risen above EMA60.
+        smi = np.concatenate([np.full(350, 0.0), np.full(n - 350, 50.0)])
         with patch.object(pb, "calc_smi", return_value=(
-            pd.Series(np.full(n, 50.0)),
-            pd.Series(np.full(n, 50.0)),
-            pd.Series(np.full(n, 50.0)),
-        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(rsi)):
+            pd.Series(smi),
+            pd.Series(smi),
+            pd.Series(smi),
+        )):
             feat = pb._frame_features(raw, 1)
         self.assertIsNotNone(feat)
         self.assertTrue(bool(feat["buy_sat"].iloc[-1]))
-        self.assertFalse(bool(feat["buy_main"].iloc[-1]))
+        self.assertTrue(bool(feat["buy_main"].iloc[-1]))
 
-    def test_sell_main_dead_if_sat_formed_above_rsi50(self):
-        """Sell sat born with RSI>=50 stays invalid even after RSI drops."""
+    def test_sell_main_ok_even_without_rsi_check(self):
+        """RSI is ignored — sell sat below EMA60 is valid for main entry."""
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         n = 400
         closes = np.concatenate(
@@ -209,18 +209,18 @@ class TestSatFormationRsi(unittest.TestCase):
                 }
             )
         raw = pd.DataFrame(rows)
-        rsi = np.concatenate([np.full(200, 60.0), np.full(n - 200, 40.0)])
+        smi = np.concatenate([np.full(350, 0.0), np.full(n - 350, -50.0)])
         with patch.object(pb, "calc_smi", return_value=(
-            pd.Series(np.full(n, -50.0)),
-            pd.Series(np.full(n, -50.0)),
-            pd.Series(np.full(n, -50.0)),
-        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(rsi)):
+            pd.Series(smi),
+            pd.Series(smi),
+            pd.Series(smi),
+        )):
             feat = pb._frame_features(raw, 1)
         self.assertIsNotNone(feat)
         self.assertTrue(bool(feat["sell_sat"].iloc[-1]))
-        self.assertFalse(bool(feat["sell_main"].iloc[-1]))
+        self.assertTrue(bool(feat["sell_main"].iloc[-1]))
 
-    def test_buy_main_ok_when_sat_forms_above_rsi50(self):
+    def test_buy_main_ok_when_sat_forms_above_ema60(self):
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         n = 400
         closes = np.concatenate(
@@ -240,20 +240,19 @@ class TestSatFormationRsi(unittest.TestCase):
                 }
             )
         raw = pd.DataFrame(rows)
-        # Sat starts after RSI > 50 and close is above EMA60.
+        # Sat starts after close is above EMA60.
         smi = np.concatenate([np.full(350, 0.0), np.full(n - 350, 50.0)])
-        rsi = np.concatenate([np.full(200, 40.0), np.full(n - 200, 60.0)])
         with patch.object(pb, "calc_smi", return_value=(
             pd.Series(smi),
             pd.Series(smi),
             pd.Series(smi),
-        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(rsi)):
+        )):
             feat = pb._frame_features(raw, 1)
         self.assertIsNotNone(feat)
         self.assertTrue(bool(feat["buy_main"].iloc[-1]))
 
-    def test_main_stays_valid_if_live_rsi_ema_break_after_formation(self):
-        """After a good first sat close, later RSI/EMA breaks do not kill main."""
+    def test_main_stays_valid_if_live_ema_breaks_after_formation(self):
+        """After a good first sat close, later EMA breaks do not kill main."""
         start = datetime(2026, 1, 1, tzinfo=timezone.utc)
         n = 400
         # Rally (formation above EMA) then drop back below EMA.
@@ -278,20 +277,17 @@ class TestSatFormationRsi(unittest.TestCase):
                 }
             )
         raw = pd.DataFrame(rows)
-        # Sat forms near the top (RSI>50, above EMA), then stays on while price drops.
+        # Sat forms near the top (above EMA), then stays on while price drops.
         smi = np.concatenate([np.full(310, 0.0), np.full(n - 310, 50.0)])
-        # RSI still >50 on the formation bar (310); breaks only later.
-        rsi = np.concatenate([np.full(330, 60.0), np.full(n - 330, 40.0)])
         with patch.object(pb, "calc_smi", return_value=(
             pd.Series(smi),
             pd.Series(smi),
             pd.Series(smi),
-        )), patch.object(pb, "calc_rsi_tv", return_value=pd.Series(rsi)):
+        )):
             feat = pb._frame_features(raw, 1)
         self.assertIsNotNone(feat)
         self.assertTrue(bool(feat["buy_sat"].iloc[-1]))
         self.assertLess(float(feat["close"].iloc[-1]), float(feat["ema"].iloc[-1]))
-        self.assertLess(float(feat["rsi"].iloc[-1]), 50.0)
         self.assertTrue(bool(feat["buy_main"].iloc[-1]))
 
 
@@ -783,8 +779,8 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         self.assertEqual(signals, [])
 
-    def test_larger_smi_sat_cancels_smaller_even_without_rsi_ema(self):
-        """90m SMI sat alone cancels 60m; without RSI+EMA on 90m → no entry."""
+    def test_larger_smi_sat_cancels_smaller_even_without_ema(self):
+        """90m SMI sat alone cancels 60m; without EMA on 90m → no entry."""
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         # 60m entry TF is 4m; build candles that would otherwise sell-enter.
         entry4 = pd.DataFrame(
@@ -925,6 +921,7 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertIn("إلغاء", help_text)
         self.assertIn("عكس", help_text)
         self.assertIn("/month", help_text)
+        self.assertNotIn("RSI", help_text)
 
     def test_standalone_dispatch_month(self):
         calls = []
