@@ -1157,5 +1157,61 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertIn("EMA60", text)
 
 
+class TestEmaSpanOverride(unittest.TestCase):
+    def test_frame_features_ema50_differs_from_ema60(self):
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        n = 400
+        closes = np.concatenate(
+            [np.full(200, 100.0), np.linspace(100.0, 140.0, n - 200)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        smi = np.full(n, 0.0)
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(smi),
+            pd.Series(smi),
+            pd.Series(smi),
+        )):
+            feat60 = pb._frame_features(raw, 1, ema_span=60)
+            feat50 = pb._frame_features(raw, 1, ema_span=50)
+        self.assertIsNotNone(feat60)
+        self.assertIsNotNone(feat50)
+        self.assertNotAlmostEqual(
+            float(feat60["ema"].iloc[-1]), float(feat50["ema"].iloc[-1])
+        )
+
+    def test_multi_report_uses_ema50_label(self):
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=30)
+        result = {
+            "ready": True,
+            "start": start,
+            "end": end,
+            "days": 30,
+            "wins": [],
+            "losses": [],
+            "opens": [],
+            "total": 0,
+            "symbols": ["BTCUSDT"],
+            "use_donchian": False,
+            "ema_span": 50,
+        }
+        text = "\n".join(pb.format_pullback_multi_report(result))
+        self.assertIn("EMA50", text)
+        self.assertNotIn("EMA60", text)
+
+
 if __name__ == "__main__":
     unittest.main()

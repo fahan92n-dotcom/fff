@@ -259,14 +259,15 @@ def _sat_episode_formation_valid(sat, formation_ok):
     return out
 
 
-def _frame_features(df_1m, minutes):
-    """Resample and compute SMI/EMA60 for main and confirm frames."""
+def _frame_features(df_1m, minutes, ema_span=EMA_SPAN):
+    """Resample and compute SMI/EMA for main and confirm frames."""
+    ema_span = int(ema_span)
     df = resample_ohlcv_closed(df_1m, minutes)
-    if df.empty or len(df) < max(WARMUP_SMI, EMA_SPAN + 5, DONCHIAN_DLEN + 2):
+    if df.empty or len(df) < max(WARMUP_SMI, ema_span + 5, DONCHIAN_DLEN + 2):
         return None
 
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
-    ema = calc_ema(df["close"], span=EMA_SPAN)
+    ema = calc_ema(df["close"], span=ema_span)
     above_ema = df["close"] > ema
     below_ema = df["close"] < ema
     sell_sat = (smi <= SMI_SELL).to_numpy()
@@ -295,11 +296,12 @@ def _frame_features(df_1m, minutes):
     return out
 
 
-def _entry_features(df_1m, minutes):
+def _entry_features(df_1m, minutes, ema_span=EMA_SPAN):
+    ema_span = int(ema_span)
     df = resample_ohlcv_closed(df_1m, minutes)
-    if df.empty or len(df) < max(EMA_SPAN + 5, DONCHIAN_DLEN + 2, WARMUP_SMI):
+    if df.empty or len(df) < max(ema_span + 5, DONCHIAN_DLEN + 2, WARMUP_SMI):
         return None
-    ema = calc_ema(df["close"], span=EMA_SPAN)
+    ema = calc_ema(df["close"], span=ema_span)
     don = calc_donchian_trend_series(
         df["close"].to_numpy(),
         df["high"].to_numpy(),
@@ -540,11 +542,13 @@ def scan_pullback_week(
     raw_1m=None,
     symbol=SYMBOL,
     use_donchian=True,
+    ema_span=EMA_SPAN,
 ):
     """Scan pullback strategy over the last ``days`` for one symbol."""
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     end = now
+    ema_span = int(ema_span)
 
     if raw_1m is None:
         # Extra bars for indicator warmup above the scan window.
@@ -565,6 +569,8 @@ def scan_pullback_week(
             "total": 0,
             "market": "spot-vision",
             "symbol": symbol,
+            "use_donchian": use_donchian,
+            "ema_span": ema_span,
         }
 
     raw_1m = raw_1m.sort_values("ts").reset_index(drop=True)
@@ -586,6 +592,8 @@ def scan_pullback_week(
             "market": "spot-vision",
             "symbol": symbol,
             "symbols_scanned": 1,
+            "use_donchian": use_donchian,
+            "ema_span": ema_span,
         }
 
     needed = _all_needed_frames()
@@ -594,8 +602,8 @@ def scan_pullback_week(
     entry_data = {}
     for minutes in needed:
         if minutes in entry_frames:
-            entry_data[minutes] = _entry_features(raw_1m, minutes)
-        frame_data[minutes] = _frame_features(raw_1m, minutes)
+            entry_data[minutes] = _entry_features(raw_1m, minutes, ema_span=ema_span)
+        frame_data[minutes] = _frame_features(raw_1m, minutes, ema_span=ema_span)
 
     stepped = _precompute_stepped(frame_data, grid)
     all_signals = []
@@ -647,6 +655,7 @@ def scan_pullback_week(
         "symbol": symbol,
         "symbols_scanned": 1,
         "use_donchian": use_donchian,
+        "ema_span": ema_span,
     }
 
 
@@ -657,6 +666,7 @@ def scan_pullback_symbols(
     now=None,
     raw_by_symbol=None,
     use_donchian=True,
+    ema_span=EMA_SPAN,
 ):
     """Scan the original pullback strategy on several symbols and merge."""
     now = _utc(now) or datetime.now(timezone.utc)
@@ -673,6 +683,7 @@ def scan_pullback_symbols(
             raw_1m=raw_by_symbol.get(symbol),
             symbol=symbol,
             use_donchian=use_donchian,
+            ema_span=ema_span,
         )
         per_symbol[symbol] = result
         if not result.get("ready"):
@@ -704,6 +715,7 @@ def scan_pullback_symbols(
         "failed": failed,
         "symbols_scanned": len(symbols) - len(failed),
         "use_donchian": use_donchian,
+        "ema_span": int(ema_span),
     }
 
 
@@ -821,20 +833,22 @@ def format_pullback_multi_report(result):
     symbols = ", ".join(result.get("symbols") or [SYMBOL])
     failed = result.get("failed") or []
     summary = _summarize_trades(all_trades)
+    ema_span = int(result.get("ema_span") or EMA_SPAN)
+    ema_label = f"EMA{ema_span}"
 
     header = (
-        f"🗓️ <b>Pullback (SMI + EMA60 + عكس + دخول"
+        f"🗓️ <b>Pullback (SMI + {ema_label} + عكس + دخول"
         f"{'' if result.get('use_donchian', True) else ' بدون Donchian'})"
         f" — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
-        "الرئيسي: تشبع SMI، والإغلاق فوق EMA60 شراء / تحته بيع (عند تكوّن التشبع).\n"
+        f"الرئيسي: تشبع SMI، والإغلاق فوق {ema_label} شراء / تحته بيع (عند تكوّن التشبع).\n"
         "العكس: تشبع معاكس حتى رقم التوقف. "
         + (
-            "الدخول: Donchian + EMA60 بعد العكس.\n"
+            f"الدخول: Donchian + {ema_label} بعد العكس.\n"
             if result.get("use_donchian", True)
-            else "الدخول: EMA60 فقط بعد العكس (بدون Donchian وبدون RSI).\n"
+            else f"الدخول: {ema_label} فقط بعد العكس (بدون Donchian وبدون RSI).\n"
         )
         + f"ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%\n"
     )
@@ -960,16 +974,19 @@ def main():
         print()
 
 
-def main_multi(days=MONTH_DAYS, use_donchian=True):
+def main_multi(days=MONTH_DAYS, use_donchian=True, ema_span=EMA_SPAN):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     symbols = ("BTCUSDT", "ETHUSDT", "XRPUSDT")
     log.info(
-        "Scanning pullback on %s for %s days (donchian=%s)...",
+        "Scanning pullback on %s for %s days (donchian=%s, ema=%s)...",
         ",".join(symbols),
         days,
         use_donchian,
+        ema_span,
     )
-    result = scan_pullback_symbols(symbols, days=days, use_donchian=use_donchian)
+    result = scan_pullback_symbols(
+        symbols, days=days, use_donchian=use_donchian, ema_span=ema_span
+    )
     for chunk in format_pullback_multi_report(result):
         text = (
             chunk.replace("<b>", "")
@@ -981,10 +998,19 @@ def main_multi(days=MONTH_DAYS, use_donchian=True):
         print()
 
 
-if __name__ == "__main__":
-    import sys
+def _cli_int(flag, default):
+    if flag in sys.argv:
+        idx = sys.argv.index(flag)
+        if idx + 1 < len(sys.argv):
+            return int(sys.argv[idx + 1])
+    return default
 
+
+if __name__ == "__main__":
     if "--multi" in sys.argv:
-        main_multi(use_donchian="--no-donchian" not in sys.argv)
+        main_multi(
+            use_donchian="--no-donchian" not in sys.argv,
+            ema_span=_cli_int("--ema-span", EMA_SPAN),
+        )
     else:
         main()
