@@ -1,16 +1,16 @@
-"""Pullback saturation strategy (SMI + EMA60 + Donchian + RSI) and week scan.
+"""Pullback saturation strategy (SMI + EMA60 + Donchian) and week scan.
 
 Flow:
   1) Hierarchy / cancel: largest main TF with SMI sat alone
      (SMI <= -40 sell / >= +40 buy) owns the side and cancels smaller
-     mains. RSI and EMA60 are NOT required to cancel.
+     mains. EMA60 is NOT required to cancel.
   2) Entry gate on that owned main: checked ONLY on the first closed
-     SMI-sat candle (formation). Buy needs RSI > 50 and close above
-     EMA60 on that candle; sell needs RSI < 50 and close below EMA60.
+     SMI-sat candle (formation). Buy needs close above EMA60 on that
+     candle; sell needs close below EMA60. RSI is not used.
      If formation fails, the whole sat episode is dead for entry — even
-     if RSI/EMA later become correct. If formation passes, later RSI/EMA
-     breaks do NOT kill the path while SMI sat remains. Smaller mains
-     stay cancelled while the larger SMI sat is active.
+     if EMA later becomes correct. If formation passes, later EMA breaks
+     do NOT kill the path while SMI sat remains. Smaller mains stay
+     cancelled while the larger SMI sat is active.
   3) Wait for reverse/counter sat on confirm TFs (inside the owned main).
   4) Once a reverse-sat candle closes, start watching the entry TF.
   5) On the entry TF after reverse sat starts:
@@ -26,10 +26,9 @@ Flow:
      (Reverse sat may already have cleared by the entry candle.)
 
 Sell path example (30 → 5..11 → 2):
-  Main 30m SMI sell-sat formed with RSI < 50 (and EMA60 gate) → counter
-  buy-sat on 5..11 (12m stops) → on 2m after counter confirms, first see
-  not-red and not-below, then enter on the first candle red AND below
-  EMA60.
+  Main 30m SMI sell-sat formed below EMA60 → counter buy-sat on 5..11
+  (12m stops) → on 2m after counter confirms, first see not-red and
+  not-below, then enter on the first candle red AND below EMA60.
 
 Buy path is the exact mirror. Main frames stop at 6h; 7h+ SMI sat
 halts that side.
@@ -58,7 +57,6 @@ from indicators import (
     WARMUP_SMI,
     calc_donchian_trend_series,
     calc_ema,
-    calc_rsi_tv,
     calc_smi,
     resample_ohlcv_closed,
 )
@@ -69,7 +67,6 @@ SYMBOL = "BTCUSDT"
 EMA_SPAN = 60
 SMI_SELL = -40
 SMI_BUY = 40
-RSI_MID = 50
 HALT_MAIN_MINUTES = 7 * 60  # 7h — stop, no level beyond 6h
 VISION_KLINES = "https://data-api.binance.vision/api/v3/klines"
 MIN_1M_BARS = 45_000  # need ~100+ bars even on 6h for SMI warmup
@@ -231,15 +228,16 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
     )
 
 
-def _sat_episode_rsi_valid(sat, rsi_ok):
-    """True on sat bars only if the episode's formation candle had RSI ok.
+def _sat_episode_formation_valid(sat, formation_ok):
+    """True on sat bars only if the episode's formation candle passed EMA60.
 
-    If buy/sell sat turns on while RSI is on the wrong side of 50, the
+    If buy/sell sat turns on while close is on the wrong side of EMA60, the
     whole continuous sat episode stays invalid for main entry — even after
-    RSI later flips. A fresh episode (sat clears then returns) re-checks.
+    price later flips vs EMA60. A fresh episode (sat clears then returns)
+    re-checks.
     """
     sat_arr = np.asarray(sat, dtype=bool)
-    ok_arr = np.asarray(rsi_ok, dtype=bool)
+    ok_arr = np.asarray(formation_ok, dtype=bool)
     out = np.zeros(len(sat_arr), dtype=bool)
     active = False
     episode_ok = False
@@ -257,29 +255,23 @@ def _sat_episode_rsi_valid(sat, rsi_ok):
 
 
 def _frame_features(df_1m, minutes):
-    """Resample and compute SMI/RSI/EMA60 for main and confirm frames."""
+    """Resample and compute SMI/EMA60 for main and confirm frames."""
     df = resample_ohlcv_closed(df_1m, minutes)
     if df.empty or len(df) < max(WARMUP_SMI, EMA_SPAN + 5, DONCHIAN_DLEN + 2):
         return None
 
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
-    rsi = calc_rsi_tv(df["close"], period=14)
     ema = calc_ema(df["close"], span=EMA_SPAN)
     above_ema = df["close"] > ema
     below_ema = df["close"] < ema
     sell_sat = (smi <= SMI_SELL).to_numpy()
     buy_sat = (smi >= SMI_BUY).to_numpy()
-    rsi_arr = rsi.to_numpy()
     above = above_ema.to_numpy()
     below = below_ema.to_numpy()
-    # Gate ONLY at first sat close: RSI side + close vs EMA60.
-    # Later RSI/EMA flips do not revoke a valid episode while sat holds.
-    sell_main = _sat_episode_rsi_valid(
-        sell_sat, (rsi_arr < RSI_MID) & below
-    )
-    buy_main = _sat_episode_rsi_valid(
-        buy_sat, (rsi_arr > RSI_MID) & above
-    )
+    # Gate ONLY at first sat close: close vs EMA60 (no RSI).
+    # Later EMA flips do not revoke a valid episode while sat holds.
+    sell_main = _sat_episode_formation_valid(sell_sat, below)
+    buy_main = _sat_episode_formation_valid(buy_sat, above)
     end_ts = df["ts"] + pd.Timedelta(minutes=minutes)
     out = pd.DataFrame(
         {
@@ -287,7 +279,6 @@ def _frame_features(df_1m, minutes):
             "end_ts": end_ts.to_numpy(),
             "close": df["close"].to_numpy(),
             "smi": smi.to_numpy(),
-            "rsi": rsi_arr,
             "ema": ema.to_numpy(),
             "sell_main": sell_main,
             "buy_main": buy_main,
@@ -364,8 +355,8 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
     """Replay one side (sell/buy) across the hierarchy; return signal dicts.
 
     Ownership / cancel uses SMI sat alone. Entry needs a main episode
-    whose *formation* candle had correct RSI + EMA60; live RSI/EMA
-    after that are not re-checked.
+    whose *formation* candle had correct EMA60 side; live EMA after
+    that is not re-checked.
     """
     is_sell = side == "sell"
     main_key = "sell_main" if is_sell else "buy_main"
@@ -424,7 +415,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             else np.zeros(len(grid), dtype=bool)
         )
         # Owned by this main via SMI sat, with a formation-valid episode
-        # (RSI+EMA60 only checked on the first sat close).
+        # (EMA60 only checked on the first sat close).
         # Reverse-sat confirm window: then counter sat closed + not stop.
         # After the first confirmed reverse-sat close we keep watching (even if
         # counter clears) until main dies, confirm-stop hits, or we enter.
@@ -645,7 +636,7 @@ def format_pullback_week_report(result):
     period_label = f"آخر {days} يومًا" if days != 7 else "آخر 7 أيام"
 
     header = (
-        f"🗓️ <b>صفقات Pullback (SMI/EMA60/Donchian/RSI) — {period_label}</b>\n"
+        f"🗓️ <b>صفقات Pullback (SMI/EMA60/Donchian) — {period_label}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملة: <code>{html_escape(result.get('symbol', SYMBOL))}</code> "
         f"(سوق: {html_escape(result.get('market', 'spot-vision'))})\n"

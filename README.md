@@ -1,7 +1,7 @@
 # Fahad
 
 Default deploy runs the **Pullback** bot: **BTCUSDT only**
-(SMI / EMA60 / Donchian / RSI). Cascade (multi-coin Futures) remains in the
+(SMI / EMA60 / Donchian). Cascade (multi-coin Futures) remains in the
 repo for reference but is not the start command.
 
 ## Structure
