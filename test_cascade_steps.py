@@ -45,14 +45,86 @@ class TestStepOwnership(unittest.TestCase):
             base_histogram_check=Mock(return_value=False),
         )
 
-        self.assertEqual(
-            strategy._step2(candidate, long_rules),
-            (False, "macd_histogram_not_red"),
+        with patch.object(
+            strategy,
+            "find_saturation_start_index",
+            return_value=999,
+        ):
+            self.assertEqual(
+                strategy._step2(candidate, long_rules),
+                (False, "macd_histogram_not_red"),
+            )
+            self.assertEqual(
+                strategy._step2(candidate, short_rules),
+                (False, "macd_histogram_not_green"),
+            )
+
+
+class TestStep2PinnedToFirstSaturatedClose(unittest.TestCase):
+    """فحص MACD في الخطوة ② يُقيَّم مرة واحدة على أول شمعة إغلاق متشبعة."""
+
+    def _run_step2(self, rules, saturation_start):
+        histogram_check = Mock(return_value=True)
+        line_check = Mock(return_value=True)
+        pinned_rules = replace(
+            rules,
+            base_histogram_check=histogram_check,
+            macd_line_check=line_check,
+        )
+        candidate = {
+            "df_base": pd.DataFrame({"close": [1.0] * 1000}),
+            "base_frame": 60,
+        }
+        with patch.object(
+            strategy,
+            "find_saturation_start_index",
+            return_value=saturation_start,
+        ) as finder:
+            result = strategy._step2(candidate, pinned_rules)
+        return result, finder, histogram_check, line_check
+
+    def test_checks_run_on_frame_sliced_at_saturation_start(self):
+        result, _, histogram_check, line_check = self._run_step2(
+            strategy.LONG_RULES,
+            saturation_start=500,
+        )
+        self.assertEqual(result, (True, "passed"))
+        self.assertEqual(len(histogram_check.call_args[0][0]), 501)
+        self.assertEqual(len(line_check.call_args[0][0]), 501)
+
+    def test_long_and_short_pass_matching_saturation_direction(self):
+        _, finder_long, _, _ = self._run_step2(
+            strategy.LONG_RULES,
+            saturation_start=999,
+        )
+        _, finder_short, _, _ = self._run_step2(
+            strategy.SHORT_RULES,
+            saturation_start=999,
         )
         self.assertEqual(
-            strategy._step2(candidate, short_rules),
-            (False, "macd_histogram_not_green"),
+            finder_long.call_args.kwargs,
+            {"threshold": -40, "direction": "long"},
         )
+        self.assertEqual(
+            finder_short.call_args.kwargs,
+            {"threshold": 40, "direction": "short"},
+        )
+
+    def test_rejects_when_no_current_saturation_run(self):
+        result, _, histogram_check, _ = self._run_step2(
+            strategy.LONG_RULES,
+            saturation_start=None,
+        )
+        self.assertEqual(result, (False, "smi_not_saturated"))
+        histogram_check.assert_not_called()
+
+    def test_rejects_when_saturation_start_lacks_macd_warmup(self):
+        result, _, histogram_check, _ = self._run_step2(
+            strategy.LONG_RULES,
+            saturation_start=50,
+        )
+        self.assertEqual(result, (False, "warmup"))
+        histogram_check.assert_not_called()
 
 
 class TestImmediateHigherFrame(unittest.TestCase):

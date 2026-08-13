@@ -26,9 +26,8 @@ from indicators import (
     _ribbon_cache_lock,
     calc_smi,
     check_donchian_trend_ribbon,
+    check_macd_at_saturation_start,
     check_macd_green,
-    check_macd_line_long,
-    check_macd_line_short,
     check_macd_red,
     find_step8_entry_index,
     resample_ohlcv,
@@ -572,21 +571,25 @@ def _refresh_and_validate_step5_side(
         df_base["close"],
     )
     current_smi = float(smi.iloc[-1])
+    # فحص MACD الأساسي مثبّت على أول شمعة إغلاق متشبعة (يفحص مرة واحدة)،
+    # فلا يُطرد المنتظرون لاحقًا بسبب تحرك MACD بعد تلك الشمعة.
     if signal_type == "buy":
         if current_smi > -40:
             return None
-        base_macd_ok = check_macd_red(df_base) and check_macd_line_long(
+        base_macd_ok = check_macd_at_saturation_start(
             df_base,
-            base_frame=candidate["base_frame"],
+            candidate["base_frame"],
+            direction="long",
         )
         ribbon_direction = "green"
         confirm_macd_ok = check_macd_green(df_confirm)
     elif signal_type == "sell":
         if current_smi < 40:
             return None
-        base_macd_ok = check_macd_green(df_base) and check_macd_line_short(
+        base_macd_ok = check_macd_at_saturation_start(
             df_base,
-            base_frame=candidate["base_frame"],
+            candidate["base_frame"],
+            direction="short",
         )
         ribbon_direction = "red"
         confirm_macd_ok = check_macd_red(df_confirm)

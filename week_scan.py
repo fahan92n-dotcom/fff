@@ -52,9 +52,8 @@ from indicators import (
     WARMUP_SMI,
     calc_smi,
     check_donchian_trend_ribbon,
+    check_macd_at_saturation_start,
     check_macd_green,
-    check_macd_line_long,
-    check_macd_line_short,
     check_macd_red,
     find_step8_entry_index,
     resample_ohlcv_closed,
@@ -216,11 +215,14 @@ def _stage5_still_valid(candidate, signal_type):
     current_smi = float(smi.iloc[-1])
     variant = candidate.get("variant") if isinstance(candidate.get("variant"), dict) else {}
 
+    # فحص MACD الأساسي مثبّت على أول شمعة إغلاق متشبعة (مطابق للمسار الحي).
     if signal_type == "buy":
         if current_smi > -40:
             return False
-        base_macd_ok = check_macd_red(df_base) and check_macd_line_long(
-            df_base, base_frame=candidate["base_frame"]
+        base_macd_ok = check_macd_at_saturation_start(
+            df_base,
+            candidate["base_frame"],
+            direction="long",
         )
         ribbon_direction = "green"
         confirm_macd_ok = check_macd_green(df_confirm)
@@ -228,8 +230,10 @@ def _stage5_still_valid(candidate, signal_type):
     else:
         if current_smi < 40:
             return False
-        base_macd_ok = check_macd_green(df_base) and check_macd_line_short(
-            df_base, base_frame=candidate["base_frame"]
+        base_macd_ok = check_macd_at_saturation_start(
+            df_base,
+            candidate["base_frame"],
+            direction="short",
         )
         ribbon_direction = "red"
         confirm_macd_ok = check_macd_red(df_confirm)

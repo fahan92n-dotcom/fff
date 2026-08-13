@@ -29,6 +29,7 @@ from indicators import (
     check_rsi_touched_since,
     check_smi_overbought,
     check_smi_oversold,
+    find_saturation_start_index,
     find_smi_touch_index,
 )
 from state_manager import get_step1_ready_since
@@ -74,7 +75,7 @@ STEP_NAMES = [
 ]
 STEP_LABELS = {
     "smi_oversold": "① تشبع بيعي SMI",
-    "macd_red": "② MACD أحمر",
+    "macd_red": "② MACD أحمر (عند أول إغلاق تشبع)",
     "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
     "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
     "macd_confirm": "⑤ MACD Confirm أخضر",
@@ -94,7 +95,7 @@ SHORT_STEP_NAMES = [
 ]
 SHORT_STEP_LABELS = {
     "smi_overbought": "① تشبع شرائي SMI ≥ +40",
-    "macd_green": "② MACD أخضر",
+    "macd_green": "② MACD أخضر (عند أول إغلاق تشبع)",
     "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
     "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
     "macd_confirm_red": "⑤ MACD Confirm أحمر",
@@ -282,13 +283,29 @@ def _step1(candidate, rules):
 
 
 def _step2(candidate, rules):
-    if len(candidate["df_base"]) < WARMUP_MACD:
+    """
+    فحص MACD مرة واحدة فقط: يُقيَّم على أول شمعة إغلاق متشبعة في نوبة
+    التشبع الحالية (لا على آخر شمعة في كل دورة)، فلا يتغيّر قراره
+    مع الشموع اللاحقة ما دامت النوبة مستمرة.
+    """
+    df_base = candidate["df_base"]
+    if len(df_base) < WARMUP_MACD:
         return False, "warmup"
-    if not rules.base_histogram_check(candidate["df_base"]):
+    start_index = find_saturation_start_index(
+        df_base,
+        threshold=-40 if rules.signal_type == "buy" else 40,
+        direction="long" if rules.signal_type == "buy" else "short",
+    )
+    if start_index is None:
+        return False, "smi_not_saturated"
+    df_eval = df_base.iloc[: start_index + 1]
+    if len(df_eval) < WARMUP_MACD:
+        return False, "warmup"
+    if not rules.base_histogram_check(df_eval):
         suffix = "red" if rules.signal_type == "buy" else "green"
         return False, f"macd_histogram_not_{suffix}"
     if not rules.macd_line_check(
-        candidate["df_base"],
+        df_eval,
         pct=0.40,
         base_frame=candidate["base_frame"],
     ):
