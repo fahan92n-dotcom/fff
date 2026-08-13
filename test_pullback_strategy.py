@@ -307,6 +307,8 @@ def _empty_stepped(grid):
     return {
         "sell_main": np.zeros(len(grid), dtype=bool),
         "buy_main": np.zeros(len(grid), dtype=bool),
+        "above_ema": np.zeros(len(grid), dtype=bool),
+        "below_ema": np.zeros(len(grid), dtype=bool),
         "sell_sat": np.zeros(len(grid), dtype=bool),
         "buy_sat": np.zeros(len(grid), dtype=bool),
     }
@@ -965,6 +967,330 @@ class TestStandaloneBot(unittest.TestCase):
         }
         chunks = pb.format_pullback_week_report(result)
         self.assertIn("آخر 30 يومًا", chunks[0])
+
+    def test_scan_side_uses_passed_symbol(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 99.0, 98.0],
+                "ema": [100.0, 100.5, 100.2],
+                "don": [1, -1, -1],
+                "above_ema": [True, False, False],
+                "below_ema": [False, True, True],
+                "don_green": [True, False, False],
+                "don_red": [False, True, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            "ETHUSDT",
+        )
+        self.assertTrue(signals)
+        self.assertTrue(all(s["symbol"] == "ETHUSDT" for s in signals))
+
+    def test_no_donchian_sell_enters_on_ema_only(self):
+        """Without Donchian, sell enters on close below EMA60 after a clear."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 101.0, 99.0],
+                "ema": [100.0, 100.0, 100.2],
+                "don": [1, 1, 1],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
+                "don_green": [True, True, True],
+                "don_red": [False, False, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        with_don = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=True,
+        )
+        without = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+        )
+        self.assertEqual(with_don, [])
+        self.assertTrue(any(s["type"] == "sell" for s in without))
+
+    def test_no_donchian_sell_enters_on_ema_only(self):
+        """Without Donchian, sell enters on close below EMA60 after a clear."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(3)],
+                "close": [101.0, 101.0, 99.0],
+                "ema": [100.0, 100.0, 100.2],
+                "don": [1, 1, 1],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
+                "don_green": [True, True, True],
+                "don_red": [False, False, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["sell_main"] = np.ones(len(grid), dtype=bool)
+        stepped[30]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        with_don = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=True,
+        )
+        without = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+        )
+        self.assertEqual(with_don, [])
+        self.assertTrue(any(s["type"] == "sell" for s in without))
+
+    def test_multi_scan_merges_symbols(self):
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=30)
+        btc = {
+            "symbol": "BTCUSDT",
+            "type": "buy",
+            "time": start + timedelta(days=1),
+            "price": 100.0,
+            "base_frame": 45,
+            "confirm_frame": 8,
+            "triple_frame": 3,
+            "confirm_stop": 18,
+            "outcome": "win",
+            "exit_price": 101.0,
+            "exit_ts": start + timedelta(days=1, hours=1),
+        }
+        eth = {
+            "symbol": "ETHUSDT",
+            "type": "sell",
+            "time": start + timedelta(days=2),
+            "price": 200.0,
+            "base_frame": 60,
+            "confirm_frame": 10,
+            "triple_frame": 4,
+            "confirm_stop": 24,
+            "outcome": "loss",
+            "exit_price": 201.4,
+            "exit_ts": start + timedelta(days=2, hours=1),
+        }
+
+        def fake_scan(*, symbol, **_kwargs):
+            trade = btc if symbol == "BTCUSDT" else eth
+            wins = [trade] if trade["outcome"] == "win" else []
+            losses = [trade] if trade["outcome"] == "loss" else []
+            return {
+                "ready": True,
+                "start": start,
+                "end": end,
+                "days": 30,
+                "wins": wins,
+                "losses": losses,
+                "opens": [],
+                "total": 1,
+                "market": "spot-vision",
+                "symbol": symbol,
+            }
+
+        with patch.object(pb, "scan_pullback_week", side_effect=fake_scan):
+            result = pb.scan_pullback_symbols(
+                ("BTCUSDT", "ETHUSDT"), days=30, now=end
+            )
+        self.assertEqual(result["total"], 2)
+        text = "\n".join(pb.format_pullback_multi_report(result))
+        self.assertIn("BTCUSDT", text)
+        self.assertIn("ETHUSDT", text)
+        self.assertIn("EMA60", text)
+
+
+class TestEmaSpanOverride(unittest.TestCase):
+    def test_frame_features_ema50_differs_from_ema60(self):
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        n = 400
+        closes = np.concatenate(
+            [np.full(200, 100.0), np.linspace(100.0, 140.0, n - 200)]
+        )
+        rows = []
+        for i, close in enumerate(closes):
+            ts = start + timedelta(minutes=i)
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": float(close),
+                    "high": float(close) + 1.0,
+                    "low": float(close) - 1.0,
+                    "close": float(close),
+                    "vol": 1.0,
+                }
+            )
+        raw = pd.DataFrame(rows)
+        smi = np.full(n, 0.0)
+        with patch.object(pb, "calc_smi", return_value=(
+            pd.Series(smi),
+            pd.Series(smi),
+            pd.Series(smi),
+        )):
+            feat60 = pb._frame_features(raw, 1, ema_span=60)
+            feat50 = pb._frame_features(raw, 1, ema_span=50)
+        self.assertIsNotNone(feat60)
+        self.assertIsNotNone(feat50)
+        self.assertNotAlmostEqual(
+            float(feat60["ema"].iloc[-1]), float(feat50["ema"].iloc[-1])
+        )
+
+    def test_multi_report_uses_ema50_label(self):
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=30)
+        result = {
+            "ready": True,
+            "start": start,
+            "end": end,
+            "days": 30,
+            "wins": [],
+            "losses": [],
+            "opens": [],
+            "total": 0,
+            "symbols": ["BTCUSDT"],
+            "use_donchian": False,
+            "ema_span": 50,
+        }
+        text = "\n".join(pb.format_pullback_multi_report(result))
+        self.assertIn("EMA50", text)
+        self.assertNotIn("EMA60", text)
+
+
+class TestMainEmaOnlyScan(unittest.TestCase):
+    def test_sell_enters_on_ema_without_main_smi_sat(self):
+        """Main close below EMA60 is enough; reverse sat + EMA entry stay."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(4)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(4)],
+                "close": [101.0, 101.0, 99.0, 98.0],
+                "ema": [100.0, 100.0, 100.0, 100.0],
+                "don": [1, 1, 1, 1],
+                "above_ema": [True, True, False, False],
+                "below_ema": [False, False, True, True],
+                "don_green": [True, True, True, True],
+                "don_red": [False, False, False, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(4)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["below_ema"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+
+        without_flag = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+            main_ema_only=False,
+        )
+        self.assertEqual(without_flag, [])
+
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+            main_ema_only=True,
+        )
+        self.assertTrue(any(s["type"] == "sell" for s in signals))
+        first = next(s for s in signals if s["type"] == "sell")
+        self.assertEqual(first["base_frame"], 30)
+        self.assertAlmostEqual(first["price"], 99.0)
+
+    def test_multi_report_describes_ema_only_main(self):
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=30)
+        result = {
+            "ready": True,
+            "start": start,
+            "end": end,
+            "days": 30,
+            "wins": [],
+            "losses": [],
+            "opens": [],
+            "total": 0,
+            "symbols": ["BTCUSDT"],
+            "use_donchian": False,
+            "ema_span": 60,
+            "main_ema_only": True,
+        }
+        text = "\n".join(pb.format_pullback_multi_report(result))
+        self.assertIn("EMA60 فقط", text)
+        self.assertIn("بدون تشبع SMI", text)
+        self.assertIn("بدون Donchian", text)
 
 
 if __name__ == "__main__":
