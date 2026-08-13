@@ -51,6 +51,10 @@ class TestPnlSummary(unittest.TestCase):
         self.assertAlmostEqual(summary["pnl"], 0.50 - 0.54)
         self.assertAlmostEqual(summary["win_rate"], 50.0)
 
+    def test_step1_fn_matches_side(self):
+        self.assertIs(week_scan._step1_fn("buy"), week_scan.step1)
+        self.assertIs(week_scan._step1_fn("sell"), week_scan.short_step1)
+
     def test_month_scan_requests_extra_1m_history(self):
         self.assertGreaterEqual(week_scan._required_1m_bars(30), week_scan.MONTH_1M_BARS)
         self.assertEqual(week_scan._required_1m_bars(7), week_scan.MIN_1M_BARS)

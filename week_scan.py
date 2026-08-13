@@ -356,47 +356,49 @@ def _passes_steps_1_5(candidate, signal_type):
     return True
 
 
-def _try_step8_entry(candidate, signal_type):
+def _step1_fn(signal_type):
+    return step1 if signal_type == "buy" else short_step1
+
+
+def _late_step_fns(signal_type):
     if signal_type == "buy":
-        ok6, _ = step6(candidate)
-        if not ok6:
-            return None
-        ok7, _ = step7(candidate)
-        if not ok7:
-            return None
-        ok8, _ = step8(candidate)
-        if not ok8:
-            return None
-        smi_threshold, rsi_threshold, direction = -40, 35, "long"
-    else:
-        ok6, _ = short_step6(candidate)
-        if not ok6:
-            return None
-        ok7, _ = short_step7(candidate)
-        if not ok7:
-            return None
-        ok8, _ = short_step8(candidate)
-        if not ok8:
-            return None
-        smi_threshold, rsi_threshold, direction = 40, 65, "short"
+        return step6, step7, step8, -40, 35, "long"
+    return short_step6, short_step7, short_step8, 40, 65, "short"
 
-    entry_index = find_step8_entry_index(
-        candidate["df_triple"],
-        candidate["ready_since"],
-        smi_threshold=smi_threshold,
-        rsi_threshold=rsi_threshold,
-        direction=direction,
-        max_gap=3,
+
+def _promote_late_steps(candidate, signal_type, passed6, passed7):
+    """Promote 5→6→7→8 the way the live watcher does: a passed stage is kept."""
+    step6_fn, step7_fn, step8_fn, smi_threshold, rsi_threshold, direction = (
+        _late_step_fns(signal_type)
     )
-    if entry_index is None:
-        return None
-
-    candle = candidate["df_triple"].iloc[entry_index]
-    return {
-        "entry_ts": _utc(candle["ts"]),
-        "price": float(candle["close"]),
-        "triple_frame": candidate["triple_frame"],
-    }
+    if not passed6:
+        ok6, _ = step6_fn(candidate)
+        if ok6:
+            passed6 = True
+    if passed6 and not passed7:
+        ok7, _ = step7_fn(candidate)
+        if ok7:
+            passed7 = True
+    entry = None
+    if passed7:
+        ok8, _ = step8_fn(candidate)
+        if ok8:
+            entry_index = find_step8_entry_index(
+                candidate["df_triple"],
+                candidate["ready_since"],
+                smi_threshold=smi_threshold,
+                rsi_threshold=rsi_threshold,
+                direction=direction,
+                max_gap=3,
+            )
+            if entry_index is not None:
+                candle = candidate["df_triple"].iloc[entry_index]
+                entry = {
+                    "entry_ts": _utc(candle["ts"]),
+                    "price": float(candle["close"]),
+                    "triple_frame": candidate["triple_frame"],
+                }
+    return passed6, passed7, entry
 
 
 def _build_candidate(
@@ -497,8 +499,11 @@ def _scan_pair_side(
     signals = []
     waiting = False
     ready_since = None
+    passed6 = False
+    passed7 = False
     last_emitted_entry_end = None
     start_i = max(MIN_CANDLES - 1, WARMUP_SMI)
+    step1_check = _step1_fn(signal_type)
 
     smi_full, _, _ = calc_smi(
         df_base_full["high"],
@@ -514,7 +519,7 @@ def _scan_pair_side(
     walk_end = end + timedelta(minutes=base_frame)
 
     def record_entry(entry, tip_asof):
-        nonlocal waiting, ready_since, last_emitted_entry_end
+        nonlocal waiting, ready_since, last_emitted_entry_end, passed6, passed7
         entry_end = _candle_end(entry["entry_ts"], triple_frame)
         if last_emitted_entry_end is not None and entry_end <= last_emitted_entry_end:
             return False
@@ -548,6 +553,8 @@ def _scan_pair_side(
         last_emitted_entry_end = entry_end
         waiting = False
         ready_since = None
+        passed6 = False
+        passed7 = False
         return True
 
     i = start_i
@@ -562,6 +569,7 @@ def _scan_pair_side(
 
         # Fast path: ignore non-saturated tips until a waiter exists.
         if not waiting and not bool(saturated.iloc[i]):
+            ready_since = None
             i += 1
             continue
 
@@ -590,10 +598,27 @@ def _scan_pair_side(
             df_btc_base=_btc_base_at(asof),
         )
 
+        candidate["ready_since"] = ready_since
+        ok1, _reason1 = step1_check(candidate)
+        if not ok1:
+            waiting = False
+            ready_since = None
+            passed6 = False
+            passed7 = False
+            i += 1
+            continue
+        if ready_since is None:
+            # Match live: step1_ready_since is the first saturation candle
+            # that passed step1, not the later candle where 1–5 all passed.
+            ready_since = _utc(df_base["ts"].iloc[-1])
+        candidate["ready_since"] = ready_since
+
         if waiting:
             if not _stage5_still_valid(candidate, signal_type):
                 waiting = False
                 ready_since = None
+                passed6 = False
+                passed7 = False
                 i += 1
                 continue
 
@@ -638,8 +663,12 @@ def _scan_pair_side(
                 if not _stage5_still_valid(tip_candidate, signal_type):
                     waiting = False
                     ready_since = None
+                    passed6 = False
+                    passed7 = False
                     break
-                entry = _try_step8_entry(tip_candidate, signal_type)
+                passed6, passed7, entry = _promote_late_steps(
+                    tip_candidate, signal_type, passed6, passed7
+                )
                 if entry is not None and record_entry(entry, tip_asof):
                     break
             i += 1
@@ -649,10 +678,11 @@ def _scan_pair_side(
             i += 1
             continue
 
-        ready_since = _utc(df_base["ts"].iloc[-1])
         waiting = True
         candidate["ready_since"] = ready_since
-        entry = _try_step8_entry(candidate, signal_type)
+        passed6, passed7, entry = _promote_late_steps(
+            candidate, signal_type, passed6, passed7
+        )
         if entry is not None:
             record_entry(entry, asof)
         i += 1
@@ -792,6 +822,7 @@ def scan_week_trades(
         "losses": losses,
         "opens": opens,
         "total": len(deduped),
+        "raw_total": len(all_signals),
         "variant": variant,
     }
 
@@ -884,6 +915,7 @@ def format_week_trades_report(result):
     start = result["start"].strftime("%Y-%m-%d %H:%M")
     end = result["end"].strftime("%Y-%m-%d %H:%M")
     total = int(result.get("total") or 0)
+    raw_total = int(result.get("raw_total") or total)
     days = int(result.get("days") or WEEK_DAYS)
     title = _period_title(days)
     pnl = summarize_scan_pnl(result)
@@ -896,6 +928,10 @@ def format_week_trades_report(result):
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         f"عملات مفحوصة: <b>{result.get('symbols_scanned', 0)}</b>\n"
         f"إجمالي الصفقات: <b>{total}</b>\n"
+    )
+    if raw_total > total:
+        header += f"قبل الدمج (4 ساعات): <b>{raw_total}</b>\n"
+    header += (
         f"✅ نجاح: <b>{len(wins)}</b>\n"
         f"❌ خسارة: <b>{len(losses)}</b>\n"
         f"⏳ مفتوحة: <b>{len(opens)}</b>\n"
