@@ -1,7 +1,8 @@
-"""SMI sat + 3× MACD confirm. No EMA60, no RSI, no Donchian.
+"""SMI sat + 2× MACD confirm. No EMA60, no RSI, no Donchian.
 
   Main SMI sat owns the side (largest main cancels smaller).
-  Confirm TF = 3× main, same as the cascade table:
+  Confirm TF = 2× main:
+    45→90, 60→120, 90→180, 120→240, 150→300
     buy: MACD line above signal (histogram not negative)
     sell: signal above MACD line (histogram not positive)
   Entry TF: after confirm is aligned, wait until MACD is unmet,
@@ -45,16 +46,16 @@ log = logging.getLogger(__name__)
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "XRPUSDT")
 # main, macd_confirm, entry, win_pct, loss_pct, group
-# 90m confirm is 270m (3×), not 279.
 LEVELS = (
-    (45, 135, 5, 0.50, 0.37, "a"),
-    (60, 180, 5, 0.50, 0.37, "a"),
-    (90, 270, 9, 0.67, 0.54, "b"),
-    (120, 360, 10, 0.67, 0.54, "b"),
-    (150, 450, 11, 0.67, 0.54, "b"),
+    (45, 90, 5, 0.50, 0.37, "a"),
+    (60, 120, 5, 0.50, 0.37, "a"),
+    (90, 180, 9, 0.67, 0.54, "b"),
+    (120, 240, 10, 0.67, 0.54, "b"),
+    (150, 300, 11, 0.67, 0.54, "b"),
 )
 MAINS = tuple(lvl[0] for lvl in LEVELS)
-# MACD warmup on 450m needs ~200 bars ≈ 62 days before the scan window.
+CONFIRMS = tuple(lvl[1] for lvl in LEVELS)
+# MACD warmup on 300m needs ~200 bars ≈ 42 days before the scan window.
 MIN_1M_BARS = 150_000
 
 
@@ -103,6 +104,18 @@ def _macd_features(df_1m, minutes):
     )
 
 
+def _merge_features(smi_feat, macd_feat):
+    """Join SMI and MACD columns when a TF is both a main and a confirm."""
+    if smi_feat is None:
+        return macd_feat
+    if macd_feat is None:
+        return smi_feat
+    out = smi_feat.copy()
+    out["macd_green"] = macd_feat["macd_green"].to_numpy()
+    out["macd_red"] = macd_feat["macd_red"].to_numpy()
+    return out
+
+
 def _precompute_stepped(frame_data, grid):
     stepped = {}
     n = len(grid)
@@ -112,10 +125,10 @@ def _precompute_stepped(frame_data, grid):
             continue
         ends = feat["end_ts"].to_numpy()
         row = {
-            "sell_sat": zeros,
-            "buy_sat": zeros,
-            "macd_green": zeros,
-            "macd_red": zeros,
+            "sell_sat": np.zeros(n, dtype=bool),
+            "buy_sat": np.zeros(n, dtype=bool),
+            "macd_green": np.zeros(n, dtype=bool),
+            "macd_red": np.zeros(n, dtype=bool),
         }
         if "sell_sat" in feat.columns:
             row["sell_sat"] = _bool_step(ends, feat["sell_sat"].to_numpy(), grid)
@@ -152,7 +165,7 @@ def _dedupe_signals(signals, hours=DEDUPE_HOURS):
 
 
 def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
-    """Main SMI sat + 3× MACD confirm + entry MACD reclaim."""
+    """Main SMI sat + 2× MACD confirm + entry MACD reclaim."""
     is_sell = side == "sell"
     sat_key = "sell_sat" if is_sell else "buy_sat"
     macd_key = "macd_red" if is_sell else "macd_green"
@@ -283,16 +296,20 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
     needed = _all_needed_frames()
     entry_frames = {lvl[2] for lvl in LEVELS}
     main_frames = set(MAINS)
+    confirm_frames = set(CONFIRMS)
     log.info("%s: computing %s frames...", symbol, len(needed))
     frame_data = {}
     entry_data = {}
     for minutes in needed:
         if minutes in entry_frames:
             entry_data[minutes] = _macd_features(raw_1m, minutes)
-        elif minutes in main_frames:
-            frame_data[minutes] = _smi_features(raw_1m, minutes)
-        else:
-            frame_data[minutes] = _macd_features(raw_1m, minutes)
+        smi_feat = _smi_features(raw_1m, minutes) if minutes in main_frames else None
+        macd_feat = (
+            _macd_features(raw_1m, minutes) if minutes in confirm_frames else None
+        )
+        merged = _merge_features(smi_feat, macd_feat)
+        if merged is not None:
+            frame_data[minutes] = merged
 
     stepped = _precompute_stepped(frame_data, grid)
     all_signals = []
@@ -478,12 +495,12 @@ def format_report(result):
     failed = result.get("failed") or []
 
     header = (
-        f"🗓️ <b>SMI + MACD 3× (بدون EMA60/RSI/Donchian) — آخر {days} يومًا</b>\n"
+        f"🗓️ <b>SMI + MACD 2× (بدون EMA60/RSI/Donchian) — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         "الرئيسي: تشبع SMI فقط. الأكبر يلغي الأصغر.\n"
-        "التأكيد 3×: شراء = خط MACD فوق الإشارة (هيستوجرام غير سالب). "
+        "التأكيد 2×: شراء = خط MACD فوق الإشارة (هيستوجرام غير سالب). "
         "بيع = الإشارة فوق MACD (هيستوجرام غير موجب).\n"
         "الدخول: بعد التأكيد، ننتظر MACD غير متحقق ثم ندخل عند تحققه.\n"
     )

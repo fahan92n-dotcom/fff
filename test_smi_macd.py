@@ -1,4 +1,4 @@
-"""Tests for SMI+MACD 3× confirm scan (no EMA60/RSI/Donchian)."""
+"""Tests for SMI+MACD 2× confirm scan (no EMA60/RSI/Donchian)."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -49,16 +49,16 @@ def _fill_levels(stepped, grid):
 
 
 class TestLevels(unittest.TestCase):
-    def test_confirm_is_three_times_main(self):
+    def test_confirm_is_two_times_main(self):
         for main, confirm, _entry, _win, _loss, _group in sm.LEVELS:
-            self.assertEqual(confirm, main * 3)
+            self.assertEqual(confirm, main * 2)
 
     def test_user_table(self):
-        self.assertEqual(sm.LEVELS[0], (45, 135, 5, 0.50, 0.37, "a"))
-        self.assertEqual(sm.LEVELS[1], (60, 180, 5, 0.50, 0.37, "a"))
-        self.assertEqual(sm.LEVELS[2], (90, 270, 9, 0.67, 0.54, "b"))
-        self.assertEqual(sm.LEVELS[3], (120, 360, 10, 0.67, 0.54, "b"))
-        self.assertEqual(sm.LEVELS[4], (150, 450, 11, 0.67, 0.54, "b"))
+        self.assertEqual(sm.LEVELS[0], (45, 90, 5, 0.50, 0.37, "a"))
+        self.assertEqual(sm.LEVELS[1], (60, 120, 5, 0.50, 0.37, "a"))
+        self.assertEqual(sm.LEVELS[2], (90, 180, 9, 0.67, 0.54, "b"))
+        self.assertEqual(sm.LEVELS[3], (120, 240, 10, 0.67, 0.54, "b"))
+        self.assertEqual(sm.LEVELS[4], (150, 300, 11, 0.67, 0.54, "b"))
 
 
 class TestMacdFeatures(unittest.TestCase):
@@ -96,7 +96,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["macd_red"] = np.ones(len(grid), dtype=bool)
+        stepped[90]["macd_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
         signals = sm._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
@@ -122,7 +122,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["macd_green"] = np.ones(len(grid), dtype=bool)
+        stepped[90]["macd_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
         signals = sm._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
@@ -146,7 +146,7 @@ class TestScanSideSynthetic(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[45]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["macd_green"] = np.ones(len(grid), dtype=bool)
+        stepped[90]["macd_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.4)
         signals = sm._scan_side(
             "buy", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
@@ -180,7 +180,7 @@ class TestScanAll(unittest.TestCase):
             "time": start + timedelta(days=1),
             "price": 100.0,
             "base_frame": 45,
-            "confirm_frame": 135,
+            "confirm_frame": 90,
             "triple_frame": 5,
             "win_pct": 0.50,
             "loss_pct": 0.37,
@@ -195,7 +195,7 @@ class TestScanAll(unittest.TestCase):
             "time": start + timedelta(days=2),
             "price": 200.0,
             "base_frame": 90,
-            "confirm_frame": 270,
+            "confirm_frame": 180,
             "triple_frame": 9,
             "win_pct": 0.67,
             "loss_pct": 0.54,
