@@ -59,14 +59,14 @@ class TestLevels(unittest.TestCase):
             self.assertEqual(don_tf, main * 3)
 
     def test_user_table_and_halt(self):
-        self.assertEqual(sd.LEVELS[0], (45, 8, 18, 135, 5))
-        self.assertEqual(sd.LEVELS[1], (60, 10, 24, 180, 5))
-        self.assertEqual(sd.LEVELS[2], (90, 15, 36, 270, 9))
-        self.assertEqual(sd.LEVELS[3], (120, 20, 48, 360, 10))
-        self.assertEqual(sd.LEVELS[4], (150, 25, 60, 450, 11))
-        self.assertEqual(sd.LEVELS[5], (180, 30, 72, 540, 12))
-        self.assertEqual(sd.LEVELS[6], (210, 35, 84, 630, 14))
-        self.assertEqual(sd.LEVELS[7], (240, 40, 96, 720, 16))
+        self.assertNotIn(45, [lvl[0] for lvl in sd.LEVELS])
+        self.assertEqual(sd.LEVELS[0], (60, 10, 24, 180, 5))
+        self.assertEqual(sd.LEVELS[1], (90, 15, 36, 270, 9))
+        self.assertEqual(sd.LEVELS[2], (120, 20, 48, 360, 10))
+        self.assertEqual(sd.LEVELS[3], (150, 25, 60, 450, 11))
+        self.assertEqual(sd.LEVELS[4], (180, 30, 72, 540, 12))
+        self.assertEqual(sd.LEVELS[5], (210, 35, 84, 630, 14))
+        self.assertEqual(sd.LEVELS[6], (240, 40, 96, 720, 16))
         self.assertEqual(sd.HALT_MAIN_MINUTES, 300)
         self.assertEqual(sd.WIN_PCT, 1.0)
         self.assertEqual(sd.LOSS_PCT, 0.77)
@@ -112,15 +112,15 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "ADAUSDT",
         )
-        sells = [s for s in signals if s["type"] == "sell" and s["base_frame"] == 45]
+        sells = [s for s in signals if s["type"] == "sell" and s["base_frame"] == 60]
         self.assertTrue(sells)
         self.assertAlmostEqual(sells[0]["price"], 99.0)
 
@@ -139,14 +139,14 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "ADAUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 45 for s in signals))
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_larger_main_cancels_smaller(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -163,16 +163,16 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
         stepped[120]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "ADAUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 45 for s in signals))
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_five_hour_sat_halts_side(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -189,9 +189,9 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         stepped[300]["sell_sat"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
@@ -215,15 +215,15 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_green"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "ADAUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 45 for s in signals))
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_buy_requires_confirm_green(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -240,15 +240,15 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_green"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.5)
         signals = sd._scan_side(
             "buy", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "SUIUSDT",
         )
-        buys = [s for s in signals if s["type"] == "buy" and s["base_frame"] == 45]
+        buys = [s for s in signals if s["type"] == "buy" and s["base_frame"] == 60]
         self.assertTrue(buys)
 
 

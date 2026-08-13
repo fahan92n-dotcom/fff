@@ -64,10 +64,8 @@ LOSS_PCT = 0.77
 HALT_MAIN_MINUTES = 5 * 60  # 5h sat stops this experiment on that side
 
 # main, reverse_min, reverse_stop, don_confirm (3×), entry
-# Reverse windows match the live Pullback table. Entry minutes for 45–150
-# match the last Donchian-3× scan; 3h/210/4h use the Pullback entry map.
+# 45m dropped after the 30-day alt scan (1/4, −2.08%).
 LEVELS = (
-    (45, 8, 18, 135, 5),
     (60, 10, 24, 180, 5),
     (90, 15, 36, 270, 9),
     (120, 20, 48, 360, 10),
