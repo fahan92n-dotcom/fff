@@ -1,4 +1,4 @@
-"""Tests for SMI sat + reverse-sat + 3× Donchian confirm (no RSI/EMA)."""
+"""Tests for reverse-sat + 3× Donchian + MACD confirm."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -38,6 +38,8 @@ def _empty_stepped(grid):
         "buy_sat": np.zeros(len(grid), dtype=bool),
         "don_green": np.zeros(len(grid), dtype=bool),
         "don_red": np.zeros(len(grid), dtype=bool),
+        "buy_macd": np.ones(len(grid), dtype=bool),
+        "sell_macd": np.ones(len(grid), dtype=bool),
     }
 
 
@@ -58,18 +60,18 @@ class TestLevels(unittest.TestCase):
             self.assertEqual(don_tf, main * 3)
 
     def test_user_table_and_tp_sl(self):
-        self.assertEqual(sd.LEVELS[0], (45, 8, 17, 18, 135, 5, 0.50, 0.37))
-        self.assertEqual(sd.LEVELS[1], (60, 10, 23, 24, 180, 5, 0.50, 0.37))
-        self.assertEqual(sd.LEVELS[2], (90, 15, 35, 36, 270, 9, 0.67, 0.54))
-        self.assertEqual(sd.LEVELS[3], (120, 20, 46, 48, 360, 10, 0.67, 0.54))
-        self.assertEqual(sd.LEVELS[4], (150, 25, 59, 60, 450, 11, 0.67, 0.54))
-        self.assertFalse(hasattr(sd, "RSI_BUY_MIN"))
-        self.assertFalse(hasattr(sd, "EMA_SPAN"))
-        self.assertFalse(hasattr(sd, "HALT_MAIN_MINUTES"))
+        self.assertEqual(sd.LEVELS[0], (60, 10, 23, 24, 180, 5, 0.50, 0.37))
+        self.assertEqual(sd.LEVELS[1], (90, 15, 35, 36, 270, 9, 0.67, 0.53))
+        self.assertEqual(sd.LEVELS[2], (120, 20, 46, 48, 360, 10, 0.67, 0.53))
+        self.assertEqual(sd.LEVELS[3], (150, 25, 59, 60, 450, 11, 0.67, 0.53))
+        self.assertEqual([lvl[0] for lvl in sd.LEVELS], [60, 90, 120, 150])
+        self.assertEqual(sd.MACD_FAST, 12)
+        self.assertEqual(sd.MACD_SLOW, 26)
+        self.assertEqual(sd.MACD_SIGNAL, 9)
         self.assertEqual(sd.SYMBOLS, ("BTCUSDT",))
 
     def test_two_hour_reverse_skips_47(self):
-        _main, reverse_min, reverse_last, reverse_abort, _don, entry, win_pct, loss_pct = sd.LEVELS[3]
+        _main, reverse_min, reverse_last, reverse_abort, _don, entry, win_pct, loss_pct = sd.LEVELS[2]
         accepted = list(range(reverse_min, reverse_last + 1))
         self.assertEqual(accepted[0], 20)
         self.assertEqual(accepted[-1], 46)
@@ -77,7 +79,7 @@ class TestLevels(unittest.TestCase):
         self.assertEqual(reverse_abort, 48)
         self.assertEqual(entry, 10)
         self.assertEqual(win_pct, 0.67)
-        self.assertEqual(loss_pct, 0.54)
+        self.assertEqual(loss_pct, 0.53)
 
 
 class TestFetchWrapper(unittest.TestCase):
@@ -103,21 +105,21 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "BTCUSDT",
         )
-        sells = [s for s in signals if s["type"] == "sell" and s["base_frame"] == 45]
+        sells = [s for s in signals if s["type"] == "sell" and s["base_frame"] == 60]
         self.assertTrue(sells)
         self.assertAlmostEqual(sells[0]["price"], 99.0)
         self.assertAlmostEqual(sells[0]["win_pct"], 0.50)
         self.assertAlmostEqual(sells[0]["loss_pct"], 0.37)
 
-    def test_ninety_uses_067_054(self):
+    def test_ninety_uses_067_053(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -143,7 +145,7 @@ class TestScanSide(unittest.TestCase):
         sells = [s for s in signals if s["type"] == "sell" and s["base_frame"] == 90]
         self.assertTrue(sells)
         self.assertAlmostEqual(sells[0]["win_pct"], 0.67)
-        self.assertAlmostEqual(sells[0]["loss_pct"], 0.54)
+        self.assertAlmostEqual(sells[0]["loss_pct"], 0.53)
 
     def test_no_entry_without_reverse_sat(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -160,14 +162,14 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "BTCUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 45 for s in signals))
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_larger_main_cancels_smaller(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -184,16 +186,16 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[90]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "BTCUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 45 for s in signals))
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_no_sell_when_confirm_not_red(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -210,15 +212,15 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_green"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "BTCUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 45 for s in signals))
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_buy_requires_confirm_green(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -235,16 +237,68 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_green"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.5)
         signals = sd._scan_side(
             "buy", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "BTCUSDT",
         )
-        buys = [s for s in signals if s["type"] == "buy" and s["base_frame"] == 45]
+        buys = [s for s in signals if s["type"] == "buy" and s["base_frame"] == 60]
         self.assertTrue(buys)
+
+    def test_sell_ignored_when_macd_histogram_not_red(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
+                "close": [101.0, 100.0, 99.0],
+                "don_green": [True, True, False],
+                "don_red": [False, False, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["sell_macd"] = np.zeros(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
+        signals = sd._scan_side(
+            "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
+            raw_1m, "BTCUSDT",
+        )
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
+
+    def test_buy_ignored_when_macd_histogram_not_green(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
+                "close": [99.0, 100.0, 101.0],
+                "don_green": [False, False, True],
+                "don_red": [True, True, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[60]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["buy_macd"] = np.zeros(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.5)
+        signals = sd._scan_side(
+            "buy", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
+            raw_1m, "BTCUSDT",
+        )
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_no_entry_without_entry_donchian_flip(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -261,15 +315,15 @@ class TestScanSide(unittest.TestCase):
             [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
         )
         stepped = _fill_levels({}, grid)
-        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[8]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "BTCUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 45 for s in signals))
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
 
 class TestEvaluateUsesLevelPct(unittest.TestCase):
@@ -287,6 +341,20 @@ class TestEvaluateUsesLevelPct(unittest.TestCase):
         )
         self.assertEqual(outcome, "loss")
 
+    def test_loss_at_053(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        future = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=1)],
+                "high": [100.2],
+                "low": [99.4],
+            }
+        )
+        outcome, _, _ = evaluate_outcome(
+            "buy", 100.0, future, win_pct=0.67, loss_pct=0.53
+        )
+        self.assertEqual(outcome, "loss")
+
 
 class TestScanAll(unittest.TestCase):
     def test_merges_and_omits_rsi_ema(self):
@@ -297,8 +365,8 @@ class TestScanAll(unittest.TestCase):
             "type": "buy",
             "time": start + timedelta(days=1),
             "price": 65000.0,
-            "base_frame": 45,
-            "confirm_frame": 135,
+            "base_frame": 60,
+            "confirm_frame": 180,
             "triple_frame": 5,
             "win_pct": 0.50,
             "loss_pct": 0.37,
@@ -328,6 +396,7 @@ class TestScanAll(unittest.TestCase):
         text = sd.format_plain_report(result)
         self.assertIn("BTCUSDT", text)
         self.assertIn("Donchian", text)
+        self.assertIn("MACD", text)
         self.assertNotIn("RSI", text)
         self.assertNotIn("EMA50", text)
 

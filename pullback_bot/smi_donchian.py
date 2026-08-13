@@ -1,4 +1,4 @@
-"""SMI sat + reverse-sat + 3× Donchian confirm. Nothing else.
+"""SMI sat + reverse-sat + 3× Donchian + MACD confirm.
 
 Flow:
   1) Largest main TF with SMI sat owns the side and cancels smaller mains.
@@ -6,7 +6,11 @@ Flow:
      kills the level.
   3) Donchian on the 3× confirm TF must be green (buy) / red (sell).
      If it flips, the path dies.
-  4) After reverse sat, watch the entry TF: wait until Donchian is unmet,
+  4) MACD on that same 3× confirm TF (1h → 3h, and 3× for the others):
+     buy only if the MACD line is above its signal (histogram > 0, even
+     slightly). Sell only if the signal is above the MACD line (histogram
+     red / < 0) and it never turns green. If MACD is not like that, ignore.
+  5) After reverse sat, watch the entry TF: wait until Donchian is unmet,
      then enter when it holds (buy: green; sell: red).
 """
 
@@ -28,6 +32,7 @@ if str(_ROOT) not in sys.path:
 from indicators import (
     DONCHIAN_DLEN,
     WARMUP_SMI,
+    _calc_macd_full,
     calc_donchian_trend_series,
     calc_smi,
     resample_ohlcv_closed,
@@ -47,15 +52,19 @@ log = logging.getLogger(__name__)
 
 SYMBOLS = ("BTCUSDT",)
 
+MACD_FAST = 12
+MACD_SLOW = 26
+MACD_SIGNAL = 9
+
 # main, reverse_min, reverse_last, reverse_abort, don_confirm (3×), entry, win, loss
-# 45m/1h share 0.50 / 0.37. 90–150 share 0.67 / 0.54.
+# Reverse sat accepted on reverse_min..reverse_last inclusive; abort TF kills.
 # 2h accepts 20–46 and aborts at 48 (47 is not used).
+# 1h → confirm 3h. 1h uses 0.50 / 0.37. 90–150 use 0.67 / 0.53.
 LEVELS = (
-    (45, 8, 17, 18, 135, 5, 0.50, 0.37),
     (60, 10, 23, 24, 180, 5, 0.50, 0.37),
-    (90, 15, 35, 36, 270, 9, 0.67, 0.54),
-    (120, 20, 46, 48, 360, 10, 0.67, 0.54),
-    (150, 25, 59, 60, 450, 11, 0.67, 0.54),
+    (90, 15, 35, 36, 270, 9, 0.67, 0.53),
+    (120, 20, 46, 48, 360, 10, 0.67, 0.53),
+    (150, 25, 59, 60, 450, 11, 0.67, 0.53),
 )
 MIN_1M_BARS = 130_000
 
@@ -84,10 +93,18 @@ def _entry_frames():
     return {lvl[5] for lvl in LEVELS}
 
 
-def _smi_don_features(df_1m, minutes, *, need_don=False):
-    """Resample SMI sat; Donchian on confirm and entry TFs."""
+def _macd_confirm_frames():
+    return {lvl[4] for lvl in LEVELS}
+
+
+def _smi_don_features(df_1m, minutes, *, need_don=False, need_macd=False):
+    """Resample SMI sat; Donchian on confirm/entry; MACD on 3× confirm."""
     df = resample_ohlcv_closed(df_1m, minutes)
-    min_bars = max(WARMUP_SMI, DONCHIAN_DLEN + 2 if need_don else 0)
+    min_bars = max(
+        WARMUP_SMI,
+        DONCHIAN_DLEN + 2 if need_don else 0,
+        MACD_SLOW + MACD_SIGNAL + 2 if need_macd else 0,
+    )
     if df.empty or len(df) < min_bars:
         return None
 
@@ -103,6 +120,8 @@ def _smi_don_features(df_1m, minutes, *, need_don=False):
         "buy_sat": (smi >= SMI_BUY).to_numpy(),
         "don_green": np.zeros(n, dtype=bool),
         "don_red": np.zeros(n, dtype=bool),
+        "buy_macd": np.ones(n, dtype=bool),
+        "sell_macd": np.ones(n, dtype=bool),
     }
     if need_don:
         don = calc_donchian_trend_series(
@@ -113,6 +132,12 @@ def _smi_don_features(df_1m, minutes, *, need_don=False):
         ).to_numpy()
         payload["don_green"] = don == 1
         payload["don_red"] = don == -1
+    if need_macd:
+        _line, _signal, hist = _calc_macd_full(df["close"])
+        # Buy: blue MACD line above signal → histogram strictly > 0.
+        # Sell: signal above MACD line → histogram strictly < 0 (red, never green).
+        payload["buy_macd"] = (hist > 0).fillna(False).to_numpy()
+        payload["sell_macd"] = (hist < 0).fillna(False).to_numpy()
     return pd.DataFrame(payload)
 
 
@@ -127,6 +152,12 @@ def _precompute_stepped(frame_data, grid):
             "buy_sat": _bool_step(ends, feat["buy_sat"].to_numpy(), grid),
             "don_green": _bool_step(ends, feat["don_green"].to_numpy(), grid),
             "don_red": _bool_step(ends, feat["don_red"].to_numpy(), grid),
+            "buy_macd": _bool_step(ends, feat["buy_macd"].to_numpy(), grid)
+            if "buy_macd" in feat.columns
+            else np.ones(len(grid), dtype=bool),
+            "sell_macd": _bool_step(ends, feat["sell_macd"].to_numpy(), grid)
+            if "sell_macd" in feat.columns
+            else np.ones(len(grid), dtype=bool),
         }
     return stepped
 
@@ -154,6 +185,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     sat_key = "sell_sat" if is_sell else "buy_sat"
     reverse_key = "buy_sat" if is_sell else "sell_sat"
     don_key = "don_red" if is_sell else "don_green"
+    macd_key = "sell_macd" if is_sell else "buy_macd"
     n_grid = len(grid)
 
     main_masks = []
@@ -198,8 +230,13 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
             if don_feat is not None
             else np.zeros(n_grid, dtype=bool)
         )
+        macd_ok = (
+            don_feat[macd_key]
+            if don_feat is not None and macd_key in don_feat
+            else np.ones(n_grid, dtype=bool)
+        )
 
-        owned = (active == level_idx) & ~confirm_stop_mask & don_ok
+        owned = (active == level_idx) & ~confirm_stop_mask & don_ok & macd_ok
         confirm_window = owned & confirm_any
         hold_window = owned
 
@@ -302,6 +339,7 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
     needed = _all_needed_frames()
     don_needed = _don_frames()
     entry_frames = _entry_frames()
+    macd_frames = _macd_confirm_frames()
     log.info("%s: computing %s frames...", symbol, len(needed))
     frame_data = {}
     entry_data = {}
@@ -312,6 +350,7 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
             df_1m=raw_1m,
             minutes=minutes,
             need_don=minutes in don_needed,
+            need_macd=minutes in macd_frames,
         )
         frame_data[minutes] = feat
         if minutes in entry_frames:
@@ -485,7 +524,7 @@ def _format_summary_line(title, summary):
 
 def format_report(result):
     if not result.get("ready"):
-        return ["⚠️ تعذر فحص SMI + Donchian 3×."]
+        return ["⚠️ تعذر فحص SMI + Donchian 3× + MACD."]
 
     grouped = group_results(result)
     start = result["start"].strftime("%Y-%m-%d %H:%M")
@@ -495,14 +534,16 @@ def format_report(result):
     failed = result.get("failed") or []
 
     header = (
-        f"🗓️ <b>SMI + تشبع عكسي + Donchian 3× — آخر {days} يومًا</b>\n"
+        f"🗓️ <b>SMI + تشبع عكسي + Donchian 3× + MACD — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         "الرئيسي: تشبع SMI. الأكبر يلغي الأصغر.\n"
         "بعد التشبع العكسي: Donchian التأكيد 3× أخضر شراء / أحمر بيع.\n"
+        "تأكيد MACD على نفس فريم 3× (1س→3س): شراء إذا خط MACD فوق المتوسط (هيستوغرام&gt;0)، "
+        "بيع إذا المتوسط فوق الخط وهيستوغرام أحمر ولا ينقلب أخضر. غير ذلك يُتجاهل.\n"
         "الدخول: Donchian أخضر شراء / أحمر بيع على فريم الدخول فقط.\n"
-        "45د و1س: ربح 0.50% / خسارة 0.37%. 90–150د: ربح 0.67% / خسارة 0.54%.\n"
+        "1س: ربح 0.50% / خسارة 0.37%. 90–150د: ربح 0.67% / خسارة 0.53%.\n"
     )
     if failed:
         header += f"⚠️ بلا بيانات: <code>{html_escape(', '.join(failed))}</code>\n"
@@ -560,8 +601,8 @@ def format_plain_report(result):
         texts.append(
             chunk.replace("<b>", "")
             .replace("</b>", "")
-            .replace("<code>", "")
-            .replace("</code>", "")
+            .replace("&gt;", ">")
+            .replace("&lt;", "<")
         )
     return "\n\n".join(texts)
 
