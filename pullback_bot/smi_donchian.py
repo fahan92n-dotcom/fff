@@ -3,12 +3,13 @@
 Flow:
   1) Largest main TF with SMI sat owns the side and cancels smaller mains.
      5h SMI sat halts that side.
-  2) Wait for reverse/counter SMI sat inside the owned main
-     (same windows as the Pullback bot). Confirm-stop sat aborts the level.
+  2) Wait for reverse/counter SMI sat inside the owned main.
   3) Donchian on the 3× confirm TF must be green (buy) / red (sell)
      at entry. If it flips, the path dies.
   4) After reverse sat forms, watch the entry TF: wait until Donchian is
      unmet, then enter on the first later candle where it holds.
+  5) If Signal Length crosses K Length above +40 (buy) or below −40
+     (sell) before entry, that main stops for the rest of the sat episode.
 """
 
 from __future__ import annotations
@@ -98,16 +99,52 @@ def _don_frames():
     return frames
 
 
+def signal_k_zone_cross(smi, signal):
+    """Signal crossing K above +40 (buy-sat over) or below −40 (sell-sat over).
+
+    Buy rollover: Signal was at/below K and closes above K, both > +40.
+    Sell rollover: Signal was at/above K and closes below K, both < −40.
+    """
+    smi_arr = np.asarray(smi, dtype=float)
+    sig_arr = np.asarray(signal, dtype=float)
+    n = len(smi_arr)
+    cross_up = np.zeros(n, dtype=bool)
+    cross_down = np.zeros(n, dtype=bool)
+    if n >= 2:
+        cross_up[1:] = (sig_arr[:-1] <= smi_arr[:-1]) & (sig_arr[1:] > smi_arr[1:])
+        cross_down[1:] = (sig_arr[:-1] >= smi_arr[:-1]) & (sig_arr[1:] < smi_arr[1:])
+    high = cross_up & (sig_arr > 40.0) & (smi_arr > 40.0)
+    low = cross_down & (sig_arr < -40.0) & (smi_arr < -40.0)
+    return high | low, high, low
+
+
+def halt_after_event(active, event):
+    """Halt from the confirming close while ``active`` (sat) remains true."""
+    active_arr = np.asarray(active, dtype=bool)
+    event_arr = np.asarray(event, dtype=bool)
+    out = np.zeros(len(active_arr), dtype=bool)
+    halted = False
+    for i, is_active in enumerate(active_arr):
+        if not is_active:
+            halted = False
+            continue
+        if event_arr[i]:
+            halted = True
+        out[i] = halted
+    return out
+
+
 def _smi_don_features(df_1m, minutes, *, need_don=False):
-    """Resample and compute SMI sat (always) and Donchian (when needed)."""
+    """Resample and compute SMI sat, Signal/K halt, and Donchian when needed."""
     df = resample_ohlcv_closed(df_1m, minutes)
     min_bars = max(WARMUP_SMI, DONCHIAN_DLEN + 2 if need_don else 0)
     if df.empty or len(df) < min_bars:
         return None
 
-    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
+    smi, ema_signal, _ = calc_smi(df["high"], df["low"], df["close"])
     sell_sat = (smi <= SMI_SELL).to_numpy()
     buy_sat = (smi >= SMI_BUY).to_numpy()
+    _any, cross_high, cross_low = signal_k_zone_cross(smi, ema_signal)
     end_ts = df["ts"] + pd.Timedelta(minutes=minutes)
     payload = {
         "ts": df["ts"].to_numpy(),
@@ -118,6 +155,8 @@ def _smi_don_features(df_1m, minutes, *, need_don=False):
         "buy_sat": buy_sat,
         "don_green": np.zeros(len(df), dtype=bool),
         "don_red": np.zeros(len(df), dtype=bool),
+        "halt_buy": halt_after_event(buy_sat, cross_high),
+        "halt_sell": halt_after_event(sell_sat, cross_low),
     }
     if need_don:
         don = calc_donchian_trend_series(
@@ -142,6 +181,12 @@ def _precompute_stepped(frame_data, grid):
             "buy_sat": _bool_step(ends, feat["buy_sat"].to_numpy(), grid),
             "don_green": _bool_step(ends, feat["don_green"].to_numpy(), grid),
             "don_red": _bool_step(ends, feat["don_red"].to_numpy(), grid),
+            "halt_buy": _bool_step(ends, feat["halt_buy"].to_numpy(), grid)
+            if "halt_buy" in feat.columns
+            else np.zeros(len(grid), dtype=bool),
+            "halt_sell": _bool_step(ends, feat["halt_sell"].to_numpy(), grid)
+            if "halt_sell" in feat.columns
+            else np.zeros(len(grid), dtype=bool),
         }
     return stepped
 
@@ -169,6 +214,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     sat_key = "sell_sat" if is_sell else "buy_sat"
     reverse_key = "buy_sat" if is_sell else "sell_sat"
     don_key = "don_red" if is_sell else "don_green"
+    halt_key = "halt_sell" if is_sell else "halt_buy"
     n_grid = len(grid)
 
     halt = stepped.get(HALT_MAIN_MINUTES)
@@ -221,8 +267,14 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
             if don_feat is not None
             else np.zeros(n_grid, dtype=bool)
         )
+        main_feat = stepped.get(main)
+        halted = (
+            main_feat[halt_key]
+            if main_feat is not None and halt_key in main_feat
+            else np.zeros(n_grid, dtype=bool)
+        )
 
-        owned = (active == level_idx) & ~confirm_stop_mask & don_ok
+        owned = (active == level_idx) & ~confirm_stop_mask & don_ok & ~halted
         confirm_window = owned & confirm_any
         hold_window = owned
 
@@ -514,6 +566,7 @@ def format_report(result):
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         "بدون EMA60 وبدون RSI.\n"
         "الرئيسي: تشبع SMI. الأكبر يلغي الأصغر. تشبع 5س يوقف الجانب.\n"
+        "إذا Signal قطع K فوق +40 أو تحت −40 قبل الدخول، يُوقف الفريم.\n"
         "بعد التشبع العكسي: Donchian التأكيد 3× أخضر شراء / أحمر بيع.\n"
         "الدخول على فريم الدخول بعد أن يتحقق الشرط.\n"
         f"الربح {WIN_PCT:g}% / الخسارة {LOSS_PCT:g}%.\n"

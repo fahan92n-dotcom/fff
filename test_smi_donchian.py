@@ -38,6 +38,8 @@ def _empty_stepped(grid):
         "buy_sat": np.zeros(len(grid), dtype=bool),
         "don_green": np.zeros(len(grid), dtype=bool),
         "don_red": np.zeros(len(grid), dtype=bool),
+        "halt_buy": np.zeros(len(grid), dtype=bool),
+        "halt_sell": np.zeros(len(grid), dtype=bool),
     }
 
 
@@ -105,6 +107,40 @@ class TestFetchWrapper(unittest.TestCase):
         mocked.assert_called_once_with("BTCUSDT", target=10)
 
 
+class TestSignalKZoneCross(unittest.TestCase):
+    def test_signal_cross_above_k_over_40(self):
+        smi = np.array([50.0, 48.0, 45.0])
+        signal = np.array([47.0, 49.0, 52.0])
+        any_x, high, low = sd.signal_k_zone_cross(smi, signal)
+        self.assertTrue(high[1])
+        self.assertFalse(low[1])
+        self.assertTrue(any_x[1])
+
+    def test_signal_cross_below_k_under_minus_40(self):
+        smi = np.array([-50.0, -48.0, -45.0])
+        signal = np.array([-47.0, -49.0, -52.0])
+        any_x, high, low = sd.signal_k_zone_cross(smi, signal)
+        self.assertTrue(low[1])
+        self.assertFalse(high[1])
+        self.assertTrue(any_x[1])
+
+    def test_cross_inside_band_ignored(self):
+        smi = np.array([10.0, 8.0, 5.0])
+        signal = np.array([7.0, 9.0, 12.0])
+        any_x, high, low = sd.signal_k_zone_cross(smi, signal)
+        self.assertFalse(any_x.any())
+        self.assertFalse(high.any())
+        self.assertFalse(low.any())
+
+
+class TestHaltAfterEvent(unittest.TestCase):
+    def test_halts_until_sat_ends(self):
+        sat = np.array([True, True, True, False, True])
+        event = np.array([False, True, False, False, False])
+        halted = sd.halt_after_event(sat, event)
+        self.assertEqual(list(halted), [False, True, True, False, False])
+
+
 class TestScanSide(unittest.TestCase):
     def test_sell_waits_for_reverse_sat_then_entry_flip(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -132,6 +168,32 @@ class TestScanSide(unittest.TestCase):
         sells = [s for s in signals if s["type"] == "sell" and s["base_frame"] == 60]
         self.assertTrue(sells)
         self.assertAlmostEqual(sells[0]["price"], 99.0)
+
+    def test_signal_k_halt_blocks_entry_before_fill(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
+                "close": [101.0, 100.0, 99.0],
+                "don_green": [True, True, False],
+                "don_red": [False, False, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["halt_sell"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
+        signals = sd._scan_side(
+            "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
+            raw_1m, "ADAUSDT",
+        )
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
     def test_no_entry_without_reverse_sat(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
@@ -333,7 +395,7 @@ class TestScanAll(unittest.TestCase):
         self.assertEqual(grouped["all"]["total"], 2)
         text = sd.format_plain_report(result)
         self.assertIn("ADAUSDT", text)
-        self.assertIn("الأكبر يلغي الأصغر", text)
+        self.assertIn("Signal", text)
 
 
 if __name__ == "__main__":
