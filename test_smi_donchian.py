@@ -1,4 +1,4 @@
-"""Tests for SMI + reverse-sat + 3× Donchian confirm + EMA50/ATR."""
+"""Tests for SMI + reverse-sat + 3× Donchian confirm + EMA50 on entry."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -40,8 +40,6 @@ def _empty_stepped(grid):
         "don_red": np.zeros(len(grid), dtype=bool),
         "halt_buy": np.zeros(len(grid), dtype=bool),
         "halt_sell": np.zeros(len(grid), dtype=bool),
-        "buy_main": np.zeros(len(grid), dtype=bool),
-        "sell_main": np.zeros(len(grid), dtype=bool),
     }
 
 
@@ -75,8 +73,6 @@ class TestLevels(unittest.TestCase):
         self.assertEqual(sd.WIN_PCT, 1.0)
         self.assertEqual(sd.LOSS_PCT, 0.77)
         self.assertEqual(sd.EMA_SPAN, 50)
-        self.assertEqual(sd.ATR_PERIOD, 14)
-        self.assertEqual(sd.ATR_MULT, 0.5)
 
     def test_two_hour_reverse_skips_47(self):
         _main, reverse_min, reverse_last, reverse_abort, _don, entry = sd.LEVELS[2]
@@ -158,7 +154,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [False, False, True],
                 "above_ema": [True, True, False],
                 "below_ema": [False, False, True],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -166,7 +161,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
@@ -189,7 +183,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [False, False, True],
                 "above_ema": [True, True, True],
                 "below_ema": [False, False, False],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -197,7 +190,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
@@ -218,7 +210,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [False, False, True],
                 "above_ema": [True, True, False],
                 "below_ema": [False, False, True],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -226,7 +217,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[60]["halt_sell"] = np.ones(len(grid), dtype=bool)
         stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
@@ -248,7 +238,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [False, False, True],
                 "above_ema": [True, True, False],
                 "below_ema": [False, False, True],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -256,7 +245,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
         signals = sd._scan_side(
@@ -276,7 +264,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [False, False, True],
                 "above_ema": [True, True, False],
                 "below_ema": [False, False, True],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -284,7 +271,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[120]["sell_sat"] = np.ones(len(grid), dtype=bool)
         stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
@@ -306,7 +292,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [False, False, True],
                 "above_ema": [True, True, False],
                 "below_ema": [False, False, True],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -314,7 +299,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         stepped[300]["sell_sat"] = np.ones(len(grid), dtype=bool)
@@ -336,7 +320,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [False, False, True],
                 "above_ema": [True, True, False],
                 "below_ema": [False, False, True],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -344,7 +327,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
         stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
@@ -365,7 +347,6 @@ class TestScanSide(unittest.TestCase):
                 "don_red": [True, True, False],
                 "above_ema": [False, False, True],
                 "below_ema": [True, True, False],
-                "near_atr": [True, True, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -373,7 +354,6 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["buy_main"] = np.ones(len(grid), dtype=bool)
         stepped[10]["sell_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.5)
@@ -383,64 +363,6 @@ class TestScanSide(unittest.TestCase):
         )
         buys = [s for s in signals if s["type"] == "buy" and s["base_frame"] == 60]
         self.assertTrue(buys)
-
-    def test_far_atr_blocks_entry(self):
-        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
-        entry = pd.DataFrame(
-            {
-                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
-                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
-                "close": [101.0, 100.0, 99.0],
-                "don_green": [True, True, False],
-                "don_red": [False, False, True],
-                "above_ema": [True, True, False],
-                "below_ema": [False, False, True],
-                "near_atr": [True, True, False],
-            }
-        )
-        grid = pd.DatetimeIndex(
-            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
-        )
-        stepped = _fill_levels({}, grid)
-        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.ones(len(grid), dtype=bool)
-        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
-        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
-        signals = sd._scan_side(
-            "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
-            raw_1m, "ADAUSDT",
-        )
-        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
-
-    def test_main_wrong_ema50_side_blocks(self):
-        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
-        entry = pd.DataFrame(
-            {
-                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
-                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
-                "close": [101.0, 100.0, 99.0],
-                "don_green": [True, True, False],
-                "don_red": [False, False, True],
-                "above_ema": [True, True, False],
-                "below_ema": [False, False, True],
-                "near_atr": [True, True, True],
-            }
-        )
-        grid = pd.DatetimeIndex(
-            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
-        )
-        stepped = _fill_levels({}, grid)
-        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_main"] = np.zeros(len(grid), dtype=bool)
-        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
-        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
-        signals = sd._scan_side(
-            "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
-            raw_1m, "ADAUSDT",
-        )
-        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
 
 class TestEvaluateUsesLevelPct(unittest.TestCase):
@@ -516,7 +438,6 @@ class TestScanAll(unittest.TestCase):
         text = sd.format_plain_report(result)
         self.assertIn("ADAUSDT", text)
         self.assertIn("EMA50", text)
-        self.assertIn("ATR", text)
 
 
 if __name__ == "__main__":
