@@ -2,9 +2,9 @@
 
 Flow:
   1) Largest main TF with SMI sat owns the side and cancels smaller mains.
-     5h SMI sat halts that side. Main is SMI sat only (no EMA). Log AO
-     on the main TF must agree: buy sat valid only if AO > 0, sell sat
-     valid only if AO < 0. Wrong-side AO blocks entry.
+     5h SMI sat halts that side. Main is SMI sat only (no EMA). KST on
+     the main TF must agree: buy sat valid only if KST > 0, sell sat
+     valid only if KST < 0. Wrong-side KST blocks entry.
   2) Wait for reverse/counter SMI sat inside the owned main.
   3) Donchian on the 3× confirm TF must be green (buy) / red (sell)
      at entry. If it flips, the path dies.
@@ -67,8 +67,9 @@ SYMBOLS = (
 WIN_PCT = 1.0
 LOSS_PCT = 0.77
 EMA_SPAN = 50
-AO_FAST = 5
-AO_SLOW = 34
+KST_ROC = (10, 15, 20, 30)
+KST_ROC_SMA = (10, 10, 10, 15)
+KST_SIGNAL = 9
 HALT_MAIN_MINUTES = 5 * 60  # 5h sat stops this experiment on that side
 
 # main, reverse_min, reverse_last, reverse_abort, don_confirm (3×), entry
@@ -114,19 +115,23 @@ def _main_frames():
     return {lvl[0] for lvl in LEVELS}
 
 
-def calc_log_ao(high, low, fast=AO_FAST, slow=AO_SLOW):
-    """Williams AO on ln(median price), shown as % like the Pine Log AO.
+def calc_kst(close, roc_lengths=KST_ROC, roc_sma=KST_ROC_SMA, signal_len=KST_SIGNAL):
+    """Know Sure Thing (Pine v4 defaults): weighted SMAs of ROC, plus signal.
 
-    ao_pct = (exp(SMA_fast(ln m)) - exp(SMA_slow(ln m))) / exp(SMA_slow(ln m)) * 100
-    Sign matches ao_log = SMA_fast - SMA_slow, so >0 / <0 is the same.
+    KST = SMA(ROC 10, 10) + 2*SMA(ROC 15, 10) + 3*SMA(ROC 20, 10) + 4*SMA(ROC 30, 15)
+    signal = SMA(KST, 9). Gate uses KST vs 0, not the signal line.
     """
-    median = (pd.Series(high, dtype=float) + pd.Series(low, dtype=float)) / 2.0
-    log_price = np.log(median.where(median > 0))
-    fast_ma = log_price.rolling(window=fast, min_periods=fast).mean()
-    slow_ma = log_price.rolling(window=slow, min_periods=slow).mean()
-    fast_px = np.exp(fast_ma)
-    slow_px = np.exp(slow_ma)
-    return (fast_px - slow_px) / slow_px * 100.0
+    series = pd.Series(close, dtype=float)
+    parts = []
+    for length, sma_len, weight in zip(roc_lengths, roc_sma, (1, 2, 3, 4)):
+        prev = series.shift(length)
+        roc = (series - prev) / prev * 100.0
+        parts.append(roc.rolling(window=sma_len, min_periods=sma_len).mean() * weight)
+    kst = parts[0]
+    for part in parts[1:]:
+        kst = kst + part
+    signal = kst.rolling(window=signal_len, min_periods=signal_len).mean()
+    return kst, signal
 
 
 def signal_k_zone_cross(smi, signal):
@@ -164,14 +169,15 @@ def halt_after_event(active, event):
     return out
 
 
-def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False, need_ao=False):
-    """Resample SMI sat; Donchian/EMA50 on entry; Log AO on main."""
+def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False, need_kst=False):
+    """Resample SMI sat; Donchian/EMA50 on entry; KST on main."""
+    kst_warmup = KST_ROC[-1] + KST_ROC_SMA[-1] + 2
     df = resample_ohlcv_closed(df_1m, minutes)
     min_bars = max(
         WARMUP_SMI,
         DONCHIAN_DLEN + 2 if need_don else 0,
         EMA_SPAN + 5 if need_ema else 0,
-        AO_SLOW + 2 if need_ao else 0,
+        kst_warmup if need_kst else 0,
     )
     if df.empty or len(df) < min_bars:
         return None
@@ -193,8 +199,8 @@ def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False, need_ao
         "don_red": np.zeros(n, dtype=bool),
         "above_ema": np.zeros(n, dtype=bool),
         "below_ema": np.zeros(n, dtype=bool),
-        "buy_ao": np.ones(n, dtype=bool),
-        "sell_ao": np.ones(n, dtype=bool),
+        "buy_kst": np.ones(n, dtype=bool),
+        "sell_kst": np.ones(n, dtype=bool),
         "halt_buy": halt_after_event(buy_sat, cross_high),
         "halt_sell": halt_after_event(sell_sat, cross_low),
     }
@@ -211,10 +217,10 @@ def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False, need_ao
         ema = calc_ema(df["close"], span=EMA_SPAN)
         payload["above_ema"] = (df["close"] > ema).to_numpy()
         payload["below_ema"] = (df["close"] < ema).to_numpy()
-    if need_ao:
-        ao = calc_log_ao(df["high"], df["low"])
-        payload["buy_ao"] = (ao > 0).fillna(False).to_numpy()
-        payload["sell_ao"] = (ao < 0).fillna(False).to_numpy()
+    if need_kst:
+        kst, _signal = calc_kst(df["close"])
+        payload["buy_kst"] = (kst > 0).fillna(False).to_numpy()
+        payload["sell_kst"] = (kst < 0).fillna(False).to_numpy()
     return pd.DataFrame(payload)
 
 
@@ -235,11 +241,11 @@ def _precompute_stepped(frame_data, grid):
             "halt_sell": _bool_step(ends, feat["halt_sell"].to_numpy(), grid)
             if "halt_sell" in feat.columns
             else np.zeros(len(grid), dtype=bool),
-            "buy_ao": _bool_step(ends, feat["buy_ao"].to_numpy(), grid)
-            if "buy_ao" in feat.columns
+            "buy_kst": _bool_step(ends, feat["buy_kst"].to_numpy(), grid)
+            if "buy_kst" in feat.columns
             else np.ones(len(grid), dtype=bool),
-            "sell_ao": _bool_step(ends, feat["sell_ao"].to_numpy(), grid)
-            if "sell_ao" in feat.columns
+            "sell_kst": _bool_step(ends, feat["sell_kst"].to_numpy(), grid)
+            if "sell_kst" in feat.columns
             else np.ones(len(grid), dtype=bool),
         }
     return stepped
@@ -269,7 +275,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     reverse_key = "buy_sat" if is_sell else "sell_sat"
     don_key = "don_red" if is_sell else "don_green"
     halt_key = "halt_sell" if is_sell else "halt_buy"
-    ao_key = "sell_ao" if is_sell else "buy_ao"
+    kst_key = "sell_kst" if is_sell else "buy_kst"
     n_grid = len(grid)
 
     halt = stepped.get(HALT_MAIN_MINUTES)
@@ -328,13 +334,13 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
             if main_feat is not None and halt_key in main_feat
             else np.zeros(n_grid, dtype=bool)
         )
-        ao_ok = (
-            main_feat[ao_key]
-            if main_feat is not None and ao_key in main_feat
+        kst_ok = (
+            main_feat[kst_key]
+            if main_feat is not None and kst_key in main_feat
             else np.ones(n_grid, dtype=bool)
         )
 
-        owned = (active == level_idx) & ao_ok & ~confirm_stop_mask & don_ok & ~halted
+        owned = (active == level_idx) & kst_ok & ~confirm_stop_mask & don_ok & ~halted
         confirm_window = owned & confirm_any
         hold_window = owned
 
@@ -451,7 +457,7 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
             minutes=minutes,
             need_don=minutes in don_needed,
             need_ema=minutes in entry_frames,
-            need_ao=minutes in main_frames,
+            need_kst=minutes in main_frames,
         )
         frame_data[minutes] = feat
         if minutes in entry_frames:
@@ -639,7 +645,7 @@ def format_report(result):
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         "بدون EMA على الرئيس وبدون RSI.\n"
         "الرئيسي: تشبع SMI. الأكبر يلغي الأصغر. تشبع 5س يوقف الجانب.\n"
-        "Log AO على الرئيس: شراء فقط إذا AO>0، بيع فقط إذا AO<0. الجهة الغلط تمنع الدخول.\n"
+        "KST على الرئيس: شراء فقط إذا KST>0، بيع فقط إذا KST<0. الجهة الغلط تمنع الدخول.\n"
         "إذا Signal قطع K فوق +40 أو تحت −40 قبل الدخول، يُوقف الفريم.\n"
         "بعد التشبع العكسي: Donchian التأكيد 3× أخضر شراء / أحمر بيع.\n"
         "الدخول: Donchian + تجاوز EMA50 على فريم الدخول فقط.\n"

@@ -1,4 +1,4 @@
-"""Tests for SMI + reverse-sat + 3× Donchian confirm + EMA50 entry + Log AO."""
+"""Tests for SMI + reverse-sat + 3× Donchian confirm + EMA50 entry + KST."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -40,8 +40,8 @@ def _empty_stepped(grid):
         "don_red": np.zeros(len(grid), dtype=bool),
         "halt_buy": np.zeros(len(grid), dtype=bool),
         "halt_sell": np.zeros(len(grid), dtype=bool),
-        "buy_ao": np.ones(len(grid), dtype=bool),
-        "sell_ao": np.ones(len(grid), dtype=bool),
+        "buy_kst": np.ones(len(grid), dtype=bool),
+        "sell_kst": np.ones(len(grid), dtype=bool),
     }
 
 
@@ -75,8 +75,9 @@ class TestLevels(unittest.TestCase):
         self.assertEqual(sd.WIN_PCT, 1.0)
         self.assertEqual(sd.LOSS_PCT, 0.77)
         self.assertEqual(sd.EMA_SPAN, 50)
-        self.assertEqual(sd.AO_FAST, 5)
-        self.assertEqual(sd.AO_SLOW, 34)
+        self.assertEqual(sd.KST_ROC, (10, 15, 20, 30))
+        self.assertEqual(sd.KST_ROC_SMA, (10, 10, 10, 15))
+        self.assertEqual(sd.KST_SIGNAL, 9)
 
     def test_two_hour_reverse_skips_47(self):
         _main, reverse_min, reverse_last, reverse_abort, _don, entry = sd.LEVELS[2]
@@ -146,18 +147,18 @@ class TestHaltAfterEvent(unittest.TestCase):
         self.assertEqual(list(halted), [False, True, True, False, False])
 
 
-class TestLogAo(unittest.TestCase):
-    def test_rising_median_is_positive(self):
+class TestKst(unittest.TestCase):
+    def test_rising_close_is_positive(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        df = _bars(start, 50, minutes=1, price=100.0, drift=0.5)
-        ao = sd.calc_log_ao(df["high"], df["low"])
-        self.assertTrue(ao.iloc[-1] > 0)
+        df = _bars(start, 80, minutes=1, price=100.0, drift=0.5)
+        kst, _signal = sd.calc_kst(df["close"])
+        self.assertTrue(kst.iloc[-1] > 0)
 
-    def test_falling_median_is_negative(self):
+    def test_falling_close_is_negative(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        df = _bars(start, 50, minutes=1, price=100.0, drift=-0.5)
-        ao = sd.calc_log_ao(df["high"], df["low"])
-        self.assertTrue(ao.iloc[-1] < 0)
+        df = _bars(start, 80, minutes=1, price=100.0, drift=-0.5)
+        kst, _signal = sd.calc_kst(df["close"])
+        self.assertTrue(kst.iloc[-1] < 0)
 
 
 class TestScanSide(unittest.TestCase):
@@ -382,7 +383,7 @@ class TestScanSide(unittest.TestCase):
         buys = [s for s in signals if s["type"] == "buy" and s["base_frame"] == 60]
         self.assertTrue(buys)
 
-    def test_sell_blocked_when_ao_above_zero(self):
+    def test_sell_blocked_when_kst_above_zero(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -400,7 +401,7 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["sell_ao"] = np.zeros(len(grid), dtype=bool)
+        stepped[60]["sell_kst"] = np.zeros(len(grid), dtype=bool)
         stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
@@ -410,7 +411,7 @@ class TestScanSide(unittest.TestCase):
         )
         self.assertFalse(any(s["base_frame"] == 60 for s in signals))
 
-    def test_buy_blocked_when_ao_below_zero(self):
+    def test_buy_blocked_when_kst_below_zero(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -428,7 +429,7 @@ class TestScanSide(unittest.TestCase):
         )
         stepped = _fill_levels({}, grid)
         stepped[60]["buy_sat"] = np.ones(len(grid), dtype=bool)
-        stepped[60]["buy_ao"] = np.zeros(len(grid), dtype=bool)
+        stepped[60]["buy_kst"] = np.zeros(len(grid), dtype=bool)
         stepped[10]["sell_sat"] = np.ones(len(grid), dtype=bool)
         stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
         raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.5)
@@ -512,7 +513,7 @@ class TestScanAll(unittest.TestCase):
         text = sd.format_plain_report(result)
         self.assertIn("ADAUSDT", text)
         self.assertIn("EMA50", text)
-        self.assertIn("AO", text)
+        self.assertIn("KST", text)
 
 
 if __name__ == "__main__":
