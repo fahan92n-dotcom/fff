@@ -73,6 +73,102 @@ class TestMacdLineLong(unittest.TestCase):
             self.assertFalse(ind.check_macd_line_long(df, pct=0.40, base_frame=60))
 
 
+def _smi_series(values):
+    series = pd.Series(values, dtype=float)
+    return series, series, series
+
+
+class TestFindSaturationStartIndex(unittest.TestCase):
+    def test_returns_first_candle_of_current_run(self):
+        df = _df_with_hours(n=300)
+        smi = np.zeros(300)
+        smi[295:] = -50.0  # نوبة تشبع من 295 حتى النهاية
+        with patch.object(ind, "calc_smi", return_value=_smi_series(smi)):
+            self.assertEqual(
+                ind.find_saturation_start_index(df, threshold=-40, direction="long"),
+                295,
+            )
+
+    def test_ignores_older_disconnected_run(self):
+        df = _df_with_hours(n=300)
+        smi = np.zeros(300)
+        smi[100:110] = -50.0  # نوبة قديمة منفصلة
+        smi[297:] = -50.0
+        with patch.object(ind, "calc_smi", return_value=_smi_series(smi)):
+            self.assertEqual(
+                ind.find_saturation_start_index(df, threshold=-40, direction="long"),
+                297,
+            )
+
+    def test_returns_none_when_last_candle_not_saturated(self):
+        df = _df_with_hours(n=300)
+        smi = np.zeros(300)
+        smi[100:110] = -50.0
+        with patch.object(ind, "calc_smi", return_value=_smi_series(smi)):
+            self.assertIsNone(
+                ind.find_saturation_start_index(df, threshold=-40, direction="long")
+            )
+
+    def test_short_direction_uses_upper_threshold(self):
+        df = _df_with_hours(n=300)
+        smi = np.zeros(300)
+        smi[290:] = 45.0
+        with patch.object(ind, "calc_smi", return_value=_smi_series(smi)):
+            self.assertEqual(
+                ind.find_saturation_start_index(df, threshold=40, direction="short"),
+                290,
+            )
+
+
+class TestCheckMacdAtSaturationStart(unittest.TestCase):
+    """القرار يُتخذ على أول شمعة متشبعة ولا يتأثر بالشموع اللاحقة."""
+
+    def test_evaluates_on_sliced_frame_ending_at_saturation_start(self):
+        df = _df_with_hours(n=300)
+        seen_lengths = {}
+
+        def fake_red(df_eval):
+            seen_lengths["hist"] = len(df_eval)
+            return True
+
+        def fake_line(df_eval, pct=0.40, base_frame=60):
+            seen_lengths["line"] = len(df_eval)
+            return True
+
+        with patch.object(ind, "find_saturation_start_index", return_value=250), \
+                patch.object(ind, "check_macd_red", side_effect=fake_red), \
+                patch.object(ind, "check_macd_line_long", side_effect=fake_line):
+            self.assertTrue(
+                ind.check_macd_at_saturation_start(df, 60, direction="long")
+            )
+        self.assertEqual(seen_lengths, {"hist": 251, "line": 251})
+
+    def test_rejects_without_current_saturation(self):
+        df = _df_with_hours(n=300)
+        with patch.object(ind, "find_saturation_start_index", return_value=None):
+            self.assertFalse(
+                ind.check_macd_at_saturation_start(df, 60, direction="long")
+            )
+
+    def test_rejects_when_saturation_start_lacks_warmup(self):
+        df = _df_with_hours(n=300)
+        with patch.object(ind, "find_saturation_start_index", return_value=100):
+            self.assertFalse(
+                ind.check_macd_at_saturation_start(df, 60, direction="long")
+            )
+
+    def test_short_direction_uses_short_checks(self):
+        df = _df_with_hours(n=300)
+        with patch.object(ind, "find_saturation_start_index", return_value=250), \
+                patch.object(ind, "check_macd_green", return_value=True) as green, \
+                patch.object(ind, "check_macd_line_short", return_value=True) as line:
+            self.assertTrue(
+                ind.check_macd_at_saturation_start(df, 60, direction="short")
+            )
+        green.assert_called_once()
+        line.assert_called_once()
+
+
 class TestMacdLineShort(unittest.TestCase):
     def test_rejects_macd_above_histogram(self):
         df = _df_with_hours()

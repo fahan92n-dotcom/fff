@@ -394,6 +394,63 @@ def check_smi_oversold(df, threshold=-40):
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     return bool(smi.iloc[-1] <= threshold)
 
+
+def find_saturation_start_index(df, threshold=-40, direction="long"):
+    """
+    أول شمعة مغلقة في نوبة تشبع SMI الحالية (المتصلة بآخر شمعة مغلقة).
+
+    direction:
+      - "long"  => SMI <= threshold (افتراضي -40)
+      - "short" => SMI >= threshold (افتراضي +40)
+
+    يرجع None إذا لم تكن آخر شمعة مغلقة متشبعة.
+    """
+    if df.empty or len(df) < WARMUP_SMI:
+        return None
+    if direction not in ("long", "short"):
+        raise ValueError(f"Unsupported direction: {direction}")
+    smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
+    if direction == "long":
+        saturated = smi <= threshold
+    else:
+        saturated = smi >= threshold
+    if not bool(saturated.iloc[-1]):
+        return None
+    index = len(df) - 1
+    while index > 0 and bool(saturated.iloc[index - 1]):
+        index -= 1
+    return index
+
+
+def check_macd_at_saturation_start(df, base_frame, direction="long", pct=0.40):
+    """
+    فحص MACD مرة واحدة فقط: على أول شمعة إغلاق متشبعة في نوبة التشبع
+    الحالية، لا على آخر شمعة. تُقصّ السلسلة عند تلك الشمعة ثم يُقيَّم
+    الهيستوجرام وشرط الخط هناك، فتبقى النتيجة ثابتة طوال النوبة.
+    """
+    threshold = -40 if direction == "long" else 40
+    start_index = find_saturation_start_index(
+        df,
+        threshold=threshold,
+        direction=direction,
+    )
+    if start_index is None:
+        return False
+    df_eval = df.iloc[: start_index + 1]
+    if len(df_eval) < WARMUP_MACD:
+        return False
+    if direction == "long":
+        return check_macd_red(df_eval) and check_macd_line_long(
+            df_eval,
+            pct=pct,
+            base_frame=base_frame,
+        )
+    return check_macd_green(df_eval) and check_macd_line_short(
+        df_eval,
+        pct=pct,
+        base_frame=base_frame,
+    )
+
 def check_smi_overbought(df, threshold=40):
     if len(df) < WARMUP_SMI:
         return False
