@@ -1,4 +1,4 @@
-"""Tests for RSI-only main 50 + entry 45/55 scan."""
+"""Tests for RSI-only one-threshold-at-a-time scans."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -50,9 +50,21 @@ class TestLevels(unittest.TestCase):
         self.assertEqual(rs.LEVELS[2], (90, 9, 0.67, 0.54, "b"))
         self.assertEqual(rs.LEVELS[3], (120, 10, 0.67, 0.54, "b"))
         self.assertEqual(rs.LEVELS[4], (150, 11, 0.67, 0.54, "b"))
-        self.assertEqual(rs.MAIN_BUY, 50.0)
-        self.assertEqual(rs.ENTRY_BUY, 45.0)
-        self.assertEqual(rs.ENTRY_SELL, 55.0)
+        self.assertEqual(
+            rs.FOUR_RULES,
+            (
+                ("buy", 50.0, "شراء RSI > 50"),
+                ("buy", 45.0, "شراء RSI > 45"),
+                ("sell", 50.0, "بيع RSI < 50"),
+                ("sell", 45.0, "بيع RSI < 45"),
+            ),
+        )
+
+    def test_rule_labels(self):
+        self.assertEqual(rs._rule_label("buy", 50.0), "شراء RSI > 50")
+        self.assertEqual(rs._rule_label("buy", 45.0), "شراء RSI > 45")
+        self.assertEqual(rs._rule_label("sell", 50.0), "بيع RSI < 50")
+        self.assertEqual(rs._rule_label("sell", 45.0), "بيع RSI < 45")
 
 
 class TestScanSide(unittest.TestCase):
@@ -103,7 +115,7 @@ class TestScanSide(unittest.TestCase):
         )
         self.assertFalse(any(s["base_frame"] == 45 for s in signals))
 
-    def test_sell_needs_entry_rsi_below_55(self):
+    def test_sell_after_entry_rsi_clears_then_holds(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -142,12 +154,38 @@ class TestReport(unittest.TestCase):
             "opens": [],
             "total": 0,
             "symbols": ["BTCUSDT"],
+            "side": "buy",
+            "threshold": 50.0,
+            "rule": "شراء RSI > 50",
         }
-        text = rs.format_plain_report(result)
-        self.assertIn("RSI", text)
+        text = rs.format_plain_report(result, include_trades=False)
+        self.assertIn("شراء RSI > 50", text)
         self.assertIn("بدون EMA", text)
-        self.assertIn("50", text)
-        self.assertIn("45", text)
+        self.assertNotIn("وإغلاق RSI الدخول", text)
+        self.assertNotIn("الصفقات", text)
+
+    def test_scan_all_passes_one_side_and_threshold(self):
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        empty = {
+            "ready": True,
+            "wins": [],
+            "losses": [],
+            "opens": [],
+        }
+        with patch.object(rs, "scan_symbol", return_value=empty) as mocked:
+            result = rs.scan_all(
+                ("BTCUSDT",),
+                days=30,
+                now=start + timedelta(days=30),
+                side="sell",
+                threshold=45.0,
+            )
+        mocked.assert_called_once()
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["side"], "sell")
+        self.assertEqual(kwargs["threshold"], 45.0)
+        self.assertEqual(result["rule"], "بيع RSI < 45")
+        self.assertEqual(result["side"], "sell")
 
 
 if __name__ == "__main__":

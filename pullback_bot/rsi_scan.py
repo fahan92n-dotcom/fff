@@ -1,10 +1,10 @@
-"""RSI-only scan: main RSI 50 + entry RSI 45/55. No EMA, Donchian, SMI, MACD.
+"""RSI-only scans, one threshold at a time. No EMA, Donchian, SMI, MACD.
 
-  Buy:  main RSI close > 50, and entry RSI close > 45.
-  Sell: main RSI close < 50, and entry RSI close < 55.
-  After the main side is live, wait until the entry RSI is unmet,
-  then enter on the first later candle where it holds.
-  Each level is independent (no larger-main cancel).
+  Four separate results:
+    buy  RSI > 50, buy  RSI > 45,
+    sell RSI < 50, sell RSI < 45.
+  Main and entry use the same threshold. After the main side is live,
+  wait until entry RSI is unmet, then enter when it holds.
 """
 
 from __future__ import annotations
@@ -43,11 +43,13 @@ LEVELS = (
     (120, 10, 0.67, 0.54, "b"),
     (150, 11, 0.67, 0.54, "b"),
 )
-MAIN_BUY = 50.0
-MAIN_SELL = 50.0
-ENTRY_BUY = 45.0
-ENTRY_SELL = 55.0
 MIN_1M_BARS = 100_000
+FOUR_RULES = (
+    ("buy", 50.0, "شراء RSI > 50"),
+    ("buy", 45.0, "شراء RSI > 45"),
+    ("sell", 50.0, "بيع RSI < 50"),
+    ("sell", 45.0, "بيع RSI < 45"),
+)
 
 
 def _all_needed_frames():
@@ -58,7 +60,7 @@ def _all_needed_frames():
     return sorted(frames)
 
 
-def _rsi_features(df_1m, minutes, buy_level, sell_level):
+def _rsi_features(df_1m, minutes, threshold):
     df = resample_ohlcv_closed(df_1m, minutes)
     if df.empty or len(df) < WARMUP_RSI:
         return None
@@ -71,8 +73,8 @@ def _rsi_features(df_1m, minutes, buy_level, sell_level):
             "end_ts": end_ts.to_numpy(),
             "close": df["close"].to_numpy(),
             "rsi": rsi_arr,
-            "rsi_buy": rsi_arr > buy_level,
-            "rsi_sell": rsi_arr < sell_level,
+            "rsi_buy": rsi_arr > threshold,
+            "rsi_sell": rsi_arr < threshold,
         }
     )
 
@@ -189,7 +191,15 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     return signals
 
 
-def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
+def scan_symbol(
+    symbol,
+    *,
+    days=MONTH_DAYS,
+    now=None,
+    raw_1m=None,
+    side="buy",
+    threshold=50.0,
+):
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     end = now
@@ -230,23 +240,17 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
     log.info("%s: computing %s frames...", symbol, len(needed))
     frame_data = {}
     entry_data = {}
+    threshold = float(threshold)
     for minutes in needed:
+        feat = _rsi_features(raw_1m, minutes, threshold)
         if minutes in entry_frames:
-            entry_data[minutes] = _rsi_features(
-                raw_1m, minutes, ENTRY_BUY, ENTRY_SELL
-            )
+            entry_data[minutes] = feat
         if minutes in main_frames:
-            frame_data[minutes] = _rsi_features(
-                raw_1m, minutes, MAIN_BUY, MAIN_SELL
-            )
+            frame_data[minutes] = feat
 
     stepped = _precompute_stepped(frame_data, grid)
-    all_signals = []
-    all_signals.extend(
-        _scan_side("sell", stepped, entry_data, grid, start, end, raw_1m, symbol)
-    )
-    all_signals.extend(
-        _scan_side("buy", stepped, entry_data, grid, start, end, raw_1m, symbol)
+    all_signals = _scan_side(
+        side, stepped, entry_data, grid, start, end, raw_1m, symbol
     )
 
     deduped = _dedupe_signals(all_signals)
@@ -271,7 +275,22 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
     }
 
 
-def scan_all(symbols=SYMBOLS, *, days=MONTH_DAYS, now=None, raw_by_symbol=None):
+def _rule_label(side, threshold):
+    cmp = ">" if side == "buy" else "<"
+    ar = "شراء" if side == "buy" else "بيع"
+    value = int(threshold) if float(threshold) == int(threshold) else threshold
+    return f"{ar} RSI {cmp} {value}"
+
+
+def scan_all(
+    symbols=SYMBOLS,
+    *,
+    days=MONTH_DAYS,
+    now=None,
+    raw_by_symbol=None,
+    side="buy",
+    threshold=50.0,
+):
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     end = now
@@ -285,6 +304,8 @@ def scan_all(symbols=SYMBOLS, *, days=MONTH_DAYS, now=None, raw_by_symbol=None):
             days=days,
             now=now,
             raw_1m=raw_by_symbol.get(symbol),
+            side=side,
+            threshold=threshold,
         )
         per_symbol[symbol] = result
         if not result.get("ready"):
@@ -315,6 +336,9 @@ def scan_all(symbols=SYMBOLS, *, days=MONTH_DAYS, now=None, raw_by_symbol=None):
         "per_symbol": per_symbol,
         "failed": failed,
         "symbols_scanned": len(symbols) - len(failed),
+        "side": side,
+        "threshold": float(threshold),
+        "rule": _rule_label(side, threshold),
     }
 
 
@@ -408,7 +432,7 @@ def _format_summary_line(title, summary):
     )
 
 
-def format_report(result):
+def format_report(result, *, include_trades=True):
     if not result.get("ready"):
         return ["⚠️ تعذر فحص RSI."]
 
@@ -418,14 +442,16 @@ def format_report(result):
     days = int(result.get("days") or MONTH_DAYS)
     symbols = ", ".join(result.get("symbols") or SYMBOLS)
     failed = result.get("failed") or []
+    rule = result.get("rule") or _rule_label(
+        result.get("side") or "buy", result.get("threshold") or 50.0
+    )
 
     header = (
-        f"🗓️ <b>RSI فقط (بدون EMA/Donchian/SMI) — آخر {days} يومًا</b>\n"
+        f"🗓️ <b>RSI فقط — {html_escape(rule)} — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
-        "شراء: إغلاق RSI الرئيسي &gt; 50، وإغلاق RSI الدخول &gt; 45.\n"
-        "بيع: إغلاق RSI الرئيسي &lt; 50، وإغلاق RSI الدخول &lt; 55.\n"
+        "نفس العتبة على الرئيسي والدخول. بدون EMA/Donchian/SMI.\n"
         "الدخول: بعد تحقق الرئيسي، ننتظر شرط الدخول ينطفئ ثم ندخل عند تحققه.\n"
     )
     if failed:
@@ -460,13 +486,14 @@ def format_report(result):
         )
     chunks.append("\n".join(symbol_lines))
 
-    all_trades = grouped["all"]["trades"]
-    if all_trades:
-        trade_lines = ["📋 <b>الصفقات</b>"]
-        trade_lines.extend(_format_trade_line(t) for t in all_trades)
-        chunks.append("\n".join(trade_lines))
-    else:
-        chunks.append("لا توجد صفقات مطابقة خلال الفترة.")
+    if include_trades:
+        all_trades = grouped["all"]["trades"]
+        if all_trades:
+            trade_lines = ["📋 <b>الصفقات</b>"]
+            trade_lines.extend(_format_trade_line(t) for t in all_trades)
+            chunks.append("\n".join(trade_lines))
+        else:
+            chunks.append("لا توجد صفقات مطابقة خلال الفترة.")
 
     packed = []
     current = ""
@@ -484,9 +511,9 @@ def format_report(result):
     return packed
 
 
-def format_plain_report(result):
+def format_plain_report(result, *, include_trades=True):
     texts = []
-    for chunk in format_report(result):
+    for chunk in format_report(result, include_trades=include_trades):
         texts.append(
             chunk.replace("<b>", "")
             .replace("</b>", "")
@@ -500,9 +527,27 @@ def format_plain_report(result):
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    log.info("Scanning %s for %s days (RSI only)...", ",".join(SYMBOLS), MONTH_DAYS)
-    result = scan_all(days=MONTH_DAYS)
-    print(format_plain_report(result))
+    now = datetime.now(timezone.utc)
+    target = max(MIN_1M_BARS, int(MONTH_DAYS) * 1440 + 50_000)
+    raw_by_symbol = {}
+    for symbol in SYMBOLS:
+        log.info("Fetching %s 1m bars for %s...", target, symbol)
+        raw_by_symbol[symbol] = fetch_1m_vision(symbol, target=target)
+        n_bars = 0 if raw_by_symbol[symbol] is None else len(raw_by_symbol[symbol])
+        log.info("%s bars: %s", symbol, n_bars)
+
+    reports = []
+    for side, threshold, title in FOUR_RULES:
+        log.info("Scanning rule: %s", title)
+        result = scan_all(
+            days=MONTH_DAYS,
+            now=now,
+            raw_by_symbol=raw_by_symbol,
+            side=side,
+            threshold=threshold,
+        )
+        reports.append(format_plain_report(result, include_trades=False))
+    print("\n\n".join(reports))
 
 
 if __name__ == "__main__":
