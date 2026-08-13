@@ -325,7 +325,9 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
     log.info("%s: computing %s frames...", symbol, len(needed))
     frame_data = {}
     entry_data = {}
-    for minutes in needed:
+    for index, minutes in enumerate(needed, start=1):
+        if index == 1 or index % 20 == 0 or index == len(needed):
+            log.info("%s: frame %s/%s (%sm)", symbol, index, len(needed), minutes)
         feat = _smi_don_features(df_1m=raw_1m, minutes=minutes, need_don=minutes in don_needed)
         frame_data[minutes] = feat
         if minutes in entry_frames:
