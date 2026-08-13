@@ -1,9 +1,10 @@
 """Historical week scan: fetch strategy trades from market data (not storage).
 
 `/week` replays the cascade on the last 7 days of OHLCV, then classifies each
-entry by base-frame outcome levels:
-  - 9m..27m   → win +0.67% / loss 0.51% against
-  - 30m..240m → win +1.00% / loss 0.80% against
+entry by base-frame outcome levels (loss = adverse bounce against the trade):
+  - 9m..21m   → win +0.50% / loss 0.45% against
+  - 24m..60m  → win +0.67% / loss 0.54% against
+  - 90m..240m → win +1.00% / loss 0.80% against
   - open      → neither level hit yet by the end of available data
 """
 
@@ -25,6 +26,7 @@ from binance_data import (
     get_cached,
     get_ohlcv_full,
     get_ohlcv_full_futures,
+    get_ohlcv_full_vision,
     symbols_cache,
     symbols_cache_lock,
 )
@@ -64,31 +66,95 @@ from state_manager import ALERT_EXPIRY_HOURS
 log = logging.getLogger(__name__)
 
 # Outcome levels by base timeframe (minutes).
-SHORT_TF_MAX = 27
-SHORT_WIN_PCT = 0.67
-SHORT_LOSS_PCT = 0.51
-LONG_WIN_PCT = 1.0
-LONG_LOSS_PCT = 0.80
+# 9m uses the same tight bucket as 12/15/18/21.
+TIGHT_TF_MAX = 21
+TIGHT_WIN_PCT = 0.50
+TIGHT_LOSS_PCT = 0.45
+MID_TF_MAX = 60
+MID_WIN_PCT = 0.67
+MID_LOSS_PCT = 0.54
+WIDE_WIN_PCT = 1.0
+WIDE_LOSS_PCT = 0.80
 
-# Back-compat defaults = long-frame bucket (30m..240m).
-WIN_PCT = LONG_WIN_PCT
-LOSS_PCT = LONG_LOSS_PCT
+# Back-compat aliases (wide bucket = previous 30m..240m defaults).
+LONG_WIN_PCT = WIDE_WIN_PCT
+LONG_LOSS_PCT = WIDE_LOSS_PCT
+SHORT_WIN_PCT = TIGHT_WIN_PCT
+SHORT_LOSS_PCT = TIGHT_LOSS_PCT
+SHORT_TF_MAX = TIGHT_TF_MAX
+
+# Defaults for evaluate_outcome when no frame is passed = wide bucket.
+WIN_PCT = WIDE_WIN_PCT
+LOSS_PCT = WIDE_LOSS_PCT
 WEEK_DAYS = 7
 DEDUPE_HOURS = ALERT_EXPIRY_HOURS
 MIN_1M_BARS = 20_000
+# Extra 1m history so a 30-day replay still has MIN_CANDLES warmup on 9m/12m.
+MONTH_1M_BARS = 60_000
 
 
 def outcome_levels(base_frame):
     """Return (win_pct, loss_pct) for a base timeframe in minutes."""
     if base_frame is None:
-        return LONG_WIN_PCT, LONG_LOSS_PCT
+        return WIDE_WIN_PCT, WIDE_LOSS_PCT
     try:
         frame = int(base_frame)
     except (TypeError, ValueError):
-        return LONG_WIN_PCT, LONG_LOSS_PCT
-    if frame <= SHORT_TF_MAX:
-        return SHORT_WIN_PCT, SHORT_LOSS_PCT
-    return LONG_WIN_PCT, LONG_LOSS_PCT
+        return WIDE_WIN_PCT, WIDE_LOSS_PCT
+    if frame <= TIGHT_TF_MAX:
+        return TIGHT_WIN_PCT, TIGHT_LOSS_PCT
+    if frame <= MID_TF_MAX:
+        return MID_WIN_PCT, MID_LOSS_PCT
+    return WIDE_WIN_PCT, WIDE_LOSS_PCT
+
+
+def format_outcome_levels_note(*, html=False):
+    """Arabic exit-level lines for Telegram / CLI reports."""
+    def pct(value):
+        text = f"{value:g}%"
+        return f"<b>{text}</b>" if html else text
+
+    return (
+        f"• 9–{TIGHT_TF_MAX}م: ربح +{pct(TIGHT_WIN_PCT)} | "
+        f"خسارة {pct(TIGHT_LOSS_PCT)} ضد الاتجاه\n"
+        f"• 24–{MID_TF_MAX}م: ربح +{pct(MID_WIN_PCT)} | "
+        f"خسارة {pct(MID_LOSS_PCT)} ضد الاتجاه\n"
+        f"• 90–240م: ربح +{pct(WIDE_WIN_PCT)} | "
+        f"خسارة {pct(WIDE_LOSS_PCT)} ضد الاتجاه"
+    )
+
+
+def trade_pnl_points(trade, outcome=None):
+    """%-points from one trade using its stored (or frame) TP/SL."""
+    result = outcome or trade.get("outcome")
+    win_pct = trade.get("win_pct")
+    loss_pct = trade.get("loss_pct")
+    if win_pct is None or loss_pct is None:
+        win_pct, loss_pct = outcome_levels(trade.get("base_frame"))
+    if result == "win":
+        return float(win_pct)
+    if result == "loss":
+        return -float(loss_pct)
+    return 0.0
+
+
+def summarize_scan_pnl(result):
+    """Closed-trade win/loss counts and net %-points."""
+    wins = list(result.get("wins") or [])
+    losses = list(result.get("losses") or [])
+    opens = list(result.get("opens") or [])
+    closed = len(wins) + len(losses)
+    pnl = sum(trade_pnl_points(trade, "win") for trade in wins)
+    pnl += sum(trade_pnl_points(trade, "loss") for trade in losses)
+    win_rate = (len(wins) / closed * 100.0) if closed else 0.0
+    return {
+        "wins": len(wins),
+        "losses": len(losses),
+        "opens": len(opens),
+        "closed": closed,
+        "pnl": pnl,
+        "win_rate": win_rate,
+    }
 
 _week_scan_lock = threading.Lock()
 _week_scan_running = False
@@ -129,8 +195,21 @@ def _slice_closed(full_df, minutes, asof):
     return sliced.reset_index(drop=True)
 
 
-def _ensure_symbol_raw(symbol):
-    """Return raw 1m/30m/60m frames, fetching from Binance when cache is short."""
+def _required_1m_bars(days):
+    """1m bars needed for ``days`` of trades plus cascade warmup."""
+    needed = int(days) * 1440 + 8_000
+    if int(days) >= 30:
+        return max(MIN_1M_BARS, MONTH_1M_BARS, needed)
+    return max(MIN_1M_BARS, needed)
+
+
+def _ensure_symbol_raw(symbol, *, min_1m=MIN_1M_BARS):
+    """Return raw 1m/30m/60m frames, fetching from Binance when cache is short.
+
+    When ``min_1m`` exceeds the live 1m cache cap, extra history is kept on the
+    returned dict only (not merged into the shared cache).
+    """
+    min_1m = int(min_1m)
     raw = {
         "1m": get_cached(symbol, "1m"),
         "30m": get_cached(symbol, "30m"),
@@ -141,23 +220,36 @@ def _ensure_symbol_raw(symbol):
     )
     needs_fetch = (
         raw["1m"].empty
-        or len(raw["1m"]) < MIN_1M_BARS
+        or len(raw["1m"]) < min_1m
         or raw["30m"].empty
         or raw["60m"].empty
     )
     if not needs_fetch:
         return raw
 
-    for tf, target in API_FETCH_CANDLES.items():
+    targets = dict(API_FETCH_CANDLES)
+    targets["1m"] = max(int(targets.get("1m", min_1m)), min_1m)
+    cache_cap = dict(API_FETCH_CANDLES)
+    for tf, target in targets.items():
         current = raw.get(tf)
-        if current is not None and not current.empty and (
-            tf != "1m" or len(current) >= MIN_1M_BARS
-        ):
+        enough_1m = tf != "1m" or (
+            current is not None and not current.empty and len(current) >= min_1m
+        )
+        if current is not None and not current.empty and enough_1m:
             continue
         df = fetch_fn(symbol, tf, target=target)
-        if not df.empty:
+        if df.empty:
+            log.warning(
+                "primary OHLCV empty for %s %s — falling back to Binance Vision",
+                symbol,
+                tf,
+            )
+            df = get_ohlcv_full_vision(symbol, tf, target=target)
+        if df.empty:
+            continue
+        raw[tf] = df
+        if len(df) <= cache_cap.get(tf, len(df)):
             cache_merge(symbol, tf, df)
-            raw[tf] = df
     return raw
 
 
@@ -264,47 +356,49 @@ def _passes_steps_1_5(candidate, signal_type):
     return True
 
 
-def _try_step8_entry(candidate, signal_type):
+def _step1_fn(signal_type):
+    return step1 if signal_type == "buy" else short_step1
+
+
+def _late_step_fns(signal_type):
     if signal_type == "buy":
-        ok6, _ = step6(candidate)
-        if not ok6:
-            return None
-        ok7, _ = step7(candidate)
-        if not ok7:
-            return None
-        ok8, _ = step8(candidate)
-        if not ok8:
-            return None
-        smi_threshold, rsi_threshold, direction = -40, 35, "long"
-    else:
-        ok6, _ = short_step6(candidate)
-        if not ok6:
-            return None
-        ok7, _ = short_step7(candidate)
-        if not ok7:
-            return None
-        ok8, _ = short_step8(candidate)
-        if not ok8:
-            return None
-        smi_threshold, rsi_threshold, direction = 40, 65, "short"
+        return step6, step7, step8, -40, 35, "long"
+    return short_step6, short_step7, short_step8, 40, 65, "short"
 
-    entry_index = find_step8_entry_index(
-        candidate["df_triple"],
-        candidate["ready_since"],
-        smi_threshold=smi_threshold,
-        rsi_threshold=rsi_threshold,
-        direction=direction,
-        max_gap=3,
+
+def _promote_late_steps(candidate, signal_type, passed6, passed7):
+    """Promote 5→6→7→8 the way the live watcher does: a passed stage is kept."""
+    step6_fn, step7_fn, step8_fn, smi_threshold, rsi_threshold, direction = (
+        _late_step_fns(signal_type)
     )
-    if entry_index is None:
-        return None
-
-    candle = candidate["df_triple"].iloc[entry_index]
-    return {
-        "entry_ts": _utc(candle["ts"]),
-        "price": float(candle["close"]),
-        "triple_frame": candidate["triple_frame"],
-    }
+    if not passed6:
+        ok6, _ = step6_fn(candidate)
+        if ok6:
+            passed6 = True
+    if passed6 and not passed7:
+        ok7, _ = step7_fn(candidate)
+        if ok7:
+            passed7 = True
+    entry = None
+    if passed7:
+        ok8, _ = step8_fn(candidate)
+        if ok8:
+            entry_index = find_step8_entry_index(
+                candidate["df_triple"],
+                candidate["ready_since"],
+                smi_threshold=smi_threshold,
+                rsi_threshold=rsi_threshold,
+                direction=direction,
+                max_gap=3,
+            )
+            if entry_index is not None:
+                candle = candidate["df_triple"].iloc[entry_index]
+                entry = {
+                    "entry_ts": _utc(candle["ts"]),
+                    "price": float(candle["close"]),
+                    "triple_frame": candidate["triple_frame"],
+                }
+    return passed6, passed7, entry
 
 
 def _build_candidate(
@@ -405,8 +499,11 @@ def _scan_pair_side(
     signals = []
     waiting = False
     ready_since = None
+    passed6 = False
+    passed7 = False
     last_emitted_entry_end = None
     start_i = max(MIN_CANDLES - 1, WARMUP_SMI)
+    step1_check = _step1_fn(signal_type)
 
     smi_full, _, _ = calc_smi(
         df_base_full["high"],
@@ -422,7 +519,7 @@ def _scan_pair_side(
     walk_end = end + timedelta(minutes=base_frame)
 
     def record_entry(entry, tip_asof):
-        nonlocal waiting, ready_since, last_emitted_entry_end
+        nonlocal waiting, ready_since, last_emitted_entry_end, passed6, passed7
         entry_end = _candle_end(entry["entry_ts"], triple_frame)
         if last_emitted_entry_end is not None and entry_end <= last_emitted_entry_end:
             return False
@@ -456,6 +553,8 @@ def _scan_pair_side(
         last_emitted_entry_end = entry_end
         waiting = False
         ready_since = None
+        passed6 = False
+        passed7 = False
         return True
 
     i = start_i
@@ -470,6 +569,7 @@ def _scan_pair_side(
 
         # Fast path: ignore non-saturated tips until a waiter exists.
         if not waiting and not bool(saturated.iloc[i]):
+            ready_since = None
             i += 1
             continue
 
@@ -498,10 +598,27 @@ def _scan_pair_side(
             df_btc_base=_btc_base_at(asof),
         )
 
+        candidate["ready_since"] = ready_since
+        ok1, _reason1 = step1_check(candidate)
+        if not ok1:
+            waiting = False
+            ready_since = None
+            passed6 = False
+            passed7 = False
+            i += 1
+            continue
+        if ready_since is None:
+            # Match live: step1_ready_since is the first saturation candle
+            # that passed step1, not the later candle where 1–5 all passed.
+            ready_since = _utc(df_base["ts"].iloc[-1])
+        candidate["ready_since"] = ready_since
+
         if waiting:
             if not _stage5_still_valid(candidate, signal_type):
                 waiting = False
                 ready_since = None
+                passed6 = False
+                passed7 = False
                 i += 1
                 continue
 
@@ -546,8 +663,12 @@ def _scan_pair_side(
                 if not _stage5_still_valid(tip_candidate, signal_type):
                     waiting = False
                     ready_since = None
+                    passed6 = False
+                    passed7 = False
                     break
-                entry = _try_step8_entry(tip_candidate, signal_type)
+                passed6, passed7, entry = _promote_late_steps(
+                    tip_candidate, signal_type, passed6, passed7
+                )
                 if entry is not None and record_entry(entry, tip_asof):
                     break
             i += 1
@@ -557,10 +678,11 @@ def _scan_pair_side(
             i += 1
             continue
 
-        ready_since = _utc(df_base["ts"].iloc[-1])
         waiting = True
         candidate["ready_since"] = ready_since
-        entry = _try_step8_entry(candidate, signal_type)
+        passed6, passed7, entry = _promote_late_steps(
+            candidate, signal_type, passed6, passed7
+        )
         if entry is not None:
             record_entry(entry, asof)
         i += 1
@@ -617,12 +739,15 @@ def scan_week_trades(
     else:
         symbols = list(symbols)
 
+    min_1m = _required_1m_bars(days)
+
     if not symbols:
         return {
             "ready": False,
             "reason": "no_symbols",
             "start": start,
             "end": end,
+            "days": days,
             "symbols_scanned": 0,
             "wins": [],
             "losses": [],
@@ -633,7 +758,7 @@ def scan_week_trades(
 
     needs_btc = variant.get("btc_corr_min") is not None
     if needs_btc and btc_raw_by_tf is None:
-        btc_raw_by_tf = _ensure_symbol_raw("BTCUSDT")
+        btc_raw_by_tf = _ensure_symbol_raw("BTCUSDT", min_1m=min_1m)
 
     all_signals = []
     total = len(symbols)
@@ -650,12 +775,19 @@ def scan_week_trades(
             if preloaded_raw is not None and symbol in preloaded_raw:
                 raw_by_tf = preloaded_raw[symbol]
             else:
-                raw_by_tf = _ensure_symbol_raw(symbol)
+                raw_by_tf = _ensure_symbol_raw(symbol, min_1m=min_1m)
             raw_1m = raw_by_tf.get("1m", pd.DataFrame())
             if raw_1m.empty:
                 continue
             for pair in TRIPLING_PAIRS:
                 for signal_type in ("buy", "sell"):
+                    log.info(
+                        "replay %s %sm/%sm %s",
+                        symbol,
+                        pair[0],
+                        pair[1],
+                        signal_type,
+                    )
                     all_signals.extend(
                         _scan_pair_side(
                             symbol,
@@ -684,11 +816,13 @@ def scan_week_trades(
         "ready": True,
         "start": start,
         "end": end,
+        "days": days,
         "symbols_scanned": total,
         "wins": wins,
         "losses": losses,
         "opens": opens,
         "total": len(deduped),
+        "raw_total": len(all_signals),
         "variant": variant,
     }
 
@@ -706,6 +840,58 @@ def _format_trade_line(trade):
         f"{icon} <code>{html_escape(trade['symbol'])}</code> | {side} | "
         f"{frames} | {trade['price']:.4g} | <code>{when}</code> UTC"
     )
+
+
+def _period_title(days):
+    if int(days) == 7:
+        return "آخر 7 أيام"
+    if int(days) == 30:
+        return "آخر 30 يوم"
+    return f"آخر {int(days)} يوم"
+
+
+def _bucket_for_frame(base_frame):
+    try:
+        frame = int(base_frame)
+    except (TypeError, ValueError):
+        return "wide"
+    if frame <= TIGHT_TF_MAX:
+        return "tight"
+    if frame <= MID_TF_MAX:
+        return "mid"
+    return "wide"
+
+
+def _format_bucket_breakdown(result):
+    """Per-TP/SL-bucket win/loss/pnl lines."""
+    labels = {
+        "tight": f"9–{TIGHT_TF_MAX}م (+{TIGHT_WIN_PCT:g}% / {TIGHT_LOSS_PCT:g}%)",
+        "mid": f"24–{MID_TF_MAX}م (+{MID_WIN_PCT:g}% / {MID_LOSS_PCT:g}%)",
+        "wide": f"90–240م (+{WIDE_WIN_PCT:g}% / {WIDE_LOSS_PCT:g}%)",
+    }
+    grouped = {key: {"wins": 0, "losses": 0, "opens": 0, "pnl": 0.0} for key in labels}
+    for trade in result.get("wins") or []:
+        bucket = grouped[_bucket_for_frame(trade.get("base_frame"))]
+        bucket["wins"] += 1
+        bucket["pnl"] += trade_pnl_points(trade, "win")
+    for trade in result.get("losses") or []:
+        bucket = grouped[_bucket_for_frame(trade.get("base_frame"))]
+        bucket["losses"] += 1
+        bucket["pnl"] += trade_pnl_points(trade, "loss")
+    for trade in result.get("opens") or []:
+        grouped[_bucket_for_frame(trade.get("base_frame"))]["opens"] += 1
+
+    lines = ["حسب الفريم:"]
+    for key, label in labels.items():
+        row = grouped[key]
+        closed = row["wins"] + row["losses"]
+        if closed == 0 and row["opens"] == 0:
+            continue
+        lines.append(
+            f"• {label}: ✅ {row['wins']} | ❌ {row['losses']} | "
+            f"⏳ {row['opens']} | صافي {row['pnl']:+.2f} نقطة٪"
+        )
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def format_week_trades_report(result):
@@ -729,29 +915,37 @@ def format_week_trades_report(result):
     start = result["start"].strftime("%Y-%m-%d %H:%M")
     end = result["end"].strftime("%Y-%m-%d %H:%M")
     total = int(result.get("total") or 0)
-    levels_note = (
-        f"• 9–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
-        f"خسارة {SHORT_LOSS_PCT:g}%\n"
-        f"• 30–240م: ربح +{LONG_WIN_PCT:g}% | "
-        f"خسارة {LONG_LOSS_PCT:g}%"
-    )
+    raw_total = int(result.get("raw_total") or total)
+    days = int(result.get("days") or WEEK_DAYS)
+    title = _period_title(days)
+    pnl = summarize_scan_pnl(result)
+    levels_note = format_outcome_levels_note(html=False)
+    breakdown = _format_bucket_breakdown(result)
 
     header = (
-        "🗓️ <b>صفقات الاستراتيجية — آخر 7 أيام</b>\n"
+        f"🗓️ <b>صفقات الاستراتيجية — {title}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         f"عملات مفحوصة: <b>{result.get('symbols_scanned', 0)}</b>\n"
         f"إجمالي الصفقات: <b>{total}</b>\n"
+    )
+    if raw_total > total:
+        header += f"قبل الدمج (4 ساعات): <b>{raw_total}</b>\n"
+    header += (
         f"✅ نجاح: <b>{len(wins)}</b>\n"
         f"❌ خسارة: <b>{len(losses)}</b>\n"
         f"⏳ مفتوحة: <b>{len(opens)}</b>\n"
-        f"معايير الخروج:\n{levels_note}\n"
+        f"نسبة النجاح: <b>{pnl['win_rate']:.1f}%</b>\n"
+        f"صافي النقاط: <b>{pnl['pnl']:+.2f}</b> نقطة٪\n"
+        f"معايير الخروج (الخسارة = ارتداد عكسي):\n{levels_note}\n"
     )
+    if breakdown:
+        header += f"{breakdown}\n"
 
     if total == 0:
         return [
             header
-            + "\nلا توجد صفقات مطابقة للاستراتيجية خلال الأسبوع الماضي."
+            + f"\nلا توجد صفقات مطابقة للاستراتيجية خلال {title}."
         ]
 
     chunks = [header]
@@ -822,10 +1016,7 @@ def handle_week_command(chat_id, send_telegram):
         else:
             send_telegram(
                 "📡 جاري جلب صفقات الاستراتيجية الأساسية لآخر 7 أيام...\n"
-                f"• 9–{SHORT_TF_MAX}م: ربح <b>+{SHORT_WIN_PCT:g}%</b> | "
-                f"خسارة <b>{SHORT_LOSS_PCT:g}%</b>\n"
-                f"• 30–240م: ربح <b>+{LONG_WIN_PCT:g}%</b> | "
-                f"خسارة <b>{LONG_LOSS_PCT:g}%</b>",
+                f"{format_outcome_levels_note(html=True)}",
                 chat_id,
             )
 
@@ -850,3 +1041,38 @@ def handle_week_command(chat_id, send_telegram):
     finally:
         _week_scan_running = False
         _week_scan_lock.release()
+
+
+def print_scan_report(result):
+    """Plain-text report for CLI month/week scans."""
+    chunks = format_week_trades_report(result)
+    text = "\n\n".join(chunks)
+    for tag in ("<b>", "</b>", "<code>", "</code>"):
+        text = text.replace(tag, "")
+    print(text)
+    return text
+
+
+def main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Replay cascade trades and classify TP/SL outcomes.",
+    )
+    parser.add_argument("--symbol", default="BTCUSDT")
+    parser.add_argument("--days", type=int, default=30)
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    symbols = [args.symbol.upper()]
+    log.info("scanning %s for %s days", symbols[0], args.days)
+    result = scan_week_trades(symbols, days=args.days)
+    print_scan_report(result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

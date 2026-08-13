@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 BINANCE_SPOT_BASE = "https://api.binance.com"
+BINANCE_VISION_KLINES = "https://data-api.binance.vision/api/v3/klines"
 BINANCE_BASE = BINANCE_SPOT_BASE
 MARKET_MODE = os.environ.get("MARKET_MODE", "futures").lower()  # futures | spot
 TOP_SYMBOLS_LIMIT = 100
@@ -217,6 +218,9 @@ def _get_ohlcv_full_impl(symbol, tf, target, klines_url, market_label):
                 log.warning("⏳ %s rate-limit %s على %s، انتظار %s ثانية", market_label, r.status_code, symbol, retry_after)
                 time.sleep(retry_after)
                 continue
+            if r.status_code == 451:
+                log.warning("🚫 %s geo-blocked (451) على %s %s", market_label, symbol, tf)
+                break
 
             resp = r.json()
             if not isinstance(resp, list) or not resp:
@@ -257,6 +261,11 @@ def get_ohlcv_full(symbol, tf, target):
 
 def get_ohlcv_full_futures(symbol, tf, target):
     return _get_ohlcv_full_impl(symbol, tf, target, f"{BINANCE_FUTURES_BASE}/fapi/v1/klines", "Futures")
+
+
+def get_ohlcv_full_vision(symbol, tf, target):
+    """Spot klines via Binance Vision — works from geo-restricted regions."""
+    return _get_ohlcv_full_impl(symbol, tf, target, BINANCE_VISION_KLINES, "Vision")
 
 
 def cache_merge(symbol, tf, new_df):
