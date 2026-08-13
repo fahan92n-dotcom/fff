@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html import escape as html_escape
 from pathlib import Path
 
