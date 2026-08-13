@@ -307,6 +307,8 @@ def _empty_stepped(grid):
     return {
         "sell_main": np.zeros(len(grid), dtype=bool),
         "buy_main": np.zeros(len(grid), dtype=bool),
+        "above_ema": np.zeros(len(grid), dtype=bool),
+        "below_ema": np.zeros(len(grid), dtype=bool),
         "sell_sat": np.zeros(len(grid), dtype=bool),
         "buy_sat": np.zeros(len(grid), dtype=bool),
     }
@@ -1211,6 +1213,84 @@ class TestEmaSpanOverride(unittest.TestCase):
         text = "\n".join(pb.format_pullback_multi_report(result))
         self.assertIn("EMA50", text)
         self.assertNotIn("EMA60", text)
+
+
+class TestMainEmaOnlyScan(unittest.TestCase):
+    def test_sell_enters_on_ema_without_main_smi_sat(self):
+        """Main close below EMA60 is enough; reverse sat + EMA entry stay."""
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=2 * i) for i in range(4)],
+                "end_ts": [start + timedelta(minutes=2 * (i + 1)) for i in range(4)],
+                "close": [101.0, 101.0, 99.0, 98.0],
+                "ema": [100.0, 100.0, 100.0, 100.0],
+                "don": [1, 1, 1, 1],
+                "above_ema": [True, True, False, False],
+                "below_ema": [False, False, True, True],
+                "don_green": [True, True, True, True],
+                "don_red": [False, False, False, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=2 * (i + 1)) for i in range(4)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[30]["below_ema"] = np.ones(len(grid), dtype=bool)
+        for minutes in range(5, 12):
+            stepped[minutes]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+
+        without_flag = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+            main_ema_only=False,
+        )
+        self.assertEqual(without_flag, [])
+
+        signals = pb._scan_side(
+            "sell",
+            stepped,
+            {2: entry},
+            grid,
+            start,
+            start + timedelta(hours=1),
+            raw_1m,
+            use_donchian=False,
+            main_ema_only=True,
+        )
+        self.assertTrue(any(s["type"] == "sell" for s in signals))
+        first = next(s for s in signals if s["type"] == "sell")
+        self.assertEqual(first["base_frame"], 30)
+        self.assertAlmostEqual(first["price"], 99.0)
+
+    def test_multi_report_describes_ema_only_main(self):
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        end = start + timedelta(days=30)
+        result = {
+            "ready": True,
+            "start": start,
+            "end": end,
+            "days": 30,
+            "wins": [],
+            "losses": [],
+            "opens": [],
+            "total": 0,
+            "symbols": ["BTCUSDT"],
+            "use_donchian": False,
+            "ema_span": 60,
+            "main_ema_only": True,
+        }
+        text = "\n".join(pb.format_pullback_multi_report(result))
+        self.assertIn("EMA60 فقط", text)
+        self.assertIn("بدون تشبع SMI", text)
+        self.assertIn("بدون Donchian", text)
 
 
 if __name__ == "__main__":

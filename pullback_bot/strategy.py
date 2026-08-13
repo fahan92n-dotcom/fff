@@ -288,6 +288,8 @@ def _frame_features(df_1m, minutes, ema_span=EMA_SPAN):
             "ema": ema.to_numpy(),
             "sell_main": sell_main,
             "buy_main": buy_main,
+            "above_ema": above,
+            "below_ema": below,
             # Hierarchy cancel + confirm/counter: SMI only.
             "sell_sat": sell_sat,
             "buy_sat": buy_sat,
@@ -352,6 +354,8 @@ def _precompute_stepped(frame_data, grid):
         stepped[minutes] = {
             "sell_main": _bool_step(ends, feat["sell_main"].to_numpy(), grid),
             "buy_main": _bool_step(ends, feat["buy_main"].to_numpy(), grid),
+            "above_ema": _bool_step(ends, feat["above_ema"].to_numpy(), grid),
+            "below_ema": _bool_step(ends, feat["below_ema"].to_numpy(), grid),
             "sell_sat": _bool_step(ends, feat["sell_sat"].to_numpy(), grid),
             "buy_sat": _bool_step(ends, feat["buy_sat"].to_numpy(), grid),
         }
@@ -368,40 +372,53 @@ def _scan_side(
     raw_1m,
     symbol=SYMBOL,
     use_donchian=True,
+    main_ema_only=False,
 ):
     """Replay one side (sell/buy) across the hierarchy; return signal dicts.
 
-    Ownership / cancel uses SMI sat alone. Entry needs a main episode
-    whose *formation* candle had correct EMA60 side; live EMA after
-    that is not re-checked. Donchian on the entry TF is optional.
+    Default: ownership / cancel uses SMI sat alone. Entry needs a main
+    episode whose *formation* candle had correct EMA60 side; live EMA
+    after that is not re-checked. Donchian on the entry TF is optional.
+
+    ``main_ema_only``: main side is live close vs EMA only (above=buy,
+    below=sell). No SMI sat, formation gate, 7h halt, or hierarchy.
+    Reverse-sat confirm/stop and entry wait-clear-then-hold stay.
     """
     is_sell = side == "sell"
     main_key = "sell_main" if is_sell else "buy_main"
+    ema_key = "below_ema" if is_sell else "above_ema"
     # Hierarchy cancel key: SMI-only (larger sat cancels smaller).
     sat_key = "sell_sat" if is_sell else "buy_sat"
     confirm_key = "buy_sat" if is_sell else "sell_sat"
 
     active = np.full(len(grid), -1, dtype=int)
-    halt = stepped.get(HALT_MAIN_MINUTES)
-    halt_sat = halt[sat_key] if halt is not None else np.zeros(len(grid), dtype=bool)
-
-    main_masks = []
-    for main, _cmin, _cstop, _entry in LEVELS:
-        feat = stepped.get(main)
-        main_masks.append(
-            feat[sat_key] if feat is not None else np.zeros(len(grid), dtype=bool)
+    if not main_ema_only:
+        halt = stepped.get(HALT_MAIN_MINUTES)
+        halt_sat = (
+            halt[sat_key] if halt is not None else np.zeros(len(grid), dtype=bool)
         )
 
-    stacked = np.vstack(main_masks) if main_masks else np.zeros((0, len(grid)), dtype=bool)
-    for i in range(len(grid)):
-        if halt_sat[i]:
-            active[i] = -2
-            continue
-        chosen = -1
-        for idx in range(len(LEVELS)):
-            if stacked[idx, i]:
-                chosen = idx
-        active[i] = chosen
+        main_masks = []
+        for main, _cmin, _cstop, _entry in LEVELS:
+            feat = stepped.get(main)
+            main_masks.append(
+                feat[sat_key] if feat is not None else np.zeros(len(grid), dtype=bool)
+            )
+
+        stacked = (
+            np.vstack(main_masks)
+            if main_masks
+            else np.zeros((0, len(grid)), dtype=bool)
+        )
+        for i in range(len(grid)):
+            if halt_sat[i]:
+                active[i] = -2
+                continue
+            chosen = -1
+            for idx in range(len(LEVELS)):
+                if stacked[idx, i]:
+                    chosen = idx
+            active[i] = chosen
 
     signals = []
     start_ts = pd.Timestamp(start)
@@ -412,9 +429,13 @@ def _scan_side(
             continue
 
         main_feat = stepped.get(main)
+        if main_ema_only:
+            ready_key = ema_key
+        else:
+            ready_key = main_key
         main_ready = (
-            main_feat[main_key]
-            if main_feat is not None
+            main_feat[ready_key]
+            if main_feat is not None and ready_key in main_feat
             else np.zeros(len(grid), dtype=bool)
         )
 
@@ -431,12 +452,16 @@ def _scan_side(
             if stop_feat is not None
             else np.zeros(len(grid), dtype=bool)
         )
-        # Owned by this main via SMI sat, with a formation-valid episode
-        # (EMA60 only checked on the first sat close).
+        # Default: owned by this main via SMI sat, with a formation-valid
+        # episode (EMA60 only checked on the first sat close).
+        # main_ema_only: owned while close is on the EMA side; no hierarchy.
         # Reverse-sat confirm window: then counter sat closed + not stop.
         # After the first confirmed reverse-sat close we keep watching (even if
         # counter clears) until main dies, confirm-stop hits, or we enter.
-        owned = (active == level_idx) & main_ready & ~confirm_stop_mask
+        if main_ema_only:
+            owned = main_ready & ~confirm_stop_mask
+        else:
+            owned = (active == level_idx) & main_ready & ~confirm_stop_mask
         confirm_window = owned & confirm_any
         hold_window = owned
 
@@ -543,6 +568,7 @@ def scan_pullback_week(
     symbol=SYMBOL,
     use_donchian=True,
     ema_span=EMA_SPAN,
+    main_ema_only=False,
 ):
     """Scan pullback strategy over the last ``days`` for one symbol."""
     now = _utc(now) or datetime.now(timezone.utc)
@@ -571,6 +597,7 @@ def scan_pullback_week(
             "symbol": symbol,
             "use_donchian": use_donchian,
             "ema_span": ema_span,
+            "main_ema_only": main_ema_only,
         }
 
     raw_1m = raw_1m.sort_values("ts").reset_index(drop=True)
@@ -594,6 +621,7 @@ def scan_pullback_week(
             "symbols_scanned": 1,
             "use_donchian": use_donchian,
             "ema_span": ema_span,
+            "main_ema_only": main_ema_only,
         }
 
     needed = _all_needed_frames()
@@ -618,6 +646,7 @@ def scan_pullback_week(
             raw_1m,
             symbol,
             use_donchian=use_donchian,
+            main_ema_only=main_ema_only,
         )
     )
     all_signals.extend(
@@ -631,6 +660,7 @@ def scan_pullback_week(
             raw_1m,
             symbol,
             use_donchian=use_donchian,
+            main_ema_only=main_ema_only,
         )
     )
 
@@ -656,6 +686,7 @@ def scan_pullback_week(
         "symbols_scanned": 1,
         "use_donchian": use_donchian,
         "ema_span": ema_span,
+        "main_ema_only": main_ema_only,
     }
 
 
@@ -667,6 +698,7 @@ def scan_pullback_symbols(
     raw_by_symbol=None,
     use_donchian=True,
     ema_span=EMA_SPAN,
+    main_ema_only=False,
 ):
     """Scan the original pullback strategy on several symbols and merge."""
     now = _utc(now) or datetime.now(timezone.utc)
@@ -684,6 +716,7 @@ def scan_pullback_symbols(
             symbol=symbol,
             use_donchian=use_donchian,
             ema_span=ema_span,
+            main_ema_only=main_ema_only,
         )
         per_symbol[symbol] = result
         if not result.get("ready"):
@@ -716,6 +749,7 @@ def scan_pullback_symbols(
         "symbols_scanned": len(symbols) - len(failed),
         "use_donchian": use_donchian,
         "ema_span": int(ema_span),
+        "main_ema_only": bool(main_ema_only),
     }
 
 
@@ -835,16 +869,31 @@ def format_pullback_multi_report(result):
     summary = _summarize_trades(all_trades)
     ema_span = int(result.get("ema_span") or EMA_SPAN)
     ema_label = f"EMA{ema_span}"
+    main_ema_only = bool(result.get("main_ema_only"))
+
+    if main_ema_only:
+        main_line = (
+            f"الرئيسي: إغلاق فوق {ema_label} شراء / تحته بيع فقط "
+            "(بدون تشبع SMI وبدون RSI).\n"
+        )
+        title_extra = f"{ema_label} فقط + عكس + دخول بدون Donchian"
+    else:
+        main_line = (
+            f"الرئيسي: تشبع SMI، والإغلاق فوق {ema_label} شراء / تحته بيع "
+            "(عند تكوّن التشبع).\n"
+        )
+        title_extra = (
+            f"SMI + {ema_label} + عكس + دخول"
+            f"{'' if result.get('use_donchian', True) else ' بدون Donchian'}"
+        )
 
     header = (
-        f"🗓️ <b>Pullback (SMI + {ema_label} + عكس + دخول"
-        f"{'' if result.get('use_donchian', True) else ' بدون Donchian'})"
-        f" — آخر {days} يومًا</b>\n"
+        f"🗓️ <b>Pullback ({title_extra}) — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
-        f"الرئيسي: تشبع SMI، والإغلاق فوق {ema_label} شراء / تحته بيع (عند تكوّن التشبع).\n"
-        "العكس: تشبع معاكس حتى رقم التوقف. "
+        + main_line
+        + "العكس: تشبع معاكس حتى رقم التوقف. "
         + (
             f"الدخول: Donchian + {ema_label} بعد العكس.\n"
             if result.get("use_donchian", True)
@@ -974,18 +1023,28 @@ def main():
         print()
 
 
-def main_multi(days=MONTH_DAYS, use_donchian=True, ema_span=EMA_SPAN):
+def main_multi(
+    days=MONTH_DAYS,
+    use_donchian=True,
+    ema_span=EMA_SPAN,
+    main_ema_only=False,
+):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     symbols = ("BTCUSDT", "ETHUSDT", "XRPUSDT")
     log.info(
-        "Scanning pullback on %s for %s days (donchian=%s, ema=%s)...",
+        "Scanning pullback on %s for %s days (donchian=%s, ema=%s, main_ema_only=%s)...",
         ",".join(symbols),
         days,
         use_donchian,
         ema_span,
+        main_ema_only,
     )
     result = scan_pullback_symbols(
-        symbols, days=days, use_donchian=use_donchian, ema_span=ema_span
+        symbols,
+        days=days,
+        use_donchian=use_donchian,
+        ema_span=ema_span,
+        main_ema_only=main_ema_only,
     )
     for chunk in format_pullback_multi_report(result):
         text = (
@@ -1011,6 +1070,7 @@ if __name__ == "__main__":
         main_multi(
             use_donchian="--no-donchian" not in sys.argv,
             ema_span=_cli_int("--ema-span", EMA_SPAN),
+            main_ema_only="--main-ema-only" in sys.argv,
         )
     else:
         main()
