@@ -503,12 +503,11 @@ def _scan_pair_side(
         )
 
         if waiting:
-            if not _stage5_still_valid(candidate, signal_type):
-                waiting = False
-                ready_since = None
-                i += 1
-                continue
-
+            # لا نطرد المنتظر عند إغلاق شمعة الأساس غير المتشبعة مباشرة:
+            # البوت الحي يبقيه حيًا طوال نافذة الشمعة الجارية (آخر شمعة مغلقة
+            # عنده ما زالت المتشبعة السابقة)، فتُقيَّم إغلاقات فريم الدخول
+            # داخل النافذة أولًا، وفحص الصلاحية لكل tip داخل الحلقة أدناه
+            # هو الذي يسقط المرشح عند أول tip يكون فيه التشبع منتهيًا فعلًا.
             prev_asof = (
                 _utc(df_base_full["ts"].iloc[i - 1]) + timedelta(minutes=base_frame)
                 if i > 0

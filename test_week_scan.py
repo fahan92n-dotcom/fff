@@ -347,6 +347,67 @@ class TestDedupeAndCommand(unittest.TestCase):
         self.assertIn("BTCUSDT", joined)
 
 
+class TestWaitingBlindWindow(unittest.TestCase):
+    """
+    المنتظر يبقى حيًا خلال نافذة شمعة الأساس الجارية حتى لو كانت ستُغلق
+    بلا تشبع: دخول يكتمل على فريم الدخول داخل تلك النافذة يجب أن يُسجَّل
+    (مطابقة للبوت الحي الذي لا يرى الشمعة غير المتشبعة قبل إغلاقها).
+    """
+
+    def test_entry_inside_final_base_candle_window_is_recorded(self):
+        t0 = datetime(2026, 8, 3, tzinfo=timezone.utc)
+        raw = _bars(t0, 3000, minutes=1, price=100.0)
+        sat_index = 300  # شمعة 9m الوحيدة المتشبعة تفتح عند t0+2700 دقيقة
+        sat_ts = t0 + timedelta(minutes=sat_index * 9)
+        entry_candle_ts = sat_ts + timedelta(minutes=12)  # شمعة 3m داخل نافذة الشمعة التالية
+
+        def fake_calc_smi(high, low, close):
+            smi = pd.Series(0.0, index=close.index)
+            if len(smi) > sat_index:
+                smi.iloc[sat_index] = 50.0
+            return smi, smi, smi
+
+        def fake_still_valid(candidate, signal_type):
+            return _utc_safe(
+                candidate["df_base"]["ts"].iloc[-1].to_pydatetime()
+            ) == sat_ts
+
+        def fake_entry(candidate, signal_type):
+            last_ts = _utc_safe(
+                candidate["df_triple"]["ts"].iloc[-1].to_pydatetime()
+            )
+            if last_ts != entry_candle_ts:
+                return None
+            return {
+                "entry_ts": last_ts,
+                "price": float(candidate["df_triple"]["close"].iloc[-1]),
+                "triple_frame": 3,
+            }
+
+        with (
+            patch.object(week_scan, "calc_smi", side_effect=fake_calc_smi),
+            patch.object(
+                week_scan, "_passes_steps_1_5", return_value=True
+            ),
+            patch.object(
+                week_scan, "_stage5_still_valid", side_effect=fake_still_valid
+            ),
+            patch.object(week_scan, "_try_step8_entry", side_effect=fake_entry),
+        ):
+            signals = week_scan._scan_pair_side(
+                "BTCUSDT",
+                (9, 27, 3, "1m", "1m"),
+                "sell",
+                {"1m": raw},
+                t0,
+                t0 + timedelta(minutes=3000),
+                raw,
+            )
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0]["time"], entry_candle_ts)
+
+
 class TestSliceClosed(unittest.TestCase):
     def test_keeps_only_fully_closed_candles(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
