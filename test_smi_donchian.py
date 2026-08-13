@@ -161,6 +161,31 @@ class TestScanSide(unittest.TestCase):
         )
         self.assertFalse(any(s["base_frame"] == 45 for s in signals))
 
+    def test_no_halt_flag_ignores_signal_k_stop(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
+                "close": [101.0, 100.0, 99.0],
+                "don_green": [True, True, False],
+                "don_red": [False, False, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[45]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[45]["halt_sell"] = np.ones(len(grid), dtype=bool)
+        stepped[135]["don_red"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.4)
+        signals = sd._scan_side(
+            "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
+            raw_1m, "BTCUSDT", use_halt=False,
+        )
+        self.assertTrue(any(s["base_frame"] == 45 for s in signals))
+
     def test_no_sell_when_confirm_not_red(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(

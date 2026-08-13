@@ -208,8 +208,13 @@ def _dedupe_signals(signals, hours=DEDUPE_HOURS):
     return kept
 
 
-def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
-    """Main SMI sat + 3× Donchian + Signal/K halt + entry Donchian flip."""
+def _scan_side(
+    side, stepped, entry_data, grid, start, end, raw_1m, symbol, *, use_halt=True
+):
+    """Main SMI sat + 3× Donchian confirm + entry Donchian flip.
+
+    ``use_halt`` applies the optional Signal/K zone-cross stop on the main.
+    """
     is_sell = side == "sell"
     sat_key = "sell_sat" if is_sell else "buy_sat"
     don_key = "don_red" if is_sell else "don_green"
@@ -249,7 +254,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
         main_feat = stepped.get(main)
         halted = (
             main_feat[halt_key]
-            if main_feat is not None
+            if use_halt and main_feat is not None
             else np.zeros(n_grid, dtype=bool)
         )
         owned = (active == level_idx) & confirm_don & ~halted
@@ -308,8 +313,8 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     return signals
 
 
-def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
-    """Scan one symbol over the last ``days`` with Signal/K zone-cross halt."""
+def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None, use_halt=True):
+    """Scan one symbol over the last ``days``. No EMA60/RSI."""
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     end = now
@@ -358,10 +363,30 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
     stepped = _precompute_stepped(frame_data, grid)
     all_signals = []
     all_signals.extend(
-        _scan_side("sell", stepped, entry_data, grid, start, end, raw_1m, symbol)
+        _scan_side(
+            "sell",
+            stepped,
+            entry_data,
+            grid,
+            start,
+            end,
+            raw_1m,
+            symbol,
+            use_halt=use_halt,
+        )
     )
     all_signals.extend(
-        _scan_side("buy", stepped, entry_data, grid, start, end, raw_1m, symbol)
+        _scan_side(
+            "buy",
+            stepped,
+            entry_data,
+            grid,
+            start,
+            end,
+            raw_1m,
+            symbol,
+            use_halt=use_halt,
+        )
     )
 
     deduped = _dedupe_signals(all_signals)
@@ -383,10 +408,13 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
         "market": "spot-vision",
         "symbol": symbol,
         "symbols_scanned": 1,
+        "use_halt": bool(use_halt),
     }
 
 
-def scan_all(symbols=SYMBOLS, *, days=MONTH_DAYS, now=None, raw_by_symbol=None):
+def scan_all(
+    symbols=SYMBOLS, *, days=MONTH_DAYS, now=None, raw_by_symbol=None, use_halt=True
+):
     """Scan BTC/ETH/XRP (or ``symbols``) and merge trades."""
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
@@ -401,6 +429,7 @@ def scan_all(symbols=SYMBOLS, *, days=MONTH_DAYS, now=None, raw_by_symbol=None):
             days=days,
             now=now,
             raw_1m=raw_by_symbol.get(symbol),
+            use_halt=use_halt,
         )
         per_symbol[symbol] = result
         if not result.get("ready"):
@@ -431,6 +460,7 @@ def scan_all(symbols=SYMBOLS, *, days=MONTH_DAYS, now=None, raw_by_symbol=None):
         "per_symbol": per_symbol,
         "failed": failed,
         "symbols_scanned": len(symbols) - len(failed),
+        "use_halt": bool(use_halt),
     }
 
 
@@ -540,15 +570,26 @@ def format_report(result):
     symbols = ", ".join(result.get("symbols") or SYMBOLS)
     failed = result.get("failed") or []
 
+    use_halt = bool(result.get("use_halt", True))
+    halt_note = (
+        "إيقاف: إذا Signal تجاوز K فوق +40 أو تحت −40، بعد الإغلاق يُوقف الفريم.\n"
+        if use_halt
+        else "بدون إيقاف Signal/K.\n"
+    )
+    title = (
+        "SMI + Donchian 3× + إيقاف Signal/K (بدون EMA60/RSI)"
+        if use_halt
+        else "SMI + Donchian 3× (بدون EMA60/RSI وبدون Signal/K)"
+    )
     header = (
-        f"🗓️ <b>SMI + Donchian 3× + إيقاف Signal/K (بدون EMA60/RSI) — آخر {days} يومًا</b>\n"
+        f"🗓️ <b>{title} — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         "الرئيسي: تشبع SMI فقط. الأكبر يلغي الأصغر.\n"
         "التأكيد 3×: Donchian أخضر للشراء / أحمر للبيع.\n"
-        "إيقاف: إذا Signal تجاوز K فوق +40 أو تحت −40، بعد الإغلاق يُوقف الفريم.\n"
-        "الدخول: بعد التأكيد، ننتظر دونشيان غير متحقق ثم ندخل عند تحققه.\n"
+        + halt_note
+        + "الدخول: بعد التأكيد، ننتظر دونشيان غير متحقق ثم ندخل عند تحققه.\n"
     )
     if failed:
         header += f"⚠️ بلا بيانات: <code>{html_escape(', '.join(failed))}</code>\n"
@@ -620,12 +661,12 @@ def format_plain_report(result):
     return "\n\n".join(texts)
 
 
-def main():
+def main(use_halt=True):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    log.info("Scanning %s for %s days...", ",".join(SYMBOLS), MONTH_DAYS)
-    result = scan_all(days=MONTH_DAYS)
+    log.info("Scanning %s for %s days (halt=%s)...", ",".join(SYMBOLS), MONTH_DAYS, use_halt)
+    result = scan_all(days=MONTH_DAYS, use_halt=use_halt)
     print(format_plain_report(result))
 
 
 if __name__ == "__main__":
-    main()
+    main(use_halt="--no-halt" not in sys.argv)
