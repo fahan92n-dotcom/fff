@@ -66,6 +66,66 @@ class TestTelegramDispatch(unittest.TestCase):
         thread.assert_not_called()
         handler.assert_not_called()
 
+    def test_authorized_channel_post_is_dispatched(self):
+        handler = Mock()
+        worker = Mock()
+        original_handler = telegram_bot._command_handler
+        telegram_bot.set_command_handler(handler)
+        update = {
+            "channel_post": {
+                "text": "/status",
+                "chat": {"id": -1003968771145},
+            }
+        }
+        try:
+            with patch.object(
+                telegram_bot,
+                "ALLOWED_CHAT_IDS",
+                frozenset({"-1003968771145"}),
+            ), patch.object(
+                telegram_bot.threading,
+                "Thread",
+                return_value=worker,
+            ) as thread:
+                telegram_bot._dispatch_update(update)
+        finally:
+            telegram_bot.set_command_handler(original_handler)
+
+        thread.assert_called_once_with(
+            target=handler,
+            args=("/status", "-1003968771145"),
+            daemon=True,
+        )
+        worker.start.assert_called_once_with()
+
+    def test_channel_post_without_message_key_is_not_dropped(self):
+        handler = Mock()
+        original_handler = telegram_bot._command_handler
+        telegram_bot.set_command_handler(handler)
+        try:
+            with patch.object(
+                telegram_bot,
+                "ALLOWED_CHAT_IDS",
+                frozenset({"-1003968771145"}),
+            ), patch.object(telegram_bot.threading, "Thread") as thread:
+                telegram_bot._dispatch_update(
+                    {
+                        "update_id": 1,
+                        "channel_post": {
+                            "text": "/سبب_شراء",
+                            "chat": {"id": -1003968771145},
+                        },
+                    }
+                )
+        finally:
+            telegram_bot.set_command_handler(original_handler)
+
+        thread.assert_called_once()
+        self.assertEqual(
+            thread.call_args.kwargs["args"],
+            ("/سبب_شراء", "-1003968771145"),
+        )
+
 
 class TestSignalNotification(unittest.TestCase):
     def test_signal_is_claimed_saved_cleared_and_sent(self):

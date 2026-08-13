@@ -143,7 +143,8 @@ def _fire_signal(
 
 
 def _dispatch_update(update):
-    message = update.get("message", {})
+    # Channels deliver admin posts as channel_post, not message.
+    message = update.get("message") or update.get("channel_post") or {}
     text = message.get("text", "").strip()
     chat_id = str(message.get("chat", {}).get("id", ""))
     if not text or not chat_id:
