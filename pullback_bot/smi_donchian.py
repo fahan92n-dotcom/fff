@@ -2,7 +2,9 @@
 
 Flow:
   1) Largest main TF with SMI sat owns the side and cancels smaller mains.
-     5h SMI sat halts that side. Main is SMI sat only (no EMA).
+     5h SMI sat halts that side. Main is SMI sat only (no EMA). Log AO
+     on the main TF must agree: buy sat valid only if AO > 0, sell sat
+     valid only if AO < 0. Wrong-side AO blocks entry.
   2) Wait for reverse/counter SMI sat inside the owned main.
   3) Donchian on the 3× confirm TF must be green (buy) / red (sell)
      at entry. If it flips, the path dies.
@@ -65,6 +67,8 @@ SYMBOLS = (
 WIN_PCT = 1.0
 LOSS_PCT = 0.77
 EMA_SPAN = 50
+AO_FAST = 5
+AO_SLOW = 34
 HALT_MAIN_MINUTES = 5 * 60  # 5h sat stops this experiment on that side
 
 # main, reverse_min, reverse_last, reverse_abort, don_confirm (3×), entry
@@ -106,6 +110,25 @@ def _entry_frames():
     return {lvl[5] for lvl in LEVELS}
 
 
+def _main_frames():
+    return {lvl[0] for lvl in LEVELS}
+
+
+def calc_log_ao(high, low, fast=AO_FAST, slow=AO_SLOW):
+    """Williams AO on ln(median price), shown as % like the Pine Log AO.
+
+    ao_pct = (exp(SMA_fast(ln m)) - exp(SMA_slow(ln m))) / exp(SMA_slow(ln m)) * 100
+    Sign matches ao_log = SMA_fast - SMA_slow, so >0 / <0 is the same.
+    """
+    median = (pd.Series(high, dtype=float) + pd.Series(low, dtype=float)) / 2.0
+    log_price = np.log(median.where(median > 0))
+    fast_ma = log_price.rolling(window=fast, min_periods=fast).mean()
+    slow_ma = log_price.rolling(window=slow, min_periods=slow).mean()
+    fast_px = np.exp(fast_ma)
+    slow_px = np.exp(slow_ma)
+    return (fast_px - slow_px) / slow_px * 100.0
+
+
 def signal_k_zone_cross(smi, signal):
     """Signal crossing K above +40 (buy-sat over) or below −40 (sell-sat over).
 
@@ -141,13 +164,14 @@ def halt_after_event(active, event):
     return out
 
 
-def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False):
-    """Resample SMI sat; Donchian and EMA50 only where needed (entry/confirm)."""
+def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False, need_ao=False):
+    """Resample SMI sat; Donchian/EMA50 on entry; Log AO on main."""
     df = resample_ohlcv_closed(df_1m, minutes)
     min_bars = max(
         WARMUP_SMI,
         DONCHIAN_DLEN + 2 if need_don else 0,
         EMA_SPAN + 5 if need_ema else 0,
+        AO_SLOW + 2 if need_ao else 0,
     )
     if df.empty or len(df) < min_bars:
         return None
@@ -156,6 +180,7 @@ def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False):
     sell_sat = (smi <= SMI_SELL).to_numpy()
     buy_sat = (smi >= SMI_BUY).to_numpy()
     _any, cross_high, cross_low = signal_k_zone_cross(smi, ema_signal)
+    n = len(df)
     end_ts = df["ts"] + pd.Timedelta(minutes=minutes)
     payload = {
         "ts": df["ts"].to_numpy(),
@@ -164,10 +189,12 @@ def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False):
         "smi": smi.to_numpy(),
         "sell_sat": sell_sat,
         "buy_sat": buy_sat,
-        "don_green": np.zeros(len(df), dtype=bool),
-        "don_red": np.zeros(len(df), dtype=bool),
-        "above_ema": np.zeros(len(df), dtype=bool),
-        "below_ema": np.zeros(len(df), dtype=bool),
+        "don_green": np.zeros(n, dtype=bool),
+        "don_red": np.zeros(n, dtype=bool),
+        "above_ema": np.zeros(n, dtype=bool),
+        "below_ema": np.zeros(n, dtype=bool),
+        "buy_ao": np.ones(n, dtype=bool),
+        "sell_ao": np.ones(n, dtype=bool),
         "halt_buy": halt_after_event(buy_sat, cross_high),
         "halt_sell": halt_after_event(sell_sat, cross_low),
     }
@@ -184,6 +211,10 @@ def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False):
         ema = calc_ema(df["close"], span=EMA_SPAN)
         payload["above_ema"] = (df["close"] > ema).to_numpy()
         payload["below_ema"] = (df["close"] < ema).to_numpy()
+    if need_ao:
+        ao = calc_log_ao(df["high"], df["low"])
+        payload["buy_ao"] = (ao > 0).fillna(False).to_numpy()
+        payload["sell_ao"] = (ao < 0).fillna(False).to_numpy()
     return pd.DataFrame(payload)
 
 
@@ -204,6 +235,12 @@ def _precompute_stepped(frame_data, grid):
             "halt_sell": _bool_step(ends, feat["halt_sell"].to_numpy(), grid)
             if "halt_sell" in feat.columns
             else np.zeros(len(grid), dtype=bool),
+            "buy_ao": _bool_step(ends, feat["buy_ao"].to_numpy(), grid)
+            if "buy_ao" in feat.columns
+            else np.ones(len(grid), dtype=bool),
+            "sell_ao": _bool_step(ends, feat["sell_ao"].to_numpy(), grid)
+            if "sell_ao" in feat.columns
+            else np.ones(len(grid), dtype=bool),
         }
     return stepped
 
@@ -232,6 +269,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     reverse_key = "buy_sat" if is_sell else "sell_sat"
     don_key = "don_red" if is_sell else "don_green"
     halt_key = "halt_sell" if is_sell else "halt_buy"
+    ao_key = "sell_ao" if is_sell else "buy_ao"
     n_grid = len(grid)
 
     halt = stepped.get(HALT_MAIN_MINUTES)
@@ -290,8 +328,13 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
             if main_feat is not None and halt_key in main_feat
             else np.zeros(n_grid, dtype=bool)
         )
+        ao_ok = (
+            main_feat[ao_key]
+            if main_feat is not None and ao_key in main_feat
+            else np.ones(n_grid, dtype=bool)
+        )
 
-        owned = (active == level_idx) & ~confirm_stop_mask & don_ok & ~halted
+        owned = (active == level_idx) & ao_ok & ~confirm_stop_mask & don_ok & ~halted
         confirm_window = owned & confirm_any
         hold_window = owned
 
@@ -396,6 +439,7 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
     needed = _all_needed_frames()
     don_needed = _don_frames()
     entry_frames = _entry_frames()
+    main_frames = _main_frames()
     log.info("%s: computing %s frames...", symbol, len(needed))
     frame_data = {}
     entry_data = {}
@@ -407,6 +451,7 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
             minutes=minutes,
             need_don=minutes in don_needed,
             need_ema=minutes in entry_frames,
+            need_ao=minutes in main_frames,
         )
         frame_data[minutes] = feat
         if minutes in entry_frames:
@@ -594,6 +639,7 @@ def format_report(result):
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         "بدون EMA على الرئيس وبدون RSI.\n"
         "الرئيسي: تشبع SMI. الأكبر يلغي الأصغر. تشبع 5س يوقف الجانب.\n"
+        "Log AO على الرئيس: شراء فقط إذا AO>0، بيع فقط إذا AO<0. الجهة الغلط تمنع الدخول.\n"
         "إذا Signal قطع K فوق +40 أو تحت −40 قبل الدخول، يُوقف الفريم.\n"
         "بعد التشبع العكسي: Donchian التأكيد 3× أخضر شراء / أحمر بيع.\n"
         "الدخول: Donchian + تجاوز EMA50 على فريم الدخول فقط.\n"

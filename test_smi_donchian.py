@@ -1,4 +1,4 @@
-"""Tests for SMI + reverse-sat + 3× Donchian confirm + EMA50 on entry."""
+"""Tests for SMI + reverse-sat + 3× Donchian confirm + EMA50 entry + Log AO."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -40,6 +40,8 @@ def _empty_stepped(grid):
         "don_red": np.zeros(len(grid), dtype=bool),
         "halt_buy": np.zeros(len(grid), dtype=bool),
         "halt_sell": np.zeros(len(grid), dtype=bool),
+        "buy_ao": np.ones(len(grid), dtype=bool),
+        "sell_ao": np.ones(len(grid), dtype=bool),
     }
 
 
@@ -73,6 +75,8 @@ class TestLevels(unittest.TestCase):
         self.assertEqual(sd.WIN_PCT, 1.0)
         self.assertEqual(sd.LOSS_PCT, 0.77)
         self.assertEqual(sd.EMA_SPAN, 50)
+        self.assertEqual(sd.AO_FAST, 5)
+        self.assertEqual(sd.AO_SLOW, 34)
 
     def test_two_hour_reverse_skips_47(self):
         _main, reverse_min, reverse_last, reverse_abort, _don, entry = sd.LEVELS[2]
@@ -140,6 +144,20 @@ class TestHaltAfterEvent(unittest.TestCase):
         event = np.array([False, True, False, False, False])
         halted = sd.halt_after_event(sat, event)
         self.assertEqual(list(halted), [False, True, True, False, False])
+
+
+class TestLogAo(unittest.TestCase):
+    def test_rising_median_is_positive(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        df = _bars(start, 50, minutes=1, price=100.0, drift=0.5)
+        ao = sd.calc_log_ao(df["high"], df["low"])
+        self.assertTrue(ao.iloc[-1] > 0)
+
+    def test_falling_median_is_negative(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        df = _bars(start, 50, minutes=1, price=100.0, drift=-0.5)
+        ao = sd.calc_log_ao(df["high"], df["low"])
+        self.assertTrue(ao.iloc[-1] < 0)
 
 
 class TestScanSide(unittest.TestCase):
@@ -364,6 +382,62 @@ class TestScanSide(unittest.TestCase):
         buys = [s for s in signals if s["type"] == "buy" and s["base_frame"] == 60]
         self.assertTrue(buys)
 
+    def test_sell_blocked_when_ao_above_zero(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
+                "close": [101.0, 100.0, 99.0],
+                "don_green": [True, True, False],
+                "don_red": [False, False, True],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["sell_ao"] = np.zeros(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
+        signals = sd._scan_side(
+            "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
+            raw_1m, "ADAUSDT",
+        )
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
+
+    def test_buy_blocked_when_ao_below_zero(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
+                "close": [99.0, 100.0, 101.0],
+                "don_green": [False, False, True],
+                "don_red": [True, True, False],
+                "above_ema": [False, False, True],
+                "below_ema": [True, True, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[60]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[60]["buy_ao"] = np.zeros(len(grid), dtype=bool)
+        stepped[10]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_green"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=0.5)
+        signals = sd._scan_side(
+            "buy", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
+            raw_1m, "SUIUSDT",
+        )
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
+
 
 class TestEvaluateUsesLevelPct(unittest.TestCase):
     def test_loss_at_077(self):
@@ -438,6 +512,7 @@ class TestScanAll(unittest.TestCase):
         text = sd.format_plain_report(result)
         self.assertIn("ADAUSDT", text)
         self.assertIn("EMA50", text)
+        self.assertIn("AO", text)
 
 
 if __name__ == "__main__":
