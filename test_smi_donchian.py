@@ -72,6 +72,7 @@ class TestLevels(unittest.TestCase):
         self.assertEqual(sd.HALT_MAIN_MINUTES, 300)
         self.assertEqual(sd.WIN_PCT, 1.0)
         self.assertEqual(sd.LOSS_PCT, 0.77)
+        self.assertEqual(sd.EMA_SPAN, 50)
 
     def test_two_hour_reverse_skips_47(self):
         _main, reverse_min, reverse_last, reverse_abort, _don, entry = sd.LEVELS[2]
@@ -151,6 +152,8 @@ class TestScanSide(unittest.TestCase):
                 "close": [101.0, 100.0, 99.0],
                 "don_green": [True, True, False],
                 "don_red": [False, False, True],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -169,6 +172,33 @@ class TestScanSide(unittest.TestCase):
         self.assertTrue(sells)
         self.assertAlmostEqual(sells[0]["price"], 99.0)
 
+    def test_no_sell_without_ema50_cross(self):
+        start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        entry = pd.DataFrame(
+            {
+                "ts": [start + timedelta(minutes=5 * i) for i in range(3)],
+                "end_ts": [start + timedelta(minutes=5 * (i + 1)) for i in range(3)],
+                "close": [101.0, 100.0, 99.0],
+                "don_green": [True, True, False],
+                "don_red": [False, False, True],
+                "above_ema": [True, True, True],
+                "below_ema": [False, False, False],
+            }
+        )
+        grid = pd.DatetimeIndex(
+            [start + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+        )
+        stepped = _fill_levels({}, grid)
+        stepped[60]["sell_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[10]["buy_sat"] = np.ones(len(grid), dtype=bool)
+        stepped[180]["don_red"] = np.ones(len(grid), dtype=bool)
+        raw_1m = _bars(start, 40, minutes=1, price=100.0, drift=-0.5)
+        signals = sd._scan_side(
+            "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
+            raw_1m, "ADAUSDT",
+        )
+        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
+
     def test_signal_k_halt_blocks_entry_before_fill(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
@@ -178,6 +208,8 @@ class TestScanSide(unittest.TestCase):
                 "close": [101.0, 100.0, 99.0],
                 "don_green": [True, True, False],
                 "don_red": [False, False, True],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -204,6 +236,8 @@ class TestScanSide(unittest.TestCase):
                 "close": [101.0, 100.0, 99.0],
                 "don_green": [True, True, False],
                 "don_red": [False, False, True],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -228,6 +262,8 @@ class TestScanSide(unittest.TestCase):
                 "close": [101.0, 100.0, 99.0],
                 "don_green": [True, True, False],
                 "don_red": [False, False, True],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -254,6 +290,8 @@ class TestScanSide(unittest.TestCase):
                 "close": [101.0, 100.0, 99.0],
                 "don_green": [True, True, False],
                 "don_red": [False, False, True],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -280,6 +318,8 @@ class TestScanSide(unittest.TestCase):
                 "close": [101.0, 100.0, 99.0],
                 "don_green": [True, True, False],
                 "don_red": [False, False, True],
+                "above_ema": [True, True, False],
+                "below_ema": [False, False, True],
             }
         )
         grid = pd.DatetimeIndex(
@@ -305,6 +345,8 @@ class TestScanSide(unittest.TestCase):
                 "close": [99.0, 100.0, 101.0],
                 "don_green": [False, False, True],
                 "don_red": [True, True, False],
+                "above_ema": [False, False, True],
+                "below_ema": [True, True, False],
             }
         )
         grid = pd.DatetimeIndex(
@@ -395,7 +437,7 @@ class TestScanAll(unittest.TestCase):
         self.assertEqual(grouped["all"]["total"], 2)
         text = sd.format_plain_report(result)
         self.assertIn("ADAUSDT", text)
-        self.assertIn("Signal", text)
+        self.assertIn("EMA50", text)
 
 
 if __name__ == "__main__":

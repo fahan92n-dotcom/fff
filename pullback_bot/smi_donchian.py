@@ -6,8 +6,9 @@ Flow:
   2) Wait for reverse/counter SMI sat inside the owned main.
   3) Donchian on the 3× confirm TF must be green (buy) / red (sell)
      at entry. If it flips, the path dies.
-  4) After reverse sat forms, watch the entry TF: wait until Donchian is
-     unmet, then enter on the first later candle where it holds.
+  4) After reverse sat forms, watch the entry TF: wait until Donchian
+     and EMA50 are both unmet, then enter when both hold
+     (buy: green AND close above EMA50; sell: red AND close below EMA50).
   5) If Signal Length crosses K Length above +40 (buy) or below −40
      (sell) before entry, that main stops for the rest of the sat episode.
 """
@@ -31,6 +32,7 @@ from indicators import (
     DONCHIAN_DLEN,
     WARMUP_SMI,
     calc_donchian_trend_series,
+    calc_ema,
     calc_smi,
     resample_ohlcv_closed,
 )
@@ -62,6 +64,7 @@ SYMBOLS = (
 
 WIN_PCT = 1.0
 LOSS_PCT = 0.77
+EMA_SPAN = 50
 HALT_MAIN_MINUTES = 5 * 60  # 5h sat stops this experiment on that side
 
 # main, reverse_min, reverse_last, reverse_abort, don_confirm (3×), entry
@@ -99,6 +102,10 @@ def _don_frames():
     return frames
 
 
+def _ema_frames():
+    return {lvl[5] for lvl in LEVELS}
+
+
 def signal_k_zone_cross(smi, signal):
     """Signal crossing K above +40 (buy-sat over) or below −40 (sell-sat over).
 
@@ -134,10 +141,14 @@ def halt_after_event(active, event):
     return out
 
 
-def _smi_don_features(df_1m, minutes, *, need_don=False):
-    """Resample and compute SMI sat, Signal/K halt, and Donchian when needed."""
+def _smi_don_features(df_1m, minutes, *, need_don=False, need_ema=False):
+    """Resample SMI sat; Donchian and EMA50 only where needed (entry/confirm)."""
     df = resample_ohlcv_closed(df_1m, minutes)
-    min_bars = max(WARMUP_SMI, DONCHIAN_DLEN + 2 if need_don else 0)
+    min_bars = max(
+        WARMUP_SMI,
+        DONCHIAN_DLEN + 2 if need_don else 0,
+        EMA_SPAN + 5 if need_ema else 0,
+    )
     if df.empty or len(df) < min_bars:
         return None
 
@@ -155,6 +166,8 @@ def _smi_don_features(df_1m, minutes, *, need_don=False):
         "buy_sat": buy_sat,
         "don_green": np.zeros(len(df), dtype=bool),
         "don_red": np.zeros(len(df), dtype=bool),
+        "above_ema": np.zeros(len(df), dtype=bool),
+        "below_ema": np.zeros(len(df), dtype=bool),
         "halt_buy": halt_after_event(buy_sat, cross_high),
         "halt_sell": halt_after_event(sell_sat, cross_low),
     }
@@ -167,6 +180,10 @@ def _smi_don_features(df_1m, minutes, *, need_don=False):
         ).to_numpy()
         payload["don_green"] = don == 1
         payload["don_red"] = don == -1
+    if need_ema:
+        ema = calc_ema(df["close"], span=EMA_SPAN)
+        payload["above_ema"] = (df["close"] > ema).to_numpy()
+        payload["below_ema"] = (df["close"] < ema).to_numpy()
     return pd.DataFrame(payload)
 
 
@@ -291,9 +308,15 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
 
             green = bool(entry_df["don_green"].iloc[row_i])
             red = bool(entry_df["don_red"].iloc[row_i])
+            above = bool(entry_df["above_ema"].iloc[row_i]) if "above_ema" in entry_df.columns else False
+            below = bool(entry_df["below_ema"].iloc[row_i]) if "below_ema" in entry_df.columns else False
             price = float(entry_df["close"].iloc[row_i])
-            holds = red if is_sell else green
-            cleared = (not red) if is_sell else (not green)
+            if is_sell:
+                holds = red and below
+                cleared = (not red) and (not below)
+            else:
+                holds = green and above
+                cleared = (not green) and (not above)
             counter_now = bool(confirm_window[pos])
 
             if state == idle and counter_now:
@@ -372,14 +395,19 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
 
     needed = _all_needed_frames()
     don_needed = _don_frames()
-    entry_frames = {lvl[5] for lvl in LEVELS}
+    entry_frames = _ema_frames()
     log.info("%s: computing %s frames...", symbol, len(needed))
     frame_data = {}
     entry_data = {}
     for index, minutes in enumerate(needed, start=1):
         if index == 1 or index % 20 == 0 or index == len(needed):
             log.info("%s: frame %s/%s (%sm)", symbol, index, len(needed), minutes)
-        feat = _smi_don_features(df_1m=raw_1m, minutes=minutes, need_don=minutes in don_needed)
+        feat = _smi_don_features(
+            df_1m=raw_1m,
+            minutes=minutes,
+            need_don=minutes in don_needed,
+            need_ema=minutes in entry_frames,
+        )
         frame_data[minutes] = feat
         if minutes in entry_frames:
             entry_data[minutes] = feat
@@ -564,11 +592,11 @@ def format_report(result):
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
-        "بدون EMA60 وبدون RSI.\n"
+        "بدون EMA على الرئيس وبدون RSI.\n"
         "الرئيسي: تشبع SMI. الأكبر يلغي الأصغر. تشبع 5س يوقف الجانب.\n"
         "إذا Signal قطع K فوق +40 أو تحت −40 قبل الدخول، يُوقف الفريم.\n"
         "بعد التشبع العكسي: Donchian التأكيد 3× أخضر شراء / أحمر بيع.\n"
-        "الدخول على فريم الدخول بعد أن يتحقق الشرط.\n"
+        "الدخول: Donchian + تجاوز EMA50 على فريم الدخول.\n"
         f"الربح {WIN_PCT:g}% / الخسارة {LOSS_PCT:g}%.\n"
     )
     if failed:
