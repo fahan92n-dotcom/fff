@@ -1,4 +1,4 @@
-"""SMI sat + reverse-sat + 3× Donchian confirm. No EMA on main, no RSI.
+"""SMI sat + reverse-sat + KST. No 3× Donchian confirm, no EMA on main, no RSI.
 
 Flow:
   1) Largest main TF with SMI sat owns the side and cancels smaller mains.
@@ -6,12 +6,10 @@ Flow:
      the main TF must agree: buy sat valid only if KST > 0, sell sat
      valid only if KST < 0. Wrong-side KST blocks entry.
   2) Wait for reverse/counter SMI sat inside the owned main.
-  3) Donchian on the 3× confirm TF must be green (buy) / red (sell)
-     at entry. If it flips, the path dies.
-  4) After reverse sat, watch the entry TF: wait until Donchian and EMA50
+  3) After reverse sat, watch the entry TF: wait until Donchian and EMA50
      are both unmet, then enter when both hold
      (buy: green AND close above EMA50; sell: red AND close below EMA50).
-  5) If Signal Length crosses K Length above +40 (buy) or below −40
+  4) If Signal Length crosses K Length above +40 (buy) or below −40
      (sell) before entry, that main stops for the rest of the sat episode.
 """
 
@@ -72,9 +70,10 @@ KST_ROC_SMA = (10, 10, 10, 15)
 KST_SIGNAL = 9
 HALT_MAIN_MINUTES = 5 * 60  # 5h sat stops this experiment on that side
 
-# main, reverse_min, reverse_last, reverse_abort, don_confirm (3×), entry
+# main, reverse_min, reverse_last, reverse_abort, unused_3x, entry
 # Reverse sat accepted on reverse_min..reverse_last inclusive; abort TF
 # kills the level. 2h accepts 20–46 and aborts at 48 (47 is not used).
+# The 3× slot is unused (Donchian confirm removed; KST gates the main).
 LEVELS = (
     (60, 10, 23, 24, 180, 5),
     (90, 15, 35, 36, 270, 8),
@@ -89,9 +88,8 @@ MIN_1M_BARS = 130_000
 
 def _all_needed_frames():
     frames = {HALT_MAIN_MINUTES}
-    for main, reverse_min, reverse_last, reverse_abort, don_confirm, entry in LEVELS:
+    for main, reverse_min, reverse_last, reverse_abort, _unused_3x, entry in LEVELS:
         frames.add(main)
-        frames.add(don_confirm)
         frames.add(entry)
         frames.add(reverse_abort)
         for minutes in range(reverse_min, reverse_last + 1):
@@ -100,11 +98,7 @@ def _all_needed_frames():
 
 
 def _don_frames():
-    frames = set()
-    for _main, _rmin, _rlast, _abort, don_confirm, entry in LEVELS:
-        frames.add(don_confirm)
-        frames.add(entry)
-    return frames
+    return _entry_frames()
 
 
 def _entry_frames():
@@ -273,7 +267,6 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     is_sell = side == "sell"
     sat_key = "sell_sat" if is_sell else "buy_sat"
     reverse_key = "buy_sat" if is_sell else "sell_sat"
-    don_key = "don_red" if is_sell else "don_green"
     halt_key = "halt_sell" if is_sell else "halt_buy"
     kst_key = "sell_kst" if is_sell else "buy_kst"
     n_grid = len(grid)
@@ -322,12 +315,6 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
             if stop_feat is not None
             else np.zeros(n_grid, dtype=bool)
         )
-        don_feat = stepped.get(don_tf)
-        don_ok = (
-            don_feat[don_key]
-            if don_feat is not None
-            else np.zeros(n_grid, dtype=bool)
-        )
         main_feat = stepped.get(main)
         halted = (
             main_feat[halt_key]
@@ -340,7 +327,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
             else np.ones(n_grid, dtype=bool)
         )
 
-        owned = (active == level_idx) & kst_ok & ~confirm_stop_mask & don_ok & ~halted
+        owned = (active == level_idx) & kst_ok & ~confirm_stop_mask & ~halted
         confirm_window = owned & confirm_any
         hold_window = owned
 
@@ -607,7 +594,7 @@ def _format_trade_line(trade):
     icon = "🟢" if trade["type"] == "buy" else "🔴"
     side = "شراء" if trade["type"] == "buy" else "بيع"
     frames = (
-        f"{trade['base_frame']}m/{trade['confirm_frame']}m/{trade['triple_frame']}m"
+        f"{trade['base_frame']}m/{trade['triple_frame']}m"
     )
     when = trade["time"].strftime("%m-%d %H:%M")
     out = {"win": "✅", "loss": "❌", "open": "⏳"}.get(trade["outcome"], trade["outcome"])
@@ -629,7 +616,7 @@ def _format_summary_line(title, summary):
 
 def format_report(result):
     if not result.get("ready"):
-        return ["⚠️ تعذر فحص SMI + Donchian 3×."]
+        return ["⚠️ تعذر فحص SMI + KST."]
 
     grouped = group_results(result)
     start = result["start"].strftime("%Y-%m-%d %H:%M")
@@ -639,16 +626,15 @@ def format_report(result):
     failed = result.get("failed") or []
 
     header = (
-        f"🗓️ <b>SMI + تشبع عكسي + Donchian 3× — آخر {days} يومًا</b>\n"
+        f"🗓️ <b>SMI + تشبع عكسي + KST — آخر {days} يومًا</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"العملات: <code>{html_escape(symbols)}</code>\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
-        "بدون EMA على الرئيس وبدون RSI.\n"
+        "بدون EMA على الرئيس وبدون RSI وبدون Donchian تأكيد 3×.\n"
         "الرئيسي: تشبع SMI. الأكبر يلغي الأصغر. تشبع 5س يوقف الجانب.\n"
         "KST على الرئيس: شراء فقط إذا KST>0، بيع فقط إذا KST<0. الجهة الغلط تمنع الدخول.\n"
         "إذا Signal قطع K فوق +40 أو تحت −40 قبل الدخول، يُوقف الفريم.\n"
-        "بعد التشبع العكسي: Donchian التأكيد 3× أخضر شراء / أحمر بيع.\n"
-        "الدخول: Donchian + تجاوز EMA50 على فريم الدخول فقط.\n"
+        "الدخول بعد التشبع العكسي: Donchian + تجاوز EMA50 على فريم الدخول فقط.\n"
         f"الربح {WIN_PCT:g}% / الخسارة {LOSS_PCT:g}%.\n"
     )
     if failed:
@@ -662,7 +648,7 @@ def format_report(result):
         summary = grouped["by_level"][_level_key(level)]
         level_lines.append(
             _format_summary_line(
-                f"{main}م | تأكيد {don_tf}م | دخول {entry}م",
+                f"{main}م | دخول {entry}م",
                 summary,
             )
         )

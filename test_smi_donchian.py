@@ -1,4 +1,4 @@
-"""Tests for SMI + reverse-sat + 3× Donchian confirm + EMA50 entry + KST."""
+"""Tests for SMI + reverse-sat + KST + EMA50 entry (no 3× Donchian confirm)."""
 
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -328,7 +328,7 @@ class TestScanSide(unittest.TestCase):
         )
         self.assertFalse(signals)
 
-    def test_no_sell_when_confirm_not_red(self):
+    def test_confirm_donchian_not_required(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
@@ -353,9 +353,10 @@ class TestScanSide(unittest.TestCase):
             "sell", stepped, {5: entry}, grid, start, start + timedelta(hours=1),
             raw_1m, "ADAUSDT",
         )
-        self.assertFalse(any(s["base_frame"] == 60 for s in signals))
+        sells = [s for s in signals if s["type"] == "sell" and s["base_frame"] == 60]
+        self.assertTrue(sells)
 
-    def test_buy_requires_confirm_green(self):
+    def test_buy_requires_entry_green(self):
         start = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         entry = pd.DataFrame(
             {
