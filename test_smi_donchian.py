@@ -42,12 +42,12 @@ def _empty_stepped(grid):
 
 
 def _fill_levels(stepped, grid):
-    for main, cmin, cstop, don_tf, entry in sd.LEVELS:
+    for main, reverse_min, reverse_last, reverse_abort, don_tf, entry in sd.LEVELS:
         stepped.setdefault(main, _empty_stepped(grid))
         stepped.setdefault(don_tf, _empty_stepped(grid))
-        stepped.setdefault(cstop, _empty_stepped(grid))
+        stepped.setdefault(reverse_abort, _empty_stepped(grid))
         stepped.setdefault(entry, _empty_stepped(grid))
-        for minutes in range(cmin, cstop):
+        for minutes in range(reverse_min, reverse_last + 1):
             stepped.setdefault(minutes, _empty_stepped(grid))
     stepped.setdefault(sd.HALT_MAIN_MINUTES, _empty_stepped(grid))
     return stepped
@@ -55,21 +55,30 @@ def _fill_levels(stepped, grid):
 
 class TestLevels(unittest.TestCase):
     def test_confirm_is_three_times_main(self):
-        for main, _cmin, _cstop, don_tf, _entry in sd.LEVELS:
+        for main, _rmin, _rlast, _abort, don_tf, _entry in sd.LEVELS:
             self.assertEqual(don_tf, main * 3)
 
     def test_user_table_and_halt(self):
         self.assertNotIn(45, [lvl[0] for lvl in sd.LEVELS])
-        self.assertEqual(sd.LEVELS[0], (60, 10, 24, 180, 5))
-        self.assertEqual(sd.LEVELS[1], (90, 15, 36, 270, 9))
-        self.assertEqual(sd.LEVELS[2], (120, 20, 48, 360, 10))
-        self.assertEqual(sd.LEVELS[3], (150, 25, 60, 450, 11))
-        self.assertEqual(sd.LEVELS[4], (180, 30, 72, 540, 12))
-        self.assertEqual(sd.LEVELS[5], (210, 35, 84, 630, 14))
-        self.assertEqual(sd.LEVELS[6], (240, 40, 96, 720, 16))
+        self.assertEqual(sd.LEVELS[0], (60, 10, 23, 24, 180, 5))
+        self.assertEqual(sd.LEVELS[1], (90, 15, 35, 36, 270, 8))
+        self.assertEqual(sd.LEVELS[2], (120, 20, 46, 48, 360, 10))
+        self.assertEqual(sd.LEVELS[3], (150, 25, 59, 60, 450, 13))
+        self.assertEqual(sd.LEVELS[4], (180, 30, 71, 72, 540, 15))
+        self.assertEqual(sd.LEVELS[5], (210, 35, 83, 84, 630, 17))
+        self.assertEqual(sd.LEVELS[6], (240, 40, 95, 96, 720, 20))
         self.assertEqual(sd.HALT_MAIN_MINUTES, 300)
         self.assertEqual(sd.WIN_PCT, 1.0)
         self.assertEqual(sd.LOSS_PCT, 0.77)
+
+    def test_two_hour_reverse_skips_47(self):
+        _main, reverse_min, reverse_last, reverse_abort, _don, entry = sd.LEVELS[2]
+        accepted = list(range(reverse_min, reverse_last + 1))
+        self.assertEqual(accepted[0], 20)
+        self.assertEqual(accepted[-1], 46)
+        self.assertNotIn(47, accepted)
+        self.assertEqual(reverse_abort, 48)
+        self.assertEqual(entry, 10)
 
     def test_requested_symbols(self):
         self.assertEqual(
@@ -293,7 +302,7 @@ class TestScanAll(unittest.TestCase):
             "price": 2.0,
             "base_frame": 90,
             "confirm_frame": 270,
-            "triple_frame": 9,
+            "triple_frame": 8,
             "win_pct": 1.0,
             "loss_pct": 0.77,
             "outcome": "loss",

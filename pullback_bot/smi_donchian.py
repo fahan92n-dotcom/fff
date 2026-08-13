@@ -63,35 +63,36 @@ WIN_PCT = 1.0
 LOSS_PCT = 0.77
 HALT_MAIN_MINUTES = 5 * 60  # 5h sat stops this experiment on that side
 
-# main, reverse_min, reverse_stop, don_confirm (3×), entry
-# 45m dropped after the 30-day alt scan (1/4, −2.08%).
+# main, reverse_min, reverse_last, reverse_abort, don_confirm (3×), entry
+# Reverse sat accepted on reverse_min..reverse_last inclusive; abort TF
+# kills the level. 2h accepts 20–46 and aborts at 48 (47 is not used).
 LEVELS = (
-    (60, 10, 24, 180, 5),
-    (90, 15, 36, 270, 9),
-    (120, 20, 48, 360, 10),
-    (150, 25, 60, 450, 11),
-    (180, 30, 72, 540, 12),
-    (210, 35, 84, 630, 14),
-    (240, 40, 96, 720, 16),
+    (60, 10, 23, 24, 180, 5),
+    (90, 15, 35, 36, 270, 8),
+    (120, 20, 46, 48, 360, 10),
+    (150, 25, 59, 60, 450, 13),
+    (180, 30, 71, 72, 540, 15),
+    (210, 35, 83, 84, 630, 17),
+    (240, 40, 95, 96, 720, 20),
 )
 MIN_1M_BARS = 130_000
 
 
 def _all_needed_frames():
     frames = {HALT_MAIN_MINUTES}
-    for main, confirm_min, confirm_stop, don_confirm, entry in LEVELS:
+    for main, reverse_min, reverse_last, reverse_abort, don_confirm, entry in LEVELS:
         frames.add(main)
         frames.add(don_confirm)
         frames.add(entry)
-        frames.add(confirm_stop)
-        for minutes in range(confirm_min, confirm_stop):
+        frames.add(reverse_abort)
+        for minutes in range(reverse_min, reverse_last + 1):
             frames.add(minutes)
     return sorted(frames)
 
 
 def _don_frames():
     frames = set()
-    for _main, _cmin, _cstop, don_confirm, entry in LEVELS:
+    for _main, _rmin, _rlast, _abort, don_confirm, entry in LEVELS:
         frames.add(don_confirm)
         frames.add(entry)
     return frames
@@ -176,7 +177,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     )
 
     main_masks = []
-    for main, _cmin, _cstop, _don, _entry in LEVELS:
+    for main, _rmin, _rlast, _abort, _don, _entry in LEVELS:
         feat = stepped.get(main)
         main_masks.append(
             feat[sat_key] if feat is not None else np.zeros(n_grid, dtype=bool)
@@ -197,18 +198,18 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
     start_ts = pd.Timestamp(start)
     end_ts_limit = pd.Timestamp(end)
     idle, wait_clear, armed = 0, 1, 2
-    for level_idx, (main, confirm_min, confirm_stop, don_tf, entry) in enumerate(LEVELS):
+    for level_idx, (main, reverse_min, reverse_last, reverse_abort, don_tf, entry) in enumerate(LEVELS):
         entry_df = entry_data.get(entry)
         if entry_df is None:
             continue
 
         confirm_any = np.zeros(n_grid, dtype=bool)
-        for minutes in range(confirm_min, confirm_stop):
+        for minutes in range(reverse_min, reverse_last + 1):
             feat = stepped.get(minutes)
             if feat is None:
                 continue
             confirm_any |= feat[reverse_key]
-        stop_feat = stepped.get(confirm_stop)
+        stop_feat = stepped.get(reverse_abort)
         confirm_stop_mask = (
             stop_feat[reverse_key]
             if stop_feat is not None
@@ -267,8 +268,8 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m, symbol):
                     "price": price,
                     "base_frame": main,
                     "confirm_frame": don_tf,
-                    "reverse_min": confirm_min,
-                    "reverse_stop": confirm_stop,
+                    "reverse_min": reverse_min,
+                    "reverse_stop": reverse_abort,
                     "triple_frame": entry,
                     "win_pct": WIN_PCT,
                     "loss_pct": LOSS_PCT,
@@ -319,7 +320,7 @@ def scan_symbol(symbol, *, days=MONTH_DAYS, now=None, raw_1m=None):
 
     needed = _all_needed_frames()
     don_needed = _don_frames()
-    entry_frames = {lvl[4] for lvl in LEVELS}
+    entry_frames = {lvl[5] for lvl in LEVELS}
     log.info("%s: computing %s frames...", symbol, len(needed))
     frame_data = {}
     entry_data = {}
@@ -438,7 +439,7 @@ def _summarize(trades):
 
 
 def _level_key(level):
-    main, _cmin, _cstop, _don, entry = level
+    main, _rmin, _rlast, _abort, _don, entry = level
     return (main, entry)
 
 
@@ -450,7 +451,7 @@ def group_results(result):
 
     by_level = {}
     for level in LEVELS:
-        main, _cmin, _cstop, don_tf, entry = level
+        main, _rmin, _rlast, _abort, don_tf, entry = level
         by_level[_level_key(level)] = _summarize(
             [
                 t
@@ -524,7 +525,7 @@ def format_report(result):
     chunks = [header]
     level_lines = ["📊 <b>حسب المستوى</b>"]
     for level in LEVELS:
-        main, _cmin, _cstop, don_tf, entry = level
+        main, _rmin, _rlast, _abort, don_tf, entry = level
         summary = grouped["by_level"][_level_key(level)]
         level_lines.append(
             _format_summary_line(
