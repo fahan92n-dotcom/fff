@@ -601,6 +601,8 @@ def format_plain_report(result):
         texts.append(
             chunk.replace("<b>", "")
             .replace("</b>", "")
+            .replace("<code>", "")
+            .replace("</code>", "")
             .replace("&gt;", ">")
             .replace("&lt;", "<")
         )
