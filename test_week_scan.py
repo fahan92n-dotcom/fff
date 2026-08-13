@@ -246,6 +246,24 @@ class TestFormatWeekReport(unittest.TestCase):
         self.assertIn("0.51%", text)
         self.assertIn("1%", text)
         self.assertIn("0.8%", text)
+        self.assertIn("آخر 7 أيام", text)
+
+    def test_month_header_uses_30_day_label(self):
+        now = datetime(2026, 8, 6, tzinfo=timezone.utc)
+        result = {
+            "ready": True,
+            "start": now - timedelta(days=30),
+            "end": now,
+            "days": 30,
+            "symbols_scanned": 1,
+            "total": 0,
+            "wins": [],
+            "losses": [],
+            "opens": [],
+        }
+        text = "\n".join(week_scan.format_week_trades_report(result))
+        self.assertIn("آخر 30 يوم", text)
+        self.assertNotIn("آخر 7 أيام", text)
 
 
 class TestDedupeAndCommand(unittest.TestCase):
@@ -298,6 +316,21 @@ class TestDedupeAndCommand(unittest.TestCase):
         with patch.object(bot, "handle_week_command", side_effect=fake_handle):
             bot._dispatch_command("/week", "42")
             bot._dispatch_command("3", "42")
+
+        self.assertEqual(called["chat_id"], "42")
+        self.assertIs(called["send"], bot.send_telegram)
+
+    def test_month_command_routes_to_market_scan(self):
+        called = {}
+
+        def fake_handle(chat_id, send_fn):
+            called["chat_id"] = chat_id
+            called["send"] = send_fn
+
+        with patch.object(bot, "handle_month_command", side_effect=fake_handle):
+            bot._dispatch_command("/month", "42")
+            bot._dispatch_command("4", "42")
+            bot._dispatch_command("/شهر", "42")
 
         self.assertEqual(called["chat_id"], "42")
         self.assertIs(called["send"], bot.send_telegram)

@@ -73,6 +73,7 @@ LONG_LOSS_PCT = 0.80
 WIN_PCT = LONG_WIN_PCT
 LOSS_PCT = LONG_LOSS_PCT
 WEEK_DAYS = 7
+MONTH_DAYS = 30
 DEDUPE_HOURS = ALERT_EXPIRY_HOURS
 MIN_1M_BARS = 20_000
 
@@ -632,6 +633,7 @@ def scan_week_trades(
             "opens": [],
             "total": 0,
             "variant": variant,
+            "days": days,
         }
 
     needs_btc = variant.get("btc_corr_min") is not None
@@ -693,6 +695,7 @@ def scan_week_trades(
         "opens": opens,
         "total": len(deduped),
         "variant": variant,
+        "days": days,
     }
 
 
@@ -722,9 +725,9 @@ def format_week_trades_report(result):
         if reason == "not_ready":
             return [
                 "⏳ بيانات السوق لسه تتحمل.\n"
-                "بعد اكتمال التحميل السريع أعد <code>/week</code>."
+                "بعد اكتمال التحميل السريع أعد الأمر."
             ]
-        return ["⚠️ تعذر جلب صفقات الأسبوع الماضي."]
+        return ["⚠️ تعذر جلب صفقات الفترة المطلوبة."]
 
     wins = result.get("wins") or []
     losses = result.get("losses") or []
@@ -732,6 +735,12 @@ def format_week_trades_report(result):
     start = result["start"].strftime("%Y-%m-%d %H:%M")
     end = result["end"].strftime("%Y-%m-%d %H:%M")
     total = int(result.get("total") or 0)
+    days = int(result.get("days") or WEEK_DAYS)
+    period_label = (
+        f"آخر {days} يوم"
+        if days != WEEK_DAYS
+        else "آخر 7 أيام"
+    )
     levels_note = (
         f"• 9–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
         f"خسارة {SHORT_LOSS_PCT:g}%\n"
@@ -740,7 +749,7 @@ def format_week_trades_report(result):
     )
 
     header = (
-        "🗓️ <b>صفقات الاستراتيجية — آخر 7 أيام</b>\n"
+        f"🗓️ <b>صفقات الاستراتيجية — {period_label}</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
         f"عملات مفحوصة: <b>{result.get('symbols_scanned', 0)}</b>\n"
@@ -754,7 +763,7 @@ def format_week_trades_report(result):
     if total == 0:
         return [
             header
-            + "\nلا توجد صفقات مطابقة للاستراتيجية خلال الأسبوع الماضي."
+            + f"\nلا توجد صفقات مطابقة للاستراتيجية خلال {period_label}."
         ]
 
     chunks = [header]
@@ -797,18 +806,29 @@ def format_week_trades_report(result):
 
 def handle_week_command(chat_id, send_telegram):
     """Telegram entry: scan last week from market data and report win/loss."""
+    handle_period_command(chat_id, send_telegram, days=WEEK_DAYS)
+
+
+def handle_month_command(chat_id, send_telegram):
+    """Telegram entry: scan last 30 days from market data and report win/loss."""
+    handle_period_command(chat_id, send_telegram, days=MONTH_DAYS)
+
+
+def handle_period_command(chat_id, send_telegram, days=WEEK_DAYS):
+    """Telegram entry: replay strategy trades for ``days`` and report win/loss."""
     global _week_scan_running
+    period_label = f"آخر {int(days)} يوم" if int(days) != WEEK_DAYS else "آخر 7 أيام"
 
     if not _week_scan_lock.acquire(blocking=False):
         send_telegram(
-            "⏳ فحص الأسبوع الماضي يعمل الآن — انتظر انتهاءه.",
+            f"⏳ فحص {period_label} يعمل الآن — انتظر انتهاءه.",
             chat_id,
         )
         return
     if _week_scan_running:
         _week_scan_lock.release()
         send_telegram(
-            "⏳ فحص الأسبوع الماضي يعمل الآن — انتظر انتهاءه.",
+            f"⏳ فحص {period_label} يعمل الآن — انتظر انتهاءه.",
             chat_id,
         )
         return
@@ -816,15 +836,14 @@ def handle_week_command(chat_id, send_telegram):
     _week_scan_running = True
     try:
         if not fast_prefetch_done.is_set():
-            # Still allow fetch-on-demand, but warn that first run may be slow.
             send_telegram(
-                "📡 جاري جلب بيانات الأسبوع الماضي من Binance "
+                f"📡 جاري جلب بيانات {period_label} من Binance "
                 "(التحميل الأولي لم يكتمل بعد — قد يأخذ وقت أطول)...",
                 chat_id,
             )
         else:
             send_telegram(
-                "📡 جاري جلب صفقات الاستراتيجية الأساسية لآخر 7 أيام...\n"
+                f"📡 جاري جلب صفقات الاستراتيجية الأساسية ل{period_label}...\n"
                 f"• 9–{SHORT_TF_MAX}م: ربح <b>+{SHORT_WIN_PCT:g}%</b> | "
                 f"خسارة <b>{SHORT_LOSS_PCT:g}%</b>\n"
                 f"• 30–240م: ربح <b>+{LONG_WIN_PCT:g}%</b> | "
@@ -835,18 +854,18 @@ def handle_week_command(chat_id, send_telegram):
         def on_progress(index, total, symbol):
             if index in (1, total) or index % 25 == 0:
                 send_telegram(
-                    f"⏳ فحص الأسبوع: {index}/{total} "
+                    f"⏳ فحص {period_label}: {index}/{total} "
                     f"(<code>{html_escape(symbol)}</code>)...",
                     chat_id,
                 )
 
-        result = scan_week_trades(progress_callback=on_progress)
+        result = scan_week_trades(days=int(days), progress_callback=on_progress)
         for chunk in format_week_trades_report(result):
             send_telegram(chunk, chat_id)
     except Exception as exc:
-        log.exception("week command failed")
+        log.exception("%s command failed", period_label)
         send_telegram(
-            f"❌ فشل جلب صفقات الأسبوع الماضي: "
+            f"❌ فشل جلب صفقات {period_label}: "
             f"<code>{html_escape(str(exc))}</code>",
             chat_id,
         )

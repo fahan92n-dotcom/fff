@@ -102,7 +102,7 @@ from telegram_bot import (
     send_telegram,
     set_command_handler,
 )
-from week_scan import handle_week_command
+from week_scan import handle_month_command, handle_week_command
 from strategy_variants import handle_experiments_command
 
 def get_report(period="today", signal_type=None):
@@ -899,6 +899,8 @@ def _dispatch_command_inner(txt, chat_id):
     elif txt in ("3", "/week"):
         # Fetch last-7-days strategy trades from market data (not in-memory storage).
         handle_week_command(chat_id, send_telegram)
+    elif txt in ("4", "/month", "/شهر"):
+        handle_month_command(chat_id, send_telegram)
 
     elif txt in ("/experiments", "/experiment", "/تجارب", "/تجربة"):
         handle_experiments_command(chat_id, send_telegram)
@@ -995,6 +997,7 @@ def _dispatch_command_inner(txt, chat_id):
             "2️⃣ <code>2</code> أو <code>/yesterday</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> أو <code>/week</code> — صفقات الاستراتيجية الأساسية آخر 7 أيام "
             "(9–27م: +0.67%/0.51% | 30–240م: +1%/0.80%)\n"
+            "4️⃣ <code>4</code> أو <code>/month</code> أو <code>/شهر</code> — نفس الفحص لآخر 30 يومًا\n"
             "🧪 <code>/experiments</code> أو <code>/تجارب</code> — مقارنة تعديلات الاستراتيجية "
             "واختيار الأفضل على آخر 7 أيام\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
