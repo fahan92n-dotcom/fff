@@ -33,19 +33,49 @@ def _bars(start, count, minutes=1, price=100.0, drift=0.0, high_off=0.5, low_off
     return pd.DataFrame(rows)
 
 
+class TestPnlSummary(unittest.TestCase):
+    def test_summarize_uses_per_frame_levels(self):
+        result = {
+            "wins": [
+                {"base_frame": 15, "win_pct": 0.50, "loss_pct": 0.45},
+            ],
+            "losses": [
+                {"base_frame": 60, "win_pct": 0.67, "loss_pct": 0.54},
+            ],
+            "opens": [{}],
+        }
+        summary = week_scan.summarize_scan_pnl(result)
+        self.assertEqual(summary["wins"], 1)
+        self.assertEqual(summary["losses"], 1)
+        self.assertEqual(summary["opens"], 1)
+        self.assertAlmostEqual(summary["pnl"], 0.50 - 0.54)
+        self.assertAlmostEqual(summary["win_rate"], 50.0)
+
+    def test_month_scan_requests_extra_1m_history(self):
+        self.assertGreaterEqual(week_scan._required_1m_bars(30), week_scan.MONTH_1M_BARS)
+        self.assertEqual(week_scan._required_1m_bars(7), week_scan.MIN_1M_BARS)
+
+
 class TestOutcomeLevels(unittest.TestCase):
-    def test_short_frames_use_tight_levels(self):
-        for frame in (9, 15, 27):
+    def test_tight_frames_use_half_percent(self):
+        for frame in (9, 12, 15, 18, 21):
             self.assertEqual(
                 week_scan.outcome_levels(frame),
-                (week_scan.SHORT_WIN_PCT, week_scan.SHORT_LOSS_PCT),
+                (week_scan.TIGHT_WIN_PCT, week_scan.TIGHT_LOSS_PCT),
             )
 
-    def test_long_frames_use_wide_levels(self):
-        for frame in (30, 150, 240):
+    def test_mid_frames_use_point_six_seven(self):
+        for frame in (24, 27, 30, 45, 60):
             self.assertEqual(
                 week_scan.outcome_levels(frame),
-                (week_scan.LONG_WIN_PCT, week_scan.LONG_LOSS_PCT),
+                (week_scan.MID_WIN_PCT, week_scan.MID_LOSS_PCT),
+            )
+
+    def test_wide_frames_use_one_percent(self):
+        for frame in (90, 150, 240):
+            self.assertEqual(
+                week_scan.outcome_levels(frame),
+                (week_scan.WIDE_WIN_PCT, week_scan.WIDE_LOSS_PCT),
             )
 
 
@@ -89,7 +119,7 @@ class TestEvaluateOutcome(unittest.TestCase):
         self.assertAlmostEqual(exit_price, 99.2)
 
     def test_buy_win_short_frame_levels(self):
-        # Entry 100 → TP 100.67 with short-frame 0.67%.
+        # Entry 100 → TP 100.50 with tight-frame 0.50%.
         future = pd.DataFrame(
             [
                 {
@@ -107,10 +137,10 @@ class TestEvaluateOutcome(unittest.TestCase):
             "buy", 100.0, future, win_pct=win_pct, loss_pct=loss_pct
         )
         self.assertEqual(outcome, "win")
-        self.assertAlmostEqual(exit_price, 100.67)
+        self.assertAlmostEqual(exit_price, 100.50)
 
     def test_buy_loss_short_frame_levels(self):
-        # Entry 100 → SL 99.49 with short-frame 0.51%.
+        # Entry 100 → SL 99.55 with tight-frame 0.45% against.
         future = pd.DataFrame(
             [
                 {
@@ -128,7 +158,28 @@ class TestEvaluateOutcome(unittest.TestCase):
             "buy", 100.0, future, win_pct=win_pct, loss_pct=loss_pct
         )
         self.assertEqual(outcome, "loss")
-        self.assertAlmostEqual(exit_price, 99.49)
+        self.assertAlmostEqual(exit_price, 99.55)
+
+    def test_buy_win_mid_frame_levels(self):
+        # Entry 100 → TP 100.67 with mid-frame 0.67%.
+        future = pd.DataFrame(
+            [
+                {
+                    "ts": self.start + timedelta(minutes=1),
+                    "open": 100.0,
+                    "high": 100.8,
+                    "low": 99.9,
+                    "close": 100.7,
+                    "vol": 1,
+                }
+            ]
+        )
+        win_pct, loss_pct = week_scan.outcome_levels(60)
+        outcome, exit_price, _ = week_scan.evaluate_outcome(
+            "buy", 100.0, future, win_pct=win_pct, loss_pct=loss_pct
+        )
+        self.assertEqual(outcome, "win")
+        self.assertAlmostEqual(exit_price, 100.67)
 
     def test_sell_win_at_one_percent(self):
         future = pd.DataFrame(
@@ -242,10 +293,13 @@ class TestFormatWeekReport(unittest.TestCase):
         self.assertIn("الخاسرون", text)
         self.assertIn("BTCUSDT", text)
         self.assertIn("ETHUSDT", text)
+        self.assertIn("0.5%", text)
+        self.assertIn("0.45%", text)
         self.assertIn("0.67%", text)
-        self.assertIn("0.51%", text)
+        self.assertIn("0.54%", text)
         self.assertIn("1%", text)
         self.assertIn("0.8%", text)
+        self.assertIn("صافي النقاط", text)
 
 
 class TestDedupeAndCommand(unittest.TestCase):
