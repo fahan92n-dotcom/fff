@@ -2,6 +2,7 @@
 
 import unittest
 from dataclasses import replace
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -188,12 +189,51 @@ class TestImmediateHigherFrame(unittest.TestCase):
 
         self.assertTrue(result)
         get_cached.assert_called_once_with("BTCUSDT", "30m")
-        get_resampled.assert_called_once_with(
-            native,
-            "BTCUSDT",
-            "30m",
-            90,
+
+    def test_higher_tf_uses_live_tradingview_bar_when_asof_set(self):
+        """سقف 180m/3س يُقرأ على الشمعة الجارية مثل TradingView لا المغلقة السابقة."""
+        asof = datetime(2026, 8, 12, 1, 0, tzinfo=timezone.utc)
+        n = 120
+        live = pd.DataFrame(
+            {
+                "ts": pd.date_range("2026-07-01", periods=n, freq="180min", tz="UTC"),
+                "open": [1.0] * n,
+                "high": [1.1] * n,
+                "low": [0.9] * n,
+                "close": [1.0] * n,
+                "vol": [1.0] * n,
+            }
         )
+        raw = live.copy()
+        candidate = {
+            "sym": "BTCUSDT",
+            "base_frame": 150,
+            "base_api": "30m",
+            "asof": asof,
+            "get_raw": Mock(return_value=raw),
+        }
+        get_resampled = Mock(return_value=pd.DataFrame())
+        smi = pd.Series([-10.0] * n)  # 3س الحالية ليست متشبعة
+
+        with patch.object(
+            strategy,
+            "confirm_macd_frame",
+            return_value=live,
+        ) as live_fn, patch.object(
+            strategy,
+            "calc_smi",
+            return_value=(smi, smi, smi),
+        ):
+            result = strategy._has_higher_tf_saturation(
+                candidate,
+                "buy",
+                get_resampled,
+            )
+
+        self.assertFalse(result)
+        live_fn.assert_called_once()
+        self.assertEqual(live_fn.call_args.kwargs["now"], asof)
+        get_resampled.assert_not_called()
 
 
 if __name__ == "__main__":
