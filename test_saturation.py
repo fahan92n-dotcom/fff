@@ -636,7 +636,7 @@ class TestTradingViewIndicatorFormulas(unittest.TestCase):
 
     def test_smi_uses_double_ema_like_tradingview(self):
         n = 80
-        close = pd.Series(np.linspace(100.0, 120.0, n))
+        close = pd.Series(100.0 + np.sin(np.linspace(0, 8 * np.pi, n)) * 8.0)
         high = close + 1.0
         low = close - 1.0
         smi, _, _ = ind.calc_smi(high, low, close)
