@@ -63,6 +63,18 @@ NEXT_TF = {
 }
 TF_TO_API = {pair[0]: pair[3] for pair in TRIPLING_PAIRS}
 
+
+def iter_cascade_frames():
+    """Every closed candle the cascade builds: base, confirm, and entry.
+
+    Alignment is per minute-count in ``resample_ohlcv``, not a 27m/150m special
+    case. Adding a pair here automatically opts that TF into the UTC session grid.
+    """
+    for base, confirm, triple, base_api, triple_api in TRIPLING_PAIRS:
+        yield base, base_api, "base"
+        yield confirm, base_api, "confirm"
+        yield triple, triple_api, "triple"
+
 STEP_NAMES = [
     "smi_oversold",
     "macd_red",

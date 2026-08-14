@@ -460,26 +460,59 @@ class TestResampleOrigin(unittest.TestCase):
         self.assertNotIn(18, opens)
         self.assertEqual(opens, list(range(0, 24 * 60, 27)))
 
-    def test_every_tripling_frame_closed_opens_match_utc_session(self):
+    def test_every_cascade_frame_from_its_source_matches_utc_session(self):
+        """كل شموع الأساس والتأكيد والدخول، من مصدر 1m/30m/60m الفعلي."""
         day = datetime(2026, 8, 13, 0, 0, tzinfo=timezone.utc)
-        df = self._day_1m(day)
-        frames = {
-            value
-            for pair in cascade_steps.TRIPLING_PAIRS
-            for value in pair[:3]
-        }
-        for minutes in sorted(frames):
-            result = ind.resample_ohlcv_closed(df, minutes)
+        seen = []
+        for minutes, source_api, role in cascade_steps.iter_cascade_frames():
+            source_minutes = int(str(source_api).replace("m", ""))
+            periods = 24 * 60 // source_minutes
+            times = pd.date_range(
+                start=day, periods=periods, freq=f"{source_minutes}min"
+            )
+            raw = pd.DataFrame(
+                {
+                    "ts": times,
+                    "open": 1.0,
+                    "high": 1.001,
+                    "low": 0.999,
+                    "close": 1.0,
+                    "vol": 1.0,
+                }
+            )
+            result = ind.resample_ohlcv_closed(raw, minutes)
             opens = [
                 ts.hour * 60 + ts.minute
                 for ts in result["ts"]
                 if ts.normalize() == pd.Timestamp(day)
             ]
-            self.assertEqual(
-                opens,
-                list(range(0, 24 * 60, int(minutes))),
-                f"{minutes}m closed opens drifted from UTC session",
+            expected = list(range(0, 24 * 60, int(minutes)))
+            with self.subTest(role=role, minutes=minutes, source=source_api):
+                self.assertEqual(
+                    opens,
+                    expected,
+                    f"{role} {minutes}m from {source_api} drifted from UTC session",
+                )
+            seen.append((role, minutes, source_api))
+        self.assertEqual(len(seen), len(cascade_steps.TRIPLING_PAIRS) * 3)
+
+    def test_remainder_close_for_every_non_tiling_cascade_frame(self):
+        midnight = pd.Timestamp("2026-08-14 00:00:00+00:00")
+        frames = {minutes for minutes, _source, _role in cascade_steps.iter_cascade_frames()}
+        for minutes in sorted(frames):
+            last_open_min = list(range(0, 24 * 60, minutes))[-1]
+            last_open = datetime(2026, 8, 13, tzinfo=timezone.utc) + pd.Timedelta(
+                minutes=last_open_min
             )
+            end = ind.candle_period_end(last_open, minutes)
+            with self.subTest(minutes=minutes, last_open=last_open_min):
+                if last_open_min + minutes > 24 * 60:
+                    self.assertEqual(end, midnight)
+                else:
+                    self.assertEqual(
+                        end,
+                        pd.Timestamp(last_open) + pd.Timedelta(minutes=minutes),
+                    )
 
     def test_remainder_bar_closes_at_utc_midnight(self):
         stub_open = datetime(2026, 8, 13, 23, 51, tzinfo=timezone.utc)
