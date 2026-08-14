@@ -10,7 +10,7 @@ import fahadal92 as bot
 import state_manager as state
 
 
-def _candidate(symbol="BTCUSDT", base_frame=9):
+def _candidate(symbol="BTCUSDT", base_frame=15):
     frame = pd.DataFrame(
         {
             "close": [100.0],
@@ -282,8 +282,8 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
         return handler
 
     def test_stage6_waiter_dropped_when_confirm_macd_flips_against_long(self):
-        """KORUUSDT-style: 27m signal > MACD after leaving stage 5 must not LONG."""
-        candidate = _candidate(symbol="KORUUSDT", base_frame=9)
+        """KORUUSDT-style: confirm MACD after leaving stage 5 must not LONG."""
+        candidate = _candidate(symbol="KORUUSDT", base_frame=15)
         with state.last_complete_lock:
             state.last_complete_survivors[6] = [candidate]
 
@@ -299,7 +299,7 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
         self.assertEqual(state.get_stage_candidates("buy", 8), [])
 
     def test_stage7_waiter_dropped_when_confirm_macd_flips_against_short(self):
-        candidate = _candidate(symbol="KORUUSDT", base_frame=9)
+        candidate = _candidate(symbol="KORUUSDT", base_frame=15)
         with state.last_complete_short_lock:
             state.last_complete_short_survivors[7] = [candidate]
 
@@ -331,9 +331,9 @@ class TestResolveEntrySignalCandle(CascadePipelineTestCase):
         base["close"] = [100.0, 100.0, 100.0, 100.0, 100.0]
         candidate = {
             "sym": "BATUSDT",
-            "base_frame": 9,
-            "confirm_frame": 27,
-            "triple_frame": 3,
+            "base_frame": 15,
+            "confirm_frame": 45,
+            "triple_frame": 5,
             "df_base": base,
             "df_triple": entry,
         }

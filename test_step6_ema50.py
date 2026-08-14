@@ -105,9 +105,9 @@ class TestAbandonWhenBaseSaturationEnds(unittest.TestCase):
             "sym": "ADAUSDT",
             "base_api": "1m",
             "triple_api": "1m",
-            "base_frame": 9,
-            "confirm_frame": 27,
-            "triple_frame": 3,
+            "base_frame": 15,
+            "confirm_frame": 45,
+            "triple_frame": 5,
             "df_base": _make_df([100.0] * 120),
             "df_confirm": _make_df([100.0] * 120),
             "df_triple": _make_df([100.0] * 120),
@@ -141,7 +141,7 @@ class TestAbandonWhenBaseSaturationEnds(unittest.TestCase):
         self.assertEqual(kept, [])
         self.assertEqual(state.get_stage_candidates("sell", 6), [])
         self.assertIsNone(
-            state.get_step1_ready_since("ADAUSDT", 9, 27, 3, "sell")
+            state.get_step1_ready_since("ADAUSDT", 15, 45, 5, "sell")
         )
 
 

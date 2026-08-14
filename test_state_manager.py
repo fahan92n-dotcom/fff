@@ -153,13 +153,13 @@ class TestReadyTimestamps(StateManagerTestCase):
 class TestStep5Storage(StateManagerTestCase):
     def test_far_frames_coexist(self):
         candidates = [
-            _candidate("BTCUSDT", 12),
-            _candidate("BTCUSDT", 240),
+            _candidate("BTCUSDT", 15),
+            _candidate("BTCUSDT", 150),
         ]
         state._store_step5_waiters("buy", candidates)
 
         stored = state.get_stage_candidates("buy", 5)
-        self.assertEqual({item["base_frame"] for item in stored}, {12, 240})
+        self.assertEqual({item["base_frame"] for item in stored}, {15, 150})
 
     def test_near_frames_keep_larger(self):
         candidates = [
@@ -231,7 +231,7 @@ class TestStageTransitions(StateManagerTestCase):
 
 class TestAlertDeduplication(StateManagerTestCase):
     def test_recent_signal_can_only_be_claimed_once(self):
-        key = ("BTCUSDT", 9, 27, 3, "buy")
+        key = ("BTCUSDT", 15, 45, 5, "buy")
 
         first = state.claim_signal(key)
         second = state.claim_signal(key)

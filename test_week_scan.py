@@ -35,18 +35,32 @@ def _bars(start, count, minutes=1, price=100.0, drift=0.0, high_off=0.5, low_off
 
 class TestOutcomeLevels(unittest.TestCase):
     def test_short_frames_use_tight_levels(self):
-        for frame in (9, 15, 27):
+        for frame in (15, 18, 27, 30):
             self.assertEqual(
                 week_scan.outcome_levels(frame),
                 (week_scan.SHORT_WIN_PCT, week_scan.SHORT_LOSS_PCT),
             )
 
     def test_long_frames_use_wide_levels(self):
-        for frame in (30, 150, 240):
+        for frame in (45, 60, 150):
             self.assertEqual(
                 week_scan.outcome_levels(frame),
                 (week_scan.LONG_WIN_PCT, week_scan.LONG_LOSS_PCT),
             )
+
+
+class TestPeriodBounds(unittest.TestCase):
+    def test_today_starts_at_utc_midnight(self):
+        now = datetime(2026, 8, 14, 15, 30, tzinfo=timezone.utc)
+        start, end = week_scan.period_bounds("today", now=now)
+        self.assertEqual(start, datetime(2026, 8, 14, tzinfo=timezone.utc))
+        self.assertEqual(end, now)
+
+    def test_week_covers_seven_days(self):
+        now = datetime(2026, 8, 14, tzinfo=timezone.utc)
+        start, end = week_scan.period_bounds("week", now=now)
+        self.assertEqual(end, now)
+        self.assertEqual(start, now - timedelta(days=7))
 
 
 class TestEvaluateOutcome(unittest.TestCase):
@@ -71,7 +85,7 @@ class TestEvaluateOutcome(unittest.TestCase):
         self.assertEqual(outcome, "win")
         self.assertAlmostEqual(exit_price, 101.0)
 
-    def test_buy_loss_at_zero_point_eight(self):
+    def test_buy_loss_at_zero_point_seven_five(self):
         future = pd.DataFrame(
             [
                 {
@@ -86,7 +100,7 @@ class TestEvaluateOutcome(unittest.TestCase):
         )
         outcome, exit_price, _ = week_scan.evaluate_outcome("buy", 100.0, future)
         self.assertEqual(outcome, "loss")
-        self.assertAlmostEqual(exit_price, 99.2)
+        self.assertAlmostEqual(exit_price, 99.25)
 
     def test_buy_win_short_frame_levels(self):
         # Entry 100 → TP 100.67 with short-frame 0.67%.
@@ -110,7 +124,7 @@ class TestEvaluateOutcome(unittest.TestCase):
         self.assertAlmostEqual(exit_price, 100.67)
 
     def test_buy_loss_short_frame_levels(self):
-        # Entry 100 → SL 99.49 with short-frame 0.51%.
+        # Entry 100 → SL 99.48 with short-frame 0.52%.
         future = pd.DataFrame(
             [
                 {
@@ -128,7 +142,7 @@ class TestEvaluateOutcome(unittest.TestCase):
             "buy", 100.0, future, win_pct=win_pct, loss_pct=loss_pct
         )
         self.assertEqual(outcome, "loss")
-        self.assertAlmostEqual(exit_price, 99.49)
+        self.assertAlmostEqual(exit_price, 99.48)
 
     def test_sell_win_at_one_percent(self):
         future = pd.DataFrame(
@@ -147,7 +161,7 @@ class TestEvaluateOutcome(unittest.TestCase):
         self.assertEqual(outcome, "win")
         self.assertAlmostEqual(exit_price, 99.0)
 
-    def test_sell_loss_at_zero_point_eight(self):
+    def test_sell_loss_at_zero_point_seven_five(self):
         future = pd.DataFrame(
             [
                 {
@@ -162,7 +176,7 @@ class TestEvaluateOutcome(unittest.TestCase):
         )
         outcome, exit_price, _ = week_scan.evaluate_outcome("sell", 100.0, future)
         self.assertEqual(outcome, "loss")
-        self.assertAlmostEqual(exit_price, 100.8)
+        self.assertAlmostEqual(exit_price, 100.75)
 
     def test_same_bar_both_levels_counts_loss(self):
         future = pd.DataFrame(
@@ -238,14 +252,48 @@ class TestFormatWeekReport(unittest.TestCase):
         }
         chunks = week_scan.format_week_trades_report(result)
         text = "\n".join(chunks)
-        self.assertIn("الناجحون", text)
-        self.assertIn("الخاسرون", text)
+        self.assertIn("الناجحة", text)
+        self.assertIn("الفاشلة", text)
+        self.assertIn("مستمرة", text)
         self.assertIn("BTCUSDT", text)
         self.assertIn("ETHUSDT", text)
         self.assertIn("0.67%", text)
-        self.assertIn("0.51%", text)
+        self.assertIn("0.52%", text)
         self.assertIn("1%", text)
-        self.assertIn("0.8%", text)
+        self.assertIn("0.75%", text)
+
+    def test_today_report_labels_open_trades_as_ongoing(self):
+        now = datetime(2026, 8, 14, tzinfo=timezone.utc)
+        result = {
+            "ready": True,
+            "start": now.replace(hour=0),
+            "end": now,
+            "symbols_scanned": 1,
+            "total": 1,
+            "wins": [],
+            "losses": [],
+            "opens": [
+                {
+                    "symbol": "BTCUSDT",
+                    "type": "buy",
+                    "base_frame": 30,
+                    "confirm_frame": 90,
+                    "triple_frame": 10,
+                    "time": now,
+                    "price": 100.0,
+                    "outcome": "open",
+                }
+            ],
+        }
+        text = "\n".join(
+            week_scan.format_week_trades_report(result, period="today")
+        )
+        self.assertIn("صفقات اليوم", text)
+        self.assertIn("الناجحة", text)
+        self.assertIn("الفاشلة", text)
+        self.assertIn("مستمرة", text)
+        self.assertIn("BTCUSDT", text)
+        self.assertNotIn("مفتوحة", text)
 
 
 class TestDedupeAndCommand(unittest.TestCase):
@@ -302,6 +350,20 @@ class TestDedupeAndCommand(unittest.TestCase):
         self.assertEqual(called["chat_id"], "42")
         self.assertIs(called["send"], bot.send_telegram)
 
+    def test_today_command_routes_to_market_scan(self):
+        called = {}
+
+        def fake_handle(chat_id, send_fn):
+            called["chat_id"] = chat_id
+            called["send"] = send_fn
+
+        with patch.object(bot, "handle_today_command", side_effect=fake_handle):
+            bot._dispatch_command("/today", "42")
+            bot._dispatch_command("1", "42")
+
+        self.assertEqual(called["chat_id"], "42")
+        self.assertIs(called["send"], bot.send_telegram)
+
     def test_handle_week_sends_formatted_report(self):
         now = datetime(2026, 8, 6, tzinfo=timezone.utc)
         fake_result = {
@@ -343,8 +405,85 @@ class TestDedupeAndCommand(unittest.TestCase):
         self.assertTrue(sent)
         joined = "\n".join(sent)
         self.assertIn("صفقات الاستراتيجية", joined)
-        self.assertIn("الناجحون", joined)
+        self.assertIn("الناجحة", joined)
+        self.assertIn("الفاشلة", joined)
+        self.assertIn("مستمرة", joined)
         self.assertIn("BTCUSDT", joined)
+
+    def test_handle_today_sends_formatted_report(self):
+        now = datetime(2026, 8, 14, 15, tzinfo=timezone.utc)
+        fake_result = {
+            "ready": True,
+            "start": now.replace(hour=0, minute=0, second=0, microsecond=0),
+            "end": now,
+            "symbols_scanned": 1,
+            "total": 2,
+            "wins": [
+                {
+                    "symbol": "BTCUSDT",
+                    "type": "buy",
+                    "base_frame": 15,
+                    "confirm_frame": 45,
+                    "triple_frame": 5,
+                    "time": now - timedelta(hours=2),
+                    "price": 100.0,
+                    "outcome": "win",
+                }
+            ],
+            "losses": [
+                {
+                    "symbol": "ETHUSDT",
+                    "type": "sell",
+                    "base_frame": 60,
+                    "confirm_frame": 180,
+                    "triple_frame": 20,
+                    "time": now - timedelta(hours=1),
+                    "price": 50.0,
+                    "outcome": "loss",
+                }
+            ],
+            "opens": [
+                {
+                    "symbol": "SOLUSDT",
+                    "type": "buy",
+                    "base_frame": 30,
+                    "confirm_frame": 90,
+                    "triple_frame": 10,
+                    "time": now - timedelta(minutes=20),
+                    "price": 80.0,
+                    "outcome": "open",
+                }
+            ],
+        }
+        sent = []
+        with (
+            patch.object(week_scan, "fast_prefetch_done") as done,
+            patch.object(
+                week_scan,
+                "scan_week_trades",
+                return_value=fake_result,
+            ) as scan,
+        ):
+            done.is_set.return_value = True
+            week_scan.handle_today_command(
+                "9",
+                lambda message, chat_id=None: sent.append(message),
+            )
+
+        scan.assert_called_once()
+        kwargs = scan.call_args.kwargs
+        self.assertEqual(kwargs["start"].hour, 0)
+        self.assertEqual(kwargs["start"].minute, 0)
+        self.assertEqual(kwargs["start"].second, 0)
+        self.assertEqual((kwargs["end"] - kwargs["start"]).days, 0)
+        joined = "\n".join(sent)
+        self.assertIn("صفقات اليوم", joined)
+        self.assertIn("الناجحة", joined)
+        self.assertIn("الفاشلة", joined)
+        self.assertIn("مستمرة", joined)
+        self.assertIn("SOLUSDT", joined)
+        self.assertNotIn("الناجحون", joined)
+        self.assertNotIn("مفتوحة", joined)
 
 
 class TestWaitingBlindWindow(unittest.TestCase):
@@ -356,10 +495,10 @@ class TestWaitingBlindWindow(unittest.TestCase):
 
     def test_entry_inside_final_base_candle_window_is_recorded(self):
         t0 = datetime(2026, 8, 3, tzinfo=timezone.utc)
-        raw = _bars(t0, 3000, minutes=1, price=100.0)
-        sat_index = 300  # شمعة 9m الوحيدة المتشبعة تفتح عند t0+2700 دقيقة
-        sat_ts = t0 + timedelta(minutes=sat_index * 9)
-        entry_candle_ts = sat_ts + timedelta(minutes=12)  # شمعة 3m داخل نافذة الشمعة التالية
+        raw = _bars(t0, 5000, minutes=1, price=100.0)
+        sat_index = 300  # بعد warmup؛ شمعة 15m تفتح عند t0+4500 دقيقة
+        sat_ts = t0 + timedelta(minutes=sat_index * 15)
+        entry_candle_ts = sat_ts + timedelta(minutes=20)  # شمعة 5m داخل نافذة الشمعة التالية
 
         def fake_calc_smi(high, low, close):
             smi = pd.Series(0.0, index=close.index)
@@ -381,7 +520,7 @@ class TestWaitingBlindWindow(unittest.TestCase):
             return {
                 "entry_ts": last_ts,
                 "price": float(candidate["df_triple"]["close"].iloc[-1]),
-                "triple_frame": 3,
+                "triple_frame": 5,
             }
 
         with (
@@ -396,11 +535,11 @@ class TestWaitingBlindWindow(unittest.TestCase):
         ):
             signals = week_scan._scan_pair_side(
                 "BTCUSDT",
-                (9, 27, 3, "1m", "1m"),
+                (15, 45, 5, "1m", "1m"),
                 "sell",
                 {"1m": raw},
                 t0,
-                t0 + timedelta(minutes=3000),
+                t0 + timedelta(minutes=5000),
                 raw,
             )
 
