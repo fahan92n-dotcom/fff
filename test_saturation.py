@@ -597,6 +597,79 @@ class TestResampleOrigin(unittest.TestCase):
         stub = result[result["ts"] == pd.Timestamp("2026-08-13 23:51:00+00:00")]
         self.assertEqual(len(stub), 1)
 
+    def test_origin_mode_for_every_cascade_frame(self):
+        """Every base/confirm/entry TF picks origin by 1440 % minutes, not a whitelist."""
+        seen = []
+        for minutes, source_api, role in cascade_steps.iter_cascade_frames():
+            expected = (
+                "epoch" if (24 * 60) % int(minutes) == 0 else "utc_day"
+            )
+            with self.subTest(role=role, minutes=minutes, source=source_api):
+                self.assertEqual(ind._resample_origin_mode(minutes), expected)
+            seen.append(minutes)
+        self.assertIn(135, seen)
+        self.assertIn(180, seen)
+        self.assertIn(450, seen)
+
+
+class TestTradingViewIndicatorFormulas(unittest.TestCase):
+    """Pine ta.ema / ta.rma seed from SMA(length), not pandas ewm first-tick."""
+
+    def test_ema_tv_first_value_is_sma_not_pandas_ewm(self):
+        s = pd.Series([float(i) for i in range(1, 21)])
+        ema = ind.ema_tv(s, 10)
+        self.assertAlmostEqual(float(ema.iloc[9]), float(s.iloc[:10].mean()))
+        pandas_ewm = s.ewm(span=10, adjust=False).mean()
+        self.assertNotAlmostEqual(float(ema.iloc[9]), float(pandas_ewm.iloc[9]))
+
+    def test_ema_tv_recursive_step_matches_pine_alpha(self):
+        s = pd.Series([float(i) for i in range(1, 21)])
+        ema = ind.ema_tv(s, 10)
+        alpha = 2.0 / 11.0
+        expected = alpha * float(s.iloc[10]) + (1.0 - alpha) * float(ema.iloc[9])
+        self.assertAlmostEqual(float(ema.iloc[10]), expected)
+
+    def test_rma_tv_first_value_is_sma(self):
+        s = pd.Series([float(i) for i in range(1, 21)])
+        rma = ind.rma_tv(s, 14)
+        self.assertAlmostEqual(float(rma.iloc[13]), float(s.iloc[:14].mean()))
+
+    def test_smi_uses_double_ema_like_tradingview(self):
+        n = 80
+        close = pd.Series(np.linspace(100.0, 120.0, n))
+        high = close + 1.0
+        low = close - 1.0
+        smi, _, _ = ind.calc_smi(high, low, close)
+        k, d = 10, 3
+        ll = low.rolling(k, min_periods=k).min()
+        hh = high.rolling(k, min_periods=k).max()
+        rdiff = close - (hh + ll) / 2
+        diff = hh - ll
+        avgrel = ind.ema_tv(ind.ema_tv(rdiff, d), d)
+        avgdiff = ind.ema_tv(ind.ema_tv(diff, d), d)
+        expected = (avgrel / (avgdiff / 2)) * 100
+        last = smi.last_valid_index()
+        self.assertAlmostEqual(float(smi.loc[last]), float(expected.loc[last]))
+        single = ind.ema_tv(rdiff, d)
+        single_smi = (single / (ind.ema_tv(diff, d) / 2)) * 100
+        self.assertNotAlmostEqual(
+            float(smi.loc[last]),
+            float(single_smi.loc[last]),
+        )
+
+    def test_macd_uses_tv_ema_12_26_9(self):
+        close = pd.Series(np.linspace(100.0, 130.0, 80))
+        macd, signal, hist = ind._calc_macd_full(close)
+        expected_macd = ind.ema_tv(close, 12) - ind.ema_tv(close, 26)
+        expected_signal = ind.ema_tv(expected_macd, 9)
+        last = hist.last_valid_index()
+        self.assertAlmostEqual(float(macd.loc[last]), float(expected_macd.loc[last]))
+        self.assertAlmostEqual(float(signal.loc[last]), float(expected_signal.loc[last]))
+        self.assertAlmostEqual(
+            float(hist.loc[last]),
+            float(expected_macd.loc[last] - expected_signal.loc[last]),
+        )
+
 
 class TestQuickCheckWatcherInterval(unittest.TestCase):
     """يتحقق أن quick_check_watcher يفحص بسرعة كافية لحذف المرشحات الصغيرة فورًا."""

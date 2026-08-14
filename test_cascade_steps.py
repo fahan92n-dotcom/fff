@@ -191,7 +191,7 @@ class TestImmediateHigherFrame(unittest.TestCase):
         get_cached.assert_called_once_with("BTCUSDT", "30m")
 
     def test_higher_tf_uses_live_tradingview_bar_when_asof_set(self):
-        """سقف 180m/3س يُقرأ على الشمعة الجارية مثل TradingView لا المغلقة السابقة."""
+        """كل سقف أكبر (مو 180 فقط) يُقرأ على الشمعة الجارية مثل TradingView."""
         asof = datetime(2026, 8, 12, 1, 0, tzinfo=timezone.utc)
         n = 120
         live = pd.DataFrame(
@@ -204,36 +204,38 @@ class TestImmediateHigherFrame(unittest.TestCase):
                 "vol": [1.0] * n,
             }
         )
-        raw = live.copy()
-        candidate = {
-            "sym": "BTCUSDT",
-            "base_frame": 150,
-            "base_api": "30m",
-            "asof": asof,
-            "get_raw": Mock(return_value=raw),
-        }
-        get_resampled = Mock(return_value=pd.DataFrame())
-        smi = pd.Series([-10.0] * n)  # 3س الحالية ليست متشبعة
-
-        with patch.object(
-            strategy,
-            "confirm_macd_frame",
-            return_value=live,
-        ) as live_fn, patch.object(
-            strategy,
-            "calc_smi",
-            return_value=(smi, smi, smi),
-        ):
-            result = strategy._has_higher_tf_saturation(
-                candidate,
-                "buy",
-                get_resampled,
-            )
-
-        self.assertFalse(result)
-        live_fn.assert_called_once()
-        self.assertEqual(live_fn.call_args.kwargs["now"], asof)
-        get_resampled.assert_not_called()
+        smi = pd.Series([-10.0] * n)
+        for base in strategy.TIMEFRAME_CHAIN:
+            higher = strategy.NEXT_TF[base]
+            native_api = strategy.TF_TO_API[higher]
+            candidate = {
+                "sym": "BTCUSDT",
+                "base_frame": base,
+                "base_api": strategy.TF_TO_API[base],
+                "asof": asof,
+                "get_raw": Mock(return_value=live.copy()),
+            }
+            get_resampled = Mock(return_value=pd.DataFrame())
+            with self.subTest(base=base, higher=higher, source=native_api):
+                with patch.object(
+                    strategy,
+                    "confirm_macd_frame",
+                    return_value=live,
+                ) as live_fn, patch.object(
+                    strategy,
+                    "calc_smi",
+                    return_value=(smi, smi, smi),
+                ):
+                    result = strategy._has_higher_tf_saturation(
+                        candidate,
+                        "buy",
+                        get_resampled,
+                    )
+                self.assertFalse(result)
+                live_fn.assert_called_once()
+                self.assertEqual(live_fn.call_args.args[2], higher)
+                self.assertEqual(live_fn.call_args.kwargs["now"], asof)
+                get_resampled.assert_not_called()
 
 
 if __name__ == "__main__":

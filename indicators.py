@@ -66,7 +66,7 @@ def candle_period_end(ts, minutes):
 
     TFs that tile a UTC day last exactly ``minutes``.
     TFs that restart at midnight are clipped at the next 00:00 UTC so a
-    remainder bar (27m at 23:51, 150m at 22:30) closes when TradingView
+    remainder bar (27m at 23:51, 135m/150m/270m at 22:30) closes when TradingView
     closes it — at the session end — not ``minutes`` later into the next day.
     """
     minutes = int(minutes)
@@ -142,7 +142,7 @@ def resample_ohlcv(df, minutes):
     يُعيد تجميع (resample) بيانات OHLCV إلى فريم زمني محدد بالدقائق.
 
     الفريمات التي تنقسم على 1440 دقيقة تستخدم Unix epoch (مطابقة Binance).
-    الفريمات التي لا تنقسم (21/27/150/210...) تُحاذى على منتصف الليل UTC كل يوم
+    الفريمات التي لا تنقسم (21/27/135/150/210...) تُحاذى على منتصف الليل UTC كل يوم
     حتى تطابق شبكة TradingView. شمعة آخر اليوم القصيرة تُقفل عند 00:00 UTC.
 
     هذه الدالة تحذف الشمعة الأخيرة إذا لم تُغلق بعد (شمعة جارية).
@@ -190,10 +190,11 @@ def _as_utc_timestamp(now):
 def confirm_macd_frame(raw_df, source_tf, confirm_minutes, now=None):
     """Confirm-TF OHLCV including the in-progress confirm bar.
 
-    TradingView paints MACD and Donchian on the current 27m (etc.) bar as soon
-    as closed 1m/30m/60m source candles land in that bucket. Live cascade used
-    to drop that incomplete confirm bar, so a LONG could pass on a *previous*
-    closed green confirm bar while the chart's current bar was already red.
+    TradingView paints MACD and Donchian on the current confirm bar (every
+    cascade TF: 45/54/63/…/135/180/270/360/450) as soon as closed 1m/30m/60m
+    source candles land in that bucket. Live cascade used to drop that
+    incomplete confirm bar, so a LONG could pass on a *previous* closed green
+    confirm bar while the chart's current bar was already red.
 
     Only source candles whose period has fully closed by ``now`` are used, so
     this does not read an unclosed 1m/30m/60m candle.
@@ -226,21 +227,80 @@ def resolve_macd_line_pct(variant=None):
     return DEFAULT_MACD_LINE_PCT
 
 
-def wilder_rma(series, period):
-    return series.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+def ema_tv(series, length):
+    """TradingView ``ta.ema``: SMA of the first ``length`` bars, then recursive.
 
-def _calc_macd_hist(close):
-    macd_line = (close.ewm(span=12, min_periods=12, adjust=False).mean()
-                 - close.ewm(span=26, min_periods=26, adjust=False).mean())
-    signal = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
-    return macd_line - signal
+    pandas ``ewm(adjust=False)`` seeds from the first tick instead of that SMA,
+    so MACD/EMA/SMI drift off the Binance Futures chart.
+    """
+    length = int(length)
+    values = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float, copy=True)
+    n = len(values)
+    out = np.full(n, np.nan)
+    if n < length or length <= 0:
+        return pd.Series(out, index=series.index)
+    start = None
+    for index in range(length - 1, n):
+        window = values[index - length + 1 : index + 1]
+        if np.isfinite(window).all():
+            start = index
+            out[index] = float(window.mean())
+            break
+    if start is None:
+        return pd.Series(out, index=series.index)
+    alpha = 2.0 / (length + 1.0)
+    prev = out[start]
+    for index in range(start + 1, n):
+        value = values[index]
+        if not np.isfinite(value):
+            continue
+        prev = alpha * value + (1.0 - alpha) * prev
+        out[index] = prev
+    return pd.Series(out, index=series.index)
+
+
+def rma_tv(series, length):
+    """TradingView ``ta.rma`` / Wilder: SMA seed, then alpha = 1/length."""
+    length = int(length)
+    values = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float, copy=True)
+    n = len(values)
+    out = np.full(n, np.nan)
+    if n < length or length <= 0:
+        return pd.Series(out, index=series.index)
+    start = None
+    for index in range(length - 1, n):
+        window = values[index - length + 1 : index + 1]
+        if np.isfinite(window).all():
+            start = index
+            out[index] = float(window.mean())
+            break
+    if start is None:
+        return pd.Series(out, index=series.index)
+    alpha = 1.0 / length
+    prev = out[start]
+    for index in range(start + 1, n):
+        value = values[index]
+        if not np.isfinite(value):
+            continue
+        prev = alpha * value + (1.0 - alpha) * prev
+        out[index] = prev
+    return pd.Series(out, index=series.index)
+
+
+def wilder_rma(series, period):
+    return rma_tv(series, period)
+
 
 def _calc_macd_full(close):
-    macd_line = (close.ewm(span=12, min_periods=12, adjust=False).mean()
-                 - close.ewm(span=26, min_periods=26, adjust=False).mean())
-    signal_line = macd_line.ewm(span=9, min_periods=9, adjust=False).mean()
+    macd_line = ema_tv(close, 12) - ema_tv(close, 26)
+    signal_line = ema_tv(macd_line, 9)
     histogram = macd_line - signal_line
     return macd_line, signal_line, histogram
+
+
+def _calc_macd_hist(close):
+    _, _, histogram = _calc_macd_full(close)
+    return histogram
 
 def check_macd_red(df):
     if len(df) < WARMUP_MACD:
@@ -453,8 +513,8 @@ def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
 # ------------------------------------------
 
 def calc_ema(close, span=60):
-    """EMA على الإغلاق (adjust=False مطابقة TradingView/pandas الشائعة)."""
-    return close.ewm(span=int(span), adjust=False).mean()
+    """EMA على الإغلاق — ``ta.ema`` في TradingView (بذرة SMA ثم تكرار)."""
+    return ema_tv(close, int(span))
 
 
 def check_ema50_below(df):
@@ -479,7 +539,7 @@ def check_ema50_closed_below_since(df, since_ts, smi_threshold=-40):
     time_mask = df["ts"] >= since_ts
     if not time_mask.any():
         return False
-    ema = df["close"].ewm(span=50, adjust=False).mean()
+    ema = calc_ema(df["close"], span=50)
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     sat_mask = time_mask & (smi <= smi_threshold)
     if not sat_mask.any():
@@ -498,7 +558,7 @@ def check_ema50_closed_above_since(df, since_ts, smi_threshold=40):
     time_mask = df["ts"] >= since_ts
     if not time_mask.any():
         return False
-    ema = df["close"].ewm(span=50, adjust=False).mean()
+    ema = calc_ema(df["close"], span=50)
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     sat_mask = time_mask & (smi >= smi_threshold)
     if not sat_mask.any():
@@ -511,28 +571,30 @@ def check_ema50_closed_above_since(df, since_ts, smi_threshold=40):
 
 def calc_smi(high, low, close, k=10, smooth_period=1, d=3, c=10):
     """
-    Stochastic Momentum Index (SMI) - مطابق تماماً لـ Pine Script v5 (Stoch_MTM)
+    Stochastic Momentum Index — Pine ``ta.ema(ta.ema(...))`` (Stoch_MTM / TV SMI).
+
+    K=10, double EMA D=3, signal EMA C=10. Levels ±40 are SMI saturation,
+    not the MACD 40% band.
     """
     ll = low.rolling(k, min_periods=k).min()
     hh = high.rolling(k, min_periods=k).max()
     diff = hh - ll
     rdiff = close - (hh + ll) / 2
 
-    avgrel = rdiff.ewm(span=d, min_periods=d, adjust=False).mean()
-    avgdiff = diff.ewm(span=d, min_periods=d, adjust=False).mean()
+    avgrel = ema_tv(ema_tv(rdiff, d), d)
+    avgdiff = ema_tv(ema_tv(diff, d), d)
 
-    smi = np.where(avgdiff != 0, (avgrel / (avgdiff / 2)) * 100, 0.0)
+    smi = np.where(
+        (avgdiff != 0) & np.isfinite(avgdiff) & np.isfinite(avgrel),
+        (avgrel / (avgdiff / 2)) * 100,
+        0.0,
+    )
     smi = pd.Series(smi, index=close.index)
 
     smi_smoothed = smi.rolling(smooth_period, min_periods=smooth_period).mean()
-    
-    # ✅ التصحيح - D Line (optional)
-    smi_signal = smi_smoothed.ewm(span=d, min_periods=d, adjust=False).mean()
-    
-    # ✅ Signal Line الصحيح (المهم)
-    ema_signal = smi_smoothed.ewm(span=c, min_periods=c, adjust=False).mean()
-
-    return smi_smoothed, ema_signal, smi_signal  # ⬅️ لاحظ الترتيب
+    smi_signal = ema_tv(smi_smoothed, d)
+    ema_signal = ema_tv(smi_smoothed, c)
+    return smi_smoothed, ema_signal, smi_signal
 
 def check_smi_oversold(df, threshold=-40):
     if len(df) < WARMUP_SMI:
@@ -609,7 +671,7 @@ def check_ema50_above_since_overbought(df, smi_threshold=40):
     if len(df) < WARMUP_SMI:
         return False
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
-    ema = df["close"].ewm(span=50, adjust=False).mean()
+    ema = calc_ema(df["close"], span=50)
     overbought_mask = smi >= smi_threshold
     if not overbought_mask.any():
         return False
