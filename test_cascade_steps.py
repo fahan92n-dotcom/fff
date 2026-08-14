@@ -2,6 +2,7 @@
 
 import unittest
 from dataclasses import replace
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -126,6 +127,28 @@ class TestStep2PinnedToFirstSaturatedClose(unittest.TestCase):
         self.assertEqual(result, (False, "warmup"))
         histogram_check.assert_not_called()
 
+    def test_forwards_open_macd_band_from_variant(self):
+        histogram_check = Mock(return_value=True)
+        line_check = Mock(return_value=True)
+        pinned_rules = replace(
+            strategy.LONG_RULES,
+            base_histogram_check=histogram_check,
+            macd_line_check=line_check,
+        )
+        candidate = {
+            "df_base": pd.DataFrame({"close": [1.0] * 1000}),
+            "base_frame": 60,
+            "variant": {"macd_line_pct": None},
+        }
+        with patch.object(
+            strategy,
+            "find_saturation_start_index",
+            return_value=500,
+        ):
+            result = strategy._step2(candidate, pinned_rules)
+        self.assertEqual(result, (True, "passed"))
+        self.assertIsNone(line_check.call_args.kwargs["pct"])
+
 
 class TestImmediateHigherFrame(unittest.TestCase):
     def test_saturation_uses_only_next_timeframe(self):
@@ -166,12 +189,53 @@ class TestImmediateHigherFrame(unittest.TestCase):
 
         self.assertTrue(result)
         get_cached.assert_called_once_with("BTCUSDT", "30m")
-        get_resampled.assert_called_once_with(
-            native,
-            "BTCUSDT",
-            "30m",
-            90,
+
+    def test_higher_tf_uses_live_tradingview_bar_when_asof_set(self):
+        """كل سقف أكبر (مو 180 فقط) يُقرأ على الشمعة الجارية مثل TradingView."""
+        asof = datetime(2026, 8, 12, 1, 0, tzinfo=timezone.utc)
+        n = 120
+        live = pd.DataFrame(
+            {
+                "ts": pd.date_range("2026-07-01", periods=n, freq="180min", tz="UTC"),
+                "open": [1.0] * n,
+                "high": [1.1] * n,
+                "low": [0.9] * n,
+                "close": [1.0] * n,
+                "vol": [1.0] * n,
+            }
         )
+        smi = pd.Series([-10.0] * n)
+        for base in strategy.TIMEFRAME_CHAIN:
+            higher = strategy.NEXT_TF[base]
+            native_api = strategy.TF_TO_API[higher]
+            candidate = {
+                "sym": "BTCUSDT",
+                "base_frame": base,
+                "base_api": strategy.TF_TO_API[base],
+                "asof": asof,
+                "get_raw": Mock(return_value=live.copy()),
+            }
+            get_resampled = Mock(return_value=pd.DataFrame())
+            with self.subTest(base=base, higher=higher, source=native_api):
+                with patch.object(
+                    strategy,
+                    "confirm_macd_frame",
+                    return_value=live,
+                ) as live_fn, patch.object(
+                    strategy,
+                    "calc_smi",
+                    return_value=(smi, smi, smi),
+                ):
+                    result = strategy._has_higher_tf_saturation(
+                        candidate,
+                        "buy",
+                        get_resampled,
+                    )
+                self.assertFalse(result)
+                live_fn.assert_called_once()
+                self.assertEqual(live_fn.call_args.args[2], higher)
+                self.assertEqual(live_fn.call_args.kwargs["now"], asof)
+                get_resampled.assert_not_called()
 
 
 if __name__ == "__main__":

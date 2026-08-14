@@ -47,6 +47,9 @@ class StrategyVariant:
     btc_corr_lookback: int = DEFAULT_BTC_CORR_LOOKBACK
     # When False, confirm_rsi_lookback is left unset so step6 uses live default 30.
     override_rsi_lookback: bool = True
+    # None opens the far MACD-line side (histogram check only). Unset keeps 40%.
+    macd_line_pct: float | None = 0.40
+    override_macd_line_pct: bool = False
 
     def to_dict(self):
         payload = {
@@ -57,6 +60,8 @@ class StrategyVariant:
         }
         if self.override_rsi_lookback:
             payload["confirm_rsi_lookback"] = self.confirm_rsi_lookback
+        if self.override_macd_line_pct:
+            payload["macd_line_pct"] = self.macd_line_pct
         return payload
 
 
@@ -101,6 +106,16 @@ EXPERIMENT_VARIANTS = (
         ),
         btc_corr_min=DEFAULT_BTC_CORR_MIN,
         btc_corr_lookback=DEFAULT_BTC_CORR_LOOKBACK,
+        override_rsi_lookback=False,
+    ),
+    StrategyVariant(
+        id="macd_hist_only",
+        title_ar=(
+            "6) MACD خطوة ②: شرط الهوستقرام فقط "
+            "(شراء: الخط فوق الهوستقرام / بيع: تحته — بدون حد 40٪)"
+        ),
+        macd_line_pct=None,
+        override_macd_line_pct=True,
         override_rsi_lookback=False,
     ),
 )
@@ -306,6 +321,7 @@ def handle_experiments_command(chat_id, send_telegram):
                 "3) بدون Donchian تأكيد\n"
                 "4أ) بدون RSI تأكيد  4ب) RSI=50\n"
                 "5) CC مع BTC ≥ 0.50 على الفريم الأساسي\n"
+                "6) MACD شرط الهوستقرام فقط بدون حد 40٪\n"
                 "ثم نرتّب ونطلع الأفضل.",
                 chat_id,
             )

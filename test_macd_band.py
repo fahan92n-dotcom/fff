@@ -72,6 +72,28 @@ class TestMacdLineLong(unittest.TestCase):
         with patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist)):
             self.assertFalse(ind.check_macd_line_long(df, pct=0.40, base_frame=60))
 
+    def test_open_upper_band_allows_above_40_percent(self):
+        df = _df_with_hours()
+        n = len(df)
+        macd = pd.Series(np.full(n, 10.0))
+        macd.iloc[-10] = 100.0  # قمة 100 → سقف 40 في النسخة الحية
+        macd.iloc[-1] = 50.0    # فوق السقف، وما زال فوق الهوستقرام
+        hist = pd.Series(np.full(n, -1.0))
+        signal = macd - hist
+
+        with patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist)):
+            self.assertTrue(ind.check_macd_line_long(df, pct=None, base_frame=60))
+
+    def test_open_upper_band_still_rejects_below_histogram(self):
+        df = _df_with_hours()
+        n = len(df)
+        macd = pd.Series(np.full(n, -1.0))
+        hist = pd.Series(np.full(n, -0.5))  # macd < hist
+        signal = macd - hist
+
+        with patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist)):
+            self.assertFalse(ind.check_macd_line_long(df, pct=None, base_frame=60))
+
 
 def _smi_series(values):
     series = pd.Series(values, dtype=float)
@@ -204,6 +226,37 @@ class TestMacdLineShort(unittest.TestCase):
 
         with patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist)):
             self.assertTrue(ind.check_macd_line_short(df, pct=0.40, base_frame=60))
+
+    def test_open_lower_band_allows_deeper_than_40_percent(self):
+        df = _df_with_hours()
+        n = len(df)
+        macd = pd.Series(np.full(n, -10.0))
+        macd.iloc[-10] = -100.0  # قاع -100 → أرضية -40 في النسخة الحية
+        macd.iloc[-1] = -50.0    # أعمق من -40 وتحت الهوستقرام
+        hist = pd.Series(np.full(n, 1.0))
+        signal = macd - hist
+
+        with patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist)):
+            self.assertTrue(ind.check_macd_line_short(df, pct=None, base_frame=60))
+
+    def test_open_lower_band_still_rejects_above_histogram(self):
+        df = _df_with_hours()
+        n = len(df)
+        macd = pd.Series(np.full(n, 1.0))
+        hist = pd.Series(np.full(n, 0.5))  # macd > hist
+        signal = macd - hist
+
+        with patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist)):
+            self.assertFalse(ind.check_macd_line_short(df, pct=None, base_frame=60))
+
+
+class TestResolveMacdLinePct(unittest.TestCase):
+    def test_default_is_forty_percent(self):
+        self.assertEqual(ind.resolve_macd_line_pct(None), 0.40)
+        self.assertEqual(ind.resolve_macd_line_pct({}), 0.40)
+
+    def test_explicit_none_opens_the_far_side(self):
+        self.assertIsNone(ind.resolve_macd_line_pct({"macd_line_pct": None}))
 
 
 if __name__ == "__main__":

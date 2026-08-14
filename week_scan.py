@@ -54,6 +54,7 @@ from indicators import (
     check_donchian_trend_ribbon,
     check_macd_at_saturation_start,
     find_step8_entry_index,
+    resolve_macd_line_pct,
     resample_ohlcv_closed,
     candle_period_end,
     candle_period_ends,
@@ -243,6 +244,7 @@ def _stage5_still_valid(candidate, signal_type):
 
     smi, _, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
     current_smi = float(smi.iloc[-1])
+    macd_pct = resolve_macd_line_pct(candidate.get("variant"))
 
     # فحص MACD الأساسي مثبّت على أول شمعة إغلاق متشبعة (مطابق للمسار الحي).
     if signal_type == "buy":
@@ -252,6 +254,7 @@ def _stage5_still_valid(candidate, signal_type):
             df_base,
             candidate["base_frame"],
             direction="long",
+            pct=macd_pct,
         )
         ribbon_direction = "green"
         steps_1_5 = _LONG_STEPS_1_5
@@ -262,6 +265,7 @@ def _stage5_still_valid(candidate, signal_type):
             df_base,
             candidate["base_frame"],
             direction="short",
+            pct=macd_pct,
         )
         ribbon_direction = "red"
         steps_1_5 = _SHORT_STEPS_1_5

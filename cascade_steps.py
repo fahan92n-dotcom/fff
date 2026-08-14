@@ -25,6 +25,7 @@ from indicators import (
     check_macd_line_short,
     check_macd_red,
     confirm_macd_frame,
+    resolve_macd_line_pct,
     check_rsi_stoch,
     check_rsi_stoch_short,
     check_rsi_touched_since,
@@ -219,7 +220,11 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     مثال: تشبع 30m انتهى → أثناء إغلاق الشمعة 1 و 2 بعده → تشبع 27m يُرفض.
     من الشمعة الثالثة بدون تشبع على الأكبر، الأصغر يُسمح له.
 
-    150m يُلغى بتشبع 180m. فريم 180m سقف إلغاء فقط ولا يصدر إشارات.
+    150m يُلغى بتشبع 180m (3 ساعات TradingView: 00:00/03:00/06:00 UTC).
+    فريم 180m سقف إلغاء فقط ولا يصدر إشارات.
+
+    يُقيَّم على شمعة الفريم الأكبر الجارية من مصدر مغلق (مثل شارت TV) لكل
+    زوج في السلسلة، لا على آخر عمود مغلق بينما الشارت يعرض العمود الحالي.
     """
     higher_tf = NEXT_TF.get(candidate["base_frame"])
     if higher_tf is None:
@@ -235,12 +240,21 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     if raw_native is None or getattr(raw_native, "empty", True):
         return False
 
-    higher_frame = get_resampled(
+    live = confirm_macd_frame(
         raw_native,
-        candidate["sym"],
         native_api,
         higher_tf,
+        now=candidate.get("asof"),
     )
+    if live is not None and not live.empty and len(live) >= WARMUP_SMI:
+        higher_frame = live
+    else:
+        higher_frame = get_resampled(
+            raw_native,
+            candidate["sym"],
+            native_api,
+            higher_tf,
+        )
     if higher_frame.empty or len(higher_frame) < WARMUP_SMI:
         return False
 
@@ -322,7 +336,7 @@ def _step2(candidate, rules):
         return False, f"macd_histogram_not_{suffix}"
     if not rules.macd_line_check(
         df_eval,
-        pct=0.40,
+        pct=resolve_macd_line_pct(_variant(candidate)),
         base_frame=candidate["base_frame"],
     ):
         return False, "macd_line_band"
