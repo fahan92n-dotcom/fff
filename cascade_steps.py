@@ -364,20 +364,23 @@ def _variant(candidate):
 def _step4(candidate, rules):
     if _variant(candidate).get("skip_donchian_confirm"):
         return True, "passed"
-    return _ribbon_step(
-        candidate,
-        rules,
-        "confirm",
-        "base_api",
+    # Live confirm bar (same frame as MACD confirm). Do not reuse the
+    # closed-bar ribbon cache — hue can flip on the in-progress 27m candle.
+    if not check_donchian_trend_ribbon(
+        _confirm_live_frame(candidate),
         rules.base_ribbon,
-        "donchian_confirm"
-        if rules.signal_type == "buy"
-        else "donchian_confirm_red",
-    )
+        cache_key=None,
+    ):
+        return False, (
+            "donchian_confirm"
+            if rules.signal_type == "buy"
+            else "donchian_confirm_red"
+        )
+    return True, "passed"
 
 
-def _confirm_macd_eval_frame(candidate):
-    """MACD confirm uses the in-progress confirm bar (closed source candles).
+def _confirm_live_frame(candidate):
+    """Confirm-TF OHLCV including the in-progress bar (closed source candles).
 
     Falls back to ``df_confirm`` when no source series is available (unit tests).
     """
@@ -400,7 +403,7 @@ def _confirm_macd_eval_frame(candidate):
 
 
 def _step5(candidate, rules):
-    if not rules.confirm_histogram_check(_confirm_macd_eval_frame(candidate)):
+    if not rules.confirm_histogram_check(_confirm_live_frame(candidate)):
         return False, rules.confirm_histogram_reason
     return True, "passed"
 

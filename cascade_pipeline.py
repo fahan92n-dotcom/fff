@@ -634,7 +634,14 @@ def _refresh_and_validate_step5_side(
     else:
         raise ValueError(f"Unsupported signal type: {signal_type}")
 
-    candidate["raw_base"] = raw_base
+    candidate.update(
+        {
+            "df_base": df_base,
+            "df_confirm": df_confirm,
+            "raw_base": raw_base,
+            "get_resampled": get_resampled,
+        }
+    )
     if _has_higher_tf_saturation(
         candidate,
         signal_type,
@@ -656,26 +663,10 @@ def _refresh_and_validate_step5_side(
     ):
         return None
 
-    confirm_key = (
-        symbol,
-        candidate["base_api"],
-        candidate["confirm_frame"],
-    )
-    if not check_donchian_trend_ribbon(
-        df_confirm,
-        ribbon_direction,
-        cache_key=confirm_key,
-    ):
+    step4_fn = step4 if signal_type == "buy" else short_step4
+    ok_confirm_don, _reason = step4_fn(candidate)
+    if not ok_confirm_don:
         return None
-
-    candidate.update(
-        {
-            "df_base": df_base,
-            "df_confirm": df_confirm,
-            "raw_base": raw_base,
-            "get_resampled": get_resampled,
-        }
-    )
     step5_fn = step5 if signal_type == "buy" else short_step5
     ok_confirm_macd, _reason = step5_fn(candidate)
     if not ok_confirm_macd:
@@ -877,12 +868,12 @@ def _emit_signals(signal_type, label, passed, evaluated_count):
 
 
 def _keep_step5_valid(signal_type, candidates, get_resampled):
-    """Re-check live confirm MACD (and the rest of stage 5) on every waiter.
+    """Re-check live confirm MACD/Donchian (and the rest of stage 5) on every waiter.
 
-    Step ⑤ is "MACD Confirm on the *current* confirm bar". Candidates that
-    already passed it into stages 6/7 used to skip that check, so a LONG could
-    still fire after the 27m histogram flipped red (signal line above MACD).
-    Week-scan already calls ``_stage5_still_valid`` before every entry tip.
+    Step ④/⑤ follow the *current* confirm bar. Candidates that already passed
+    into stages 6/7 used to skip those checks, so a LONG could still fire after
+    the 27m Donchian or MACD histogram had flipped red. Week-scan already
+    calls ``_stage5_still_valid`` before every entry tip.
     """
     if signal_type == "buy":
         validate = _refresh_and_validate_step5
