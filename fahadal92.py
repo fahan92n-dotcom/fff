@@ -102,7 +102,7 @@ from telegram_bot import (
     send_telegram,
     set_command_handler,
 )
-from week_scan import handle_week_command
+from week_scan import handle_today_command, handle_week_command
 from strategy_variants import handle_experiments_command
 
 def get_report(period="today", signal_type=None):
@@ -266,7 +266,7 @@ def diagnose_signal_failures():
                 f"فشلوا في اختبار الحد الأدنى ({MIN_CANDLES} شمعة)"
             ),
             solution="زيادة API_FETCH_CANDLES أو تقليل عدد الأطر الكبيرة",
-            why="الأطر الكبيرة (180m, 240m) تحتاج بيانات أكثر",
+            why="الأطر الكبيرة (120m, 150m) تحتاج بيانات أكثر",
         ),
         _diag_reason(
             reason="⚠️ فشل Step 6 (شرط EMA50)",
@@ -893,7 +893,7 @@ def _dispatch_command_inner(txt, chat_id):
     """Route one normalized Telegram command."""
     # تقارير الإشارات
     if txt in ("1", "/today"):
-        send_telegram(get_report("today"), chat_id)
+        handle_today_command(chat_id, send_telegram)
     elif txt in ("2", "/yesterday"):
         send_telegram(get_report("yesterday"), chat_id)
     elif txt in ("3", "/week"):
@@ -991,10 +991,11 @@ def _dispatch_command_inner(txt, chat_id):
             "📋 <b>الأوامر المتاحة:</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>📊 التقارير:</b>\n"
-            "1️⃣ <code>1</code> أو <code>/today</code> — إشارات اليوم\n"
+            "1️⃣ <code>1</code> أو <code>/today</code> — صفقات اليوم "
+            "(ناجحة / فاشلة / مستمرة)\n"
             "2️⃣ <code>2</code> أو <code>/yesterday</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> أو <code>/week</code> — صفقات الاستراتيجية الأساسية آخر 7 أيام "
-            "(9–27م: +0.67%/0.51% | 30–240م: +1%/0.80%)\n"
+            "(15–30م: +0.67%/0.52% | 45–150م: +1%/0.75%)\n"
             "🧪 <code>/experiments</code> أو <code>/تجارب</code> — مقارنة تعديلات الاستراتيجية "
             "واختيار الأفضل على آخر 7 أيام\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"

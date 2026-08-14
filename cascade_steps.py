@@ -39,8 +39,6 @@ from state_manager import get_step1_ready_since
 # (base, confirm, triple, base_api, triple_api)
 # كل هدف يجب أن ينقسم على مصدره حتى تطابق الشموع Binance/TradingView.
 TRIPLING_PAIRS = [
-    (9, 27, 3, "1m", "1m"),
-    (12, 36, 4, "1m", "1m"),
     (15, 45, 5, "1m", "1m"),
     (18, 54, 6, "1m", "1m"),
     (21, 63, 7, "1m", "1m"),
@@ -52,9 +50,6 @@ TRIPLING_PAIRS = [
     (90, 270, 30, "30m", "30m"),
     (120, 360, 40, "30m", "1m"),
     (150, 450, 50, "30m", "1m"),
-    (180, 540, 60, "60m", "60m"),
-    (210, 630, 70, "30m", "1m"),
-    (240, 720, 80, "60m", "1m"),
 ]
 
 TIMEFRAME_CHAIN = [pair[0] for pair in TRIPLING_PAIRS]
@@ -64,8 +59,8 @@ NEXT_TF = {
 }
 TF_TO_API = {pair[0]: pair[3] for pair in TRIPLING_PAIRS}
 
-# 5h is a cancel-only ceiling: SMI sat on 300m blocks 240m and emits no 5h signals.
-CANCEL_ONLY_HIGHER_TF = 300
+# 180m is a cancel-only ceiling: SMI sat on 180m blocks 150m and emits no 180m signals.
+CANCEL_ONLY_HIGHER_TF = 180
 CANCEL_ONLY_HIGHER_API = "60m"
 NEXT_TF[TIMEFRAME_CHAIN[-1]] = CANCEL_ONLY_HIGHER_TF
 TF_TO_API[CANCEL_ONLY_HIGHER_TF] = CANCEL_ONLY_HIGHER_API
@@ -224,7 +219,7 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     مثال: تشبع 30m انتهى → أثناء إغلاق الشمعة 1 و 2 بعده → تشبع 27m يُرفض.
     من الشمعة الثالثة بدون تشبع على الأكبر، الأصغر يُسمح له.
 
-    240m يُلغى بتشبع 5 ساعات (300m). فريم 5 ساعات سقف إلغاء فقط ولا يصدر إشارات.
+    150m يُلغى بتشبع 180m. فريم 180m سقف إلغاء فقط ولا يصدر إشارات.
     """
     higher_tf = NEXT_TF.get(candidate["base_frame"])
     if higher_tf is None:

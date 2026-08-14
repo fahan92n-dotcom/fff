@@ -154,9 +154,9 @@ def aggregate_broken_frames_history(snapshots):
         "by_symbol": {
           "BTCUSDT": [
             {
-              "base_frame": 240,
-              "confirm_frame": 720,
-              "triple_frame": 80,
+              "base_frame": 150,
+              "confirm_frame": 450,
+              "triple_frame": 50,
               "count": 3,
               "last_detail": "...",
               "last_seen": datetime,

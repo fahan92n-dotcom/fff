@@ -10,9 +10,12 @@ from html import escape as html_escape
 from binance_data import CUSTOM_SYMBOLS, fast_prefetch_done, symbols_cache, symbols_cache_lock
 from week_scan import (
     LONG_LOSS_PCT,
+    LONG_TF_MAX,
+    LONG_TF_MIN,
     LONG_WIN_PCT,
     SHORT_LOSS_PCT,
     SHORT_TF_MAX,
+    SHORT_TF_MIN,
     SHORT_WIN_PCT,
     _ensure_symbol_raw,
     format_week_trades_report,
@@ -241,9 +244,9 @@ def format_experiments_report(bundle):
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"عملات: <b>{bundle.get('symbols_scanned', 0)}</b>\n"
         f"معايير الخروج:\n"
-        f"• 9–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
+        f"• {SHORT_TF_MIN}–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
         f"خسارة {SHORT_LOSS_PCT:g}%\n"
-        f"• 30–240م: ربح +{LONG_WIN_PCT:g}% | "
+        f"• {LONG_TF_MIN}–{LONG_TF_MAX}م: ربح +{LONG_WIN_PCT:g}% | "
         f"خسارة {LONG_LOSS_PCT:g}%\n"
         "الترتيب حسب مجموع نقاط٪ لكل صفقة حسب فريمها\n"
         "\n"

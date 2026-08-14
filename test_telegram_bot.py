@@ -94,9 +94,9 @@ class TestSignalNotification(unittest.TestCase):
         ) as send:
             emitted = telegram_bot._fire_signal(
                 "BATUSDT",
-                9,
-                27,
-                3,
+                15,
+                45,
+                5,
                 frame,
                 signal_type="buy",
                 price=12.5,
@@ -104,20 +104,20 @@ class TestSignalNotification(unittest.TestCase):
             )
 
         self.assertTrue(emitted)
-        claim.assert_called_once_with(("BATUSDT", 9, 27, 3, "buy"))
+        claim.assert_called_once_with(("BATUSDT", 15, 45, 5, "buy"))
         save.assert_called_once_with(
             "BATUSDT",
             12.5,
-            9,
-            27,
-            3,
+            15,
+            45,
+            5,
             signal_type="buy",
         )
         clear.assert_called_once_with(
             "BATUSDT",
-            9,
-            27,
-            3,
+            15,
+            45,
+            5,
             signal_type="buy",
         )
         send.assert_called_once()

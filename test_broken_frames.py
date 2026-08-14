@@ -111,9 +111,9 @@ class TestBrokenFramesCommand(unittest.TestCase):
             "ok_frames_by_symbol": {
                 "BTCUSDT": [
                     {
-                        "base_frame": 9,
-                        "confirm_frame": 27,
-                        "triple_frame": 3,
+                        "base_frame": 15,
+                        "confirm_frame": 45,
+                        "triple_frame": 5,
                         "base_api": "1m",
                         "triple_api": "1m",
                     },
@@ -139,19 +139,19 @@ class TestBrokenFramesCommand(unittest.TestCase):
             "broken_by_symbol": {
                 "BTCUSDT": [
                     {
-                        "base_frame": 240,
-                        "confirm_frame": 720,
-                        "triple_frame": 80,
-                        "base_api": "60m",
+                        "base_frame": 150,
+                        "confirm_frame": 450,
+                        "triple_frame": 50,
+                        "base_api": "30m",
                         "triple_api": "1m",
                         "reason": "min_candles",
                         "detail": "شموع غير كافية على الأساسي (45/300)",
                         "candle_count": 45,
                     },
                     {
-                        "base_frame": 210,
-                        "confirm_frame": 630,
-                        "triple_frame": 70,
+                        "base_frame": 120,
+                        "confirm_frame": 360,
+                        "triple_frame": 40,
                         "base_api": "30m",
                         "triple_api": "1m",
                         "reason": "missing_raw_base",
@@ -182,10 +182,10 @@ class TestBrokenFramesCommand(unittest.TestCase):
         self.assertIn("فريمان صالحان", message)
         self.assertIn("فريمان معطوبان", message)
         self.assertIn("❌", message)
-        self.assertIn("240m / 720m / 80m", message)
-        self.assertIn("210m / 630m / 70m", message)
+        self.assertIn("150m / 450m / 50m", message)
+        self.assertIn("120m / 360m / 40m", message)
         self.assertIn("✅ الصالح:", message)
-        self.assertIn("9m", message)
+        self.assertIn("15m", message)
         self.assertIn("ETHUSDT", message)
 
     def test_single_symbol_lists_healthy_triples(self):
@@ -199,9 +199,9 @@ class TestBrokenFramesCommand(unittest.TestCase):
             "ok_frames_by_symbol": {
                 "BTCUSDT": [
                     {
-                        "base_frame": 9,
-                        "confirm_frame": 27,
-                        "triple_frame": 3,
+                        "base_frame": 15,
+                        "confirm_frame": 45,
+                        "triple_frame": 5,
                         "base_api": "1m",
                         "triple_api": "1m",
                     }
@@ -210,10 +210,10 @@ class TestBrokenFramesCommand(unittest.TestCase):
             "broken_by_symbol": {
                 "BTCUSDT": [
                     {
-                        "base_frame": 240,
-                        "confirm_frame": 720,
-                        "triple_frame": 80,
-                        "base_api": "60m",
+                        "base_frame": 150,
+                        "confirm_frame": 450,
+                        "triple_frame": 50,
+                        "base_api": "30m",
                         "triple_api": "1m",
                         "reason": "min_candles",
                         "detail": "شموع غير كافية على الأساسي (45/300)",
@@ -238,7 +238,7 @@ class TestBrokenFramesCommand(unittest.TestCase):
 
         message = sent[0][0]
         self.assertIn("الصالحة:", message)
-        self.assertIn("✅ <code>9m / 27m / 3m</code>", message)
+        self.assertIn("✅ <code>15m / 45m / 5m</code>", message)
 
     def test_arabic_alias_accepts_optional_symbol(self):
         captured = {}
@@ -306,9 +306,9 @@ class TestBrokenFramesHistory(unittest.TestCase):
                 "broken_by_symbol": {
                     "BTCUSDT": [
                         {
-                            "base_frame": 240,
-                            "confirm_frame": 720,
-                            "triple_frame": 80,
+                            "base_frame": 150,
+                            "confirm_frame": 450,
+                            "triple_frame": 50,
                             "detail": "شموع غير كافية",
                         }
                     ]
@@ -319,9 +319,9 @@ class TestBrokenFramesHistory(unittest.TestCase):
                 "broken_by_symbol": {
                     "BTCUSDT": [
                         {
-                            "base_frame": 240,
-                            "confirm_frame": 720,
-                            "triple_frame": 80,
+                            "base_frame": 150,
+                            "confirm_frame": 450,
+                            "triple_frame": 50,
                             "detail": "شموع غير كافية (40/300)",
                         }
                     ],
@@ -366,9 +366,9 @@ class TestBrokenFramesHistory(unittest.TestCase):
                     "broken_by_symbol": {
                         "BTCUSDT": [
                             {
-                                "base_frame": 240,
-                                "confirm_frame": 720,
-                                "triple_frame": 80,
+                                "base_frame": 150,
+                                "confirm_frame": 450,
+                                "triple_frame": 50,
                                 "detail": "شموع غير كافية",
                             }
                         ]
@@ -390,7 +390,7 @@ class TestBrokenFramesHistory(unittest.TestCase):
         self.assertTrue(sent)
         self.assertIn("آخر 7 أيام", sent[0])
         self.assertIn("BTCUSDT", sent[0])
-        self.assertIn("240m / 720m / 80m", sent[0])
+        self.assertIn("150m / 450m / 50m", sent[0])
 
 
 if __name__ == "__main__":
