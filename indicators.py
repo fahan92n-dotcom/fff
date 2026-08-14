@@ -38,15 +38,112 @@ _ribbon_cache_lock = threading.Lock()
 # Resampling
 # ------------------------------------------
 
+_RESAMPLE_AGG = {
+    "open": "first",
+    "high": "max",
+    "low": "min",
+    "close": "last",
+    "vol": "sum",
+}
+_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_MINUTES_PER_DAY = 24 * 60
+
+
+def _resample_origin_mode(minutes):
+    """Epoch when the TF tiles a UTC day; else midnight of each UTC day.
+
+    Applies to every cascade frame (base, confirm, entry), not a subset.
+    If 1440 % minutes == 0 (3/4/5/6/8/9/10/12/15/18/20/24/30/36/40/45/60/72/80/
+    90/120/180/240/360/720) Unix epoch already matches TradingView.
+    Otherwise (7/21/27/50/54/63/70/81/135/150/210/270/450/540/630, …) epoch
+    drifts and bars restart at 00:00 UTC each day like the chart.
+    """
+    return "epoch" if _MINUTES_PER_DAY % int(minutes) == 0 else "utc_day"
+
+
+def candle_period_end(ts, minutes):
+    """UTC close time of the candle that opens at ``ts``.
+
+    TFs that tile a UTC day last exactly ``minutes``.
+    TFs that restart at midnight are clipped at the next 00:00 UTC so a
+    remainder bar (27m at 23:51, 150m at 22:30) closes when TradingView
+    closes it — at the session end — not ``minutes`` later into the next day.
+    """
+    minutes = int(minutes)
+    start = pd.Timestamp(ts)
+    if start.tzinfo is None:
+        start = start.tz_localize("UTC")
+    else:
+        start = start.tz_convert("UTC")
+    nominal = start + pd.Timedelta(minutes=minutes)
+    if _resample_origin_mode(minutes) == "epoch":
+        return nominal
+    next_midnight = start.floor("D") + pd.Timedelta(days=1)
+    return min(nominal, next_midnight)
+
+
+def candle_period_ends(ts_series, minutes):
+    """Vectorized ``candle_period_end`` for a Series of bar opens."""
+    minutes = int(minutes)
+    start = pd.to_datetime(ts_series, utc=True)
+    nominal = start + pd.Timedelta(minutes=minutes)
+    if _resample_origin_mode(minutes) == "epoch":
+        return nominal
+    next_midnight = start.dt.floor("D") + pd.Timedelta(days=1)
+    return nominal.clip(upper=next_midnight)
+
+
+def _resample_ohlcv_frame(df, minutes):
+    """Resample OHLCV on ``ts`` to ``minutes`` using the matching origin."""
+    minutes = int(minutes)
+    frame = df.copy()
+    if "ts" in frame.columns:
+        frame = frame.set_index("ts")
+    if frame.empty:
+        return pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"])
+    if frame.index.tz is None:
+        frame = frame.tz_localize("UTC")
+    else:
+        frame = frame.tz_convert("UTC")
+
+    def _agg(part, origin):
+        return (
+            part.resample(
+                f"{minutes}min",
+                closed="left",
+                label="left",
+                origin=origin,
+            )
+            .agg(_RESAMPLE_AGG)
+            .dropna()
+        )
+
+    if _resample_origin_mode(minutes) == "epoch":
+        resampled = _agg(frame, _EPOCH_UTC)
+    else:
+        parts = [
+            _agg(group, day_start)
+            for day_start, group in frame.groupby(frame.index.floor("D"))
+            if not group.empty
+        ]
+        resampled = (
+            pd.concat(parts)
+            if parts
+            else pd.DataFrame(columns=["open", "high", "low", "close", "vol"])
+        )
+    out = resampled.reset_index()
+    if "ts" not in out.columns:
+        out = out.rename(columns={out.columns[0]: "ts"})
+    return out
+
+
 def resample_ohlcv(df, minutes):
     """
     يُعيد تجميع (resample) بيانات OHLCV إلى فريم زمني محدد بالدقائق.
 
-    نقطة البداية origin=datetime(1970,1,1,UTC) هي نقطة أصل Unix القياسية (epoch).
-    بما أن كل الفريمات في TIMEFRAME_CHAIN (9،12،15،18،21،24،27،30،45،60،90،120،150،180،210،240 دقيقة)
-    هي مضاعفات صحيحة تنقسم على 1440 دقيقة (يوم) أو تتوافق مع حدود UTC اليومية،
-    فإن epoch ينتج حدود شموع مطابقة تمامًا لما تعرضه Binance وTradingView.
-    ⚠️ لا تُغيّر origin أو تُضِف offset دون التحقق من التوافق مع جميع الفريمات أعلاه.
+    الفريمات التي تنقسم على 1440 دقيقة تستخدم Unix epoch (مطابقة Binance).
+    الفريمات التي لا تنقسم (21/27/150/210...) تُحاذى على منتصف الليل UTC كل يوم
+    حتى تطابق شبكة TradingView. شمعة آخر اليوم القصيرة تُقفل عند 00:00 UTC.
 
     هذه الدالة تحذف الشمعة الأخيرة إذا لم تُغلق بعد (شمعة جارية).
     استخدم هذه الدالة حصرًا في مسارات تقييم الإشارات (step1-step8 وما شابه).
@@ -54,33 +151,30 @@ def resample_ohlcv(df, minutes):
     if df.empty:
         return pd.DataFrame()
     now = datetime.now(timezone.utc)
-    resampled = (df.copy().set_index("ts")
-                 .resample(f"{minutes}min", closed="left", label="left", origin=datetime(1970, 1, 1, tzinfo=timezone.utc))
-                 .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
-                 .dropna().reset_index())
+    resampled = _resample_ohlcv_frame(df, minutes)
     if resampled.empty:
         return resampled
-    # احذف فقط إذا الشمعة الأخيرة لم تُغلق بعد
-    last_candle_end = resampled["ts"].iloc[-1] + pd.Timedelta(minutes=minutes)
-    if now < last_candle_end:
+    last_candle_end = candle_period_end(resampled["ts"].iloc[-1], minutes)
+    now_ts = pd.Timestamp(now)
+    if now_ts.tzinfo is None:
+        now_ts = now_ts.tz_localize("UTC")
+    else:
+        now_ts = now_ts.tz_convert("UTC")
+    if now_ts < last_candle_end:
         resampled = resampled.iloc[:-1]
     return resampled
 
+
 def resample_ohlcv_closed(df, minutes):
     """
-    يُعيد تجميع (resample) بيانات OHLCV إلى فريم زمني محدد بالدقائق دون حذف الشمعة الأخيرة.
-
-    نفس origin=datetime(1970,1,1,UTC) المستخدمة في resample_ohlcv — راجع تعليق تلك الدالة
-    للتفصيل حول سبب اختيار epoch وتوافقه مع Binance/TradingView.
+    يُعيد تجميع OHLCV دون حذف الشمعة الأخيرة. نفس محاذاة ``resample_ohlcv``.
 
     ⚠️ لا تستخدمها مباشرة في خطوات الإشارة إلا عبر ``confirm_macd_frame``
     (لون MACD فريم التأكيد يطابق شمعة TradingView الجارية من مصدر مغلق).
     """
     if df.empty:
         return pd.DataFrame()
-    return (df.copy().set_index("ts").resample(f"{minutes}min", closed="left", label="left", origin=datetime(1970, 1, 1, tzinfo=timezone.utc))
-            .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
-            .dropna().reset_index())
+    return _resample_ohlcv_frame(df, minutes)
 
 
 _SOURCE_TF_MINUTES = {"1m": 1, "30m": 30, "60m": 60}

@@ -18,6 +18,7 @@ import numpy as np
 import cascade_steps
 import cascade_pipeline as pipeline
 import fahadal92 as bot
+import indicators as ind
 
 
 def _make_ohlcv(n: int, smi_value: float = -50.0) -> pd.DataFrame:
@@ -384,32 +385,160 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
 
 
 class TestResampleOrigin(unittest.TestCase):
-    """يتحقق أن resample_ohlcv يُنتج حدود شموع متوافقة مع epoch UTC (Binance/TradingView)."""
+    """Closed candles must match TradingView's UTC session grid."""
+
+    def _day_1m(self, day):
+        times = pd.date_range(start=day, periods=24 * 60, freq="1min")
+        return pd.DataFrame(
+            {
+                "ts": times,
+                "open": 1.0,
+                "high": 1.001,
+                "low": 0.999,
+                "close": 1.0,
+                "vol": 1.0,
+            }
+        )
 
     def test_90min_candle_boundary(self):
         """شموع 90m يجب أن تبدأ عند 00:00, 01:30, 03:00, 04:30... UTC."""
-        # أنشئ بيانات 1m من 00:00 إلى 04:00 UTC
-        times = pd.date_range(
-            start=datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc),
-            periods=240, freq="1min"
-        )
-        df = pd.DataFrame({
-            "ts": times,
-            "open": 1.0, "high": 1.001, "low": 0.999, "close": 1.0, "vol": 1.0,
-        })
-
-        # نستدعي بـ وقت مستقبلي لتجنب حذف الشمعة الأخيرة
+        df = self._day_1m(datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)).iloc[:240]
         with patch("fahadal92.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 2, tzinfo=timezone.utc)
             mock_dt.side_effect = datetime
             result = bot.resample_ohlcv(df.copy(), 90)
 
         if not result.empty:
-            expected_boundaries = [0, 90, 180]  # دقائق من بداية اليوم UTC
+            expected_boundaries = [0, 90, 180]
             for ts in result["ts"]:
                 minutes_from_midnight = ts.hour * 60 + ts.minute
-                self.assertIn(minutes_from_midnight, expected_boundaries,
-                              f"حد الشمعة {ts} غير متوافق مع epoch UTC")
+                self.assertIn(
+                    minutes_from_midnight,
+                    expected_boundaries,
+                    f"حد الشمعة {ts} غير متوافق مع epoch UTC",
+                )
+
+    def test_150min_matches_tradingview_utc_midnight_grid(self):
+        """150m: 00:00, 02:30, 05:00, 07:30, 10:00, 12:30 — ليس 12:00 epoch."""
+        df = self._day_1m(datetime(2026, 8, 12, 0, 0, tzinfo=timezone.utc))
+        result = ind.resample_ohlcv_closed(df, 150)
+        opens = [
+            ts.hour * 60 + ts.minute
+            for ts in result["ts"]
+            if ts.date() == datetime(2026, 8, 12).date()
+        ]
+        self.assertEqual(
+            opens,
+            list(range(0, 24 * 60, 150)),
+        )
+        self.assertIn(10 * 60, opens)
+        self.assertIn(12 * 60 + 30, opens)
+        self.assertNotIn(12 * 60, opens)
+
+    def test_27min_on_epoch_offset_day_starts_at_utc_midnight(self):
+        """13 Aug 2026: epoch 27m ينزاح 18 دقيقة؛ الشارت يبدأ 00:00."""
+        self.assertEqual(
+            int(
+                (
+                    datetime(2026, 8, 13, tzinfo=timezone.utc)
+                    - datetime(1970, 1, 1, tzinfo=timezone.utc)
+                ).total_seconds()
+                // 60
+            )
+            % 27,
+            18,
+        )
+        df = self._day_1m(datetime(2026, 8, 13, 0, 0, tzinfo=timezone.utc))
+        result = ind.resample_ohlcv_closed(df, 27)
+        opens = [
+            ts.hour * 60 + ts.minute
+            for ts in result["ts"]
+            if ts.date() == datetime(2026, 8, 13).date()
+        ]
+        self.assertEqual(opens[0], 0)
+        self.assertIn(27, opens)
+        self.assertNotIn(18, opens)
+        self.assertEqual(opens, list(range(0, 24 * 60, 27)))
+
+    def test_every_cascade_frame_from_its_source_matches_utc_session(self):
+        """كل شموع الأساس والتأكيد والدخول، من مصدر 1m/30m/60m الفعلي."""
+        day = datetime(2026, 8, 13, 0, 0, tzinfo=timezone.utc)
+        seen = []
+        for minutes, source_api, role in cascade_steps.iter_cascade_frames():
+            source_minutes = int(str(source_api).replace("m", ""))
+            periods = 24 * 60 // source_minutes
+            times = pd.date_range(
+                start=day, periods=periods, freq=f"{source_minutes}min"
+            )
+            raw = pd.DataFrame(
+                {
+                    "ts": times,
+                    "open": 1.0,
+                    "high": 1.001,
+                    "low": 0.999,
+                    "close": 1.0,
+                    "vol": 1.0,
+                }
+            )
+            result = ind.resample_ohlcv_closed(raw, minutes)
+            opens = [
+                ts.hour * 60 + ts.minute
+                for ts in result["ts"]
+                if ts.normalize() == pd.Timestamp(day)
+            ]
+            expected = list(range(0, 24 * 60, int(minutes)))
+            with self.subTest(role=role, minutes=minutes, source=source_api):
+                self.assertEqual(
+                    opens,
+                    expected,
+                    f"{role} {minutes}m from {source_api} drifted from UTC session",
+                )
+            seen.append((role, minutes, source_api))
+        self.assertEqual(len(seen), len(cascade_steps.TRIPLING_PAIRS) * 3)
+
+    def test_remainder_close_for_every_non_tiling_cascade_frame(self):
+        midnight = pd.Timestamp("2026-08-14 00:00:00+00:00")
+        frames = {minutes for minutes, _source, _role in cascade_steps.iter_cascade_frames()}
+        for minutes in sorted(frames):
+            last_open_min = list(range(0, 24 * 60, minutes))[-1]
+            last_open = datetime(2026, 8, 13, tzinfo=timezone.utc) + pd.Timedelta(
+                minutes=last_open_min
+            )
+            end = ind.candle_period_end(last_open, minutes)
+            with self.subTest(minutes=minutes, last_open=last_open_min):
+                if last_open_min + minutes > 24 * 60:
+                    self.assertEqual(end, midnight)
+                else:
+                    self.assertEqual(
+                        end,
+                        pd.Timestamp(last_open) + pd.Timedelta(minutes=minutes),
+                    )
+
+    def test_remainder_bar_closes_at_utc_midnight(self):
+        stub_open = datetime(2026, 8, 13, 23, 51, tzinfo=timezone.utc)
+        end = ind.candle_period_end(stub_open, 27)
+        self.assertEqual(end, pd.Timestamp("2026-08-14 00:00:00+00:00"))
+        full_open = datetime(2026, 8, 13, 23, 24, tzinfo=timezone.utc)
+        self.assertEqual(
+            ind.candle_period_end(full_open, 27),
+            pd.Timestamp("2026-08-13 23:51:00+00:00"),
+        )
+        tiled = datetime(2026, 8, 13, 23, 51, tzinfo=timezone.utc)
+        self.assertEqual(
+            ind.candle_period_end(tiled, 9),
+            pd.Timestamp("2026-08-14 00:00:00+00:00"),
+        )
+
+    def test_resample_ohlcv_keeps_remainder_after_midnight(self):
+        """After 00:00 UTC the 23:51 27m stub is closed and must stay."""
+        df = self._day_1m(datetime(2026, 8, 13, 0, 0, tzinfo=timezone.utc))
+        with patch.object(ind, "datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(
+                2026, 8, 14, 0, 10, tzinfo=timezone.utc
+            )
+            result = ind.resample_ohlcv(df.copy(), 27)
+        stub = result[result["ts"] == pd.Timestamp("2026-08-13 23:51:00+00:00")]
+        self.assertEqual(len(stub), 1)
 
 
 class TestQuickCheckWatcherInterval(unittest.TestCase):

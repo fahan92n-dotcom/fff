@@ -418,6 +418,32 @@ class TestSliceClosed(unittest.TestCase):
         self.assertEqual(len(sliced), 3)
         self.assertEqual(_utc_safe(sliced["ts"].iloc[-1]), start + timedelta(minutes=20))
 
+    def test_remainder_27m_is_closed_at_utc_midnight(self):
+        stub = pd.DataFrame(
+            [
+                {
+                    "ts": pd.Timestamp("2026-08-13 23:51:00+00:00"),
+                    "open": 1.0,
+                    "high": 1.0,
+                    "low": 1.0,
+                    "close": 1.0,
+                    "vol": 1.0,
+                }
+            ]
+        )
+        at_midnight = week_scan._slice_closed(
+            stub, 27, datetime(2026, 8, 14, 0, 0, tzinfo=timezone.utc)
+        )
+        before_old_end = week_scan._slice_closed(
+            stub, 27, datetime(2026, 8, 14, 0, 10, tzinfo=timezone.utc)
+        )
+        self.assertEqual(len(at_midnight), 1)
+        self.assertEqual(len(before_old_end), 1)
+        still_open = week_scan._slice_closed(
+            stub, 27, datetime(2026, 8, 13, 23, 59, tzinfo=timezone.utc)
+        )
+        self.assertEqual(len(still_open), 0)
+
 
 def _utc_safe(ts):
     if hasattr(ts, "to_pydatetime"):

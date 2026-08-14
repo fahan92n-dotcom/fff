@@ -36,16 +36,17 @@ class TestConfirmMacdLiveBar(unittest.TestCase):
         asof = datetime(2026, 8, 14, 0, 18, tzinfo=timezone.utc)
 
         full = ind.resample_ohlcv_closed(raw, 27)
-        closed_only = full[full["ts"] + pd.Timedelta(minutes=27) <= asof]
+        closed_only = full[ind.candle_period_ends(full["ts"], 27) <= asof]
         live = ind.confirm_macd_frame(raw, "1m", 27, now=asof)
 
         self.assertEqual(
             pd.Timestamp(live["ts"].iloc[-1]),
             pd.Timestamp("2026-08-14 00:00:00+00:00"),
         )
+        # UTC-day 27m last closed bar is the 23:51 remainder, not epoch 23:33.
         self.assertEqual(
             pd.Timestamp(closed_only["ts"].iloc[-1]),
-            pd.Timestamp("2026-08-13 23:33:00+00:00"),
+            pd.Timestamp("2026-08-13 23:51:00+00:00"),
         )
 
     def test_confirm_frame_drops_unclosed_source_minute(self):
@@ -65,7 +66,7 @@ class TestConfirmMacdLiveBar(unittest.TestCase):
         asof = datetime(2026, 8, 14, 0, 18, tzinfo=timezone.utc)
         n = int((asof - start).total_seconds() // 60)
         raw = _1m_range(start, minutes=n, close=20.0)
-        # Last closed 27m (23:33–00:00) stays high; forming 00:00 bar dumps.
+        # Last closed 27m (23:51 remainder) stays high; forming 00:00 bar dumps.
         dump = raw["ts"] >= pd.Timestamp("2026-08-14 00:00:00+00:00")
         raw.loc[dump, ["open", "high", "low", "close"]] = [18.0, 18.1, 17.9, 18.0]
 
