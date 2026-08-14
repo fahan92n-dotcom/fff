@@ -53,8 +53,6 @@ from indicators import (
     calc_smi,
     check_donchian_trend_ribbon,
     check_macd_at_saturation_start,
-    check_macd_green,
-    check_macd_red,
     find_step8_entry_index,
     resample_ohlcv_closed,
     candle_period_end,
@@ -228,7 +226,6 @@ def _stage5_still_valid(candidate, signal_type):
             direction="long",
         )
         ribbon_direction = "green"
-        confirm_macd_ok = check_macd_green(df_confirm)
         steps_1_5 = _LONG_STEPS_1_5
     else:
         if current_smi < 40:
@@ -239,7 +236,6 @@ def _stage5_still_valid(candidate, signal_type):
             direction="short",
         )
         ribbon_direction = "red"
-        confirm_macd_ok = check_macd_red(df_confirm)
         steps_1_5 = _SHORT_STEPS_1_5
 
     # Higher-TF skip via step1 (uses candidate.get_raw + asof resampler).
@@ -257,7 +253,8 @@ def _stage5_still_valid(candidate, signal_type):
             df_confirm, ribbon_direction, cache_key=None
         ):
             return False
-    if not confirm_macd_ok:
+    ok_confirm_macd, _reason = steps_1_5[4](candidate)
+    if not ok_confirm_macd:
         return False
     return True
 
@@ -329,6 +326,8 @@ def _build_candidate(
     ready_since=None,
     variant=None,
     df_btc_base=None,
+    raw_base=None,
+    asof=None,
 ):
     return {
         "sym": symbol,
@@ -346,6 +345,8 @@ def _build_candidate(
         "disable_ribbon_cache": True,
         "variant": variant or {},
         "df_btc_base": df_btc_base,
+        "raw_base": raw_base,
+        "asof": asof,
     }
 
 
@@ -503,6 +504,8 @@ def _scan_pair_side(
             ready_since=ready_since,
             variant=variant,
             df_btc_base=_btc_base_at(asof),
+            raw_base=raw_base,
+            asof=asof,
         )
 
         if waiting:
@@ -543,6 +546,8 @@ def _scan_pair_side(
                     ready_since=ready_since,
                     variant=variant,
                     df_btc_base=_btc_base_at(tip_asof),
+                    raw_base=raw_base,
+                    asof=tip_asof,
                 )
                 if (
                     tip_candidate["df_base"].empty

@@ -169,12 +169,46 @@ def resample_ohlcv_closed(df, minutes):
     """
     يُعيد تجميع OHLCV دون حذف الشمعة الأخيرة. نفس محاذاة ``resample_ohlcv``.
 
-    ⚠️ لا تحذف الشمعة الجارية غير المغلقة.
-    يجب عدم استخدامها في مسارات تقييم الإشارات (step1-step8 وما شابه).
+    ⚠️ لا تستخدمها مباشرة في خطوات الإشارة إلا عبر ``confirm_macd_frame``
+    (لون MACD فريم التأكيد يطابق شمعة TradingView الجارية من مصدر مغلق).
     """
     if df.empty:
         return pd.DataFrame()
     return _resample_ohlcv_frame(df, minutes)
+
+
+_SOURCE_TF_MINUTES = {"1m": 1, "30m": 30, "60m": 60}
+
+
+def _as_utc_timestamp(now):
+    ts = pd.Timestamp(now if now is not None else datetime.now(timezone.utc))
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
+def confirm_macd_frame(raw_df, source_tf, confirm_minutes, now=None):
+    """Confirm-TF OHLCV for MACD color, including the in-progress confirm bar.
+
+    TradingView paints MACD on the current 27m (etc.) bar as soon as closed
+    1m/30m/60m source candles land in that bucket. Live cascade used to drop
+    that incomplete confirm bar, so step ⑤ could pass on a *previous* closed
+    green histogram while the chart's current confirm bar was already red.
+
+    Only source candles whose period has fully closed by ``now`` are used, so
+    this does not read an unclosed 1m/30m/60m candle.
+    """
+    if raw_df is None or raw_df.empty or "ts" not in raw_df.columns:
+        return pd.DataFrame()
+    asof = _as_utc_timestamp(now)
+    source_minutes = int(_SOURCE_TF_MINUTES.get(source_tf, 1))
+    ends = pd.to_datetime(raw_df["ts"], utc=True) + pd.Timedelta(
+        minutes=source_minutes
+    )
+    src = raw_df.loc[ends <= asof]
+    if src.empty:
+        return pd.DataFrame()
+    return resample_ohlcv_closed(src, int(confirm_minutes))
 
 # ------------------------------------------
 # MACD

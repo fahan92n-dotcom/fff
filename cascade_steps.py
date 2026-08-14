@@ -24,6 +24,7 @@ from indicators import (
     check_macd_line_long,
     check_macd_line_short,
     check_macd_red,
+    confirm_macd_frame,
     check_rsi_stoch,
     check_rsi_stoch_short,
     check_rsi_touched_since,
@@ -90,7 +91,7 @@ STEP_LABELS = {
     "macd_red": "② MACD أحمر (عند أول إغلاق تشبع)",
     "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
     "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
-    "macd_confirm": "⑤ MACD Confirm أخضر",
+    "macd_confirm": "⑤ MACD Confirm أخضر (شمعة التأكيد الحالية)",
     "ema50": "⑥ تحت EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
     "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع RSI → Stoch>20 خلال 3",
@@ -110,7 +111,7 @@ SHORT_STEP_LABELS = {
     "macd_green": "② MACD أخضر (عند أول إغلاق تشبع)",
     "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
     "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
-    "macd_confirm_red": "⑤ MACD Confirm أحمر",
+    "macd_confirm_red": "⑤ MACD Confirm أحمر (شمعة التأكيد الحالية)",
     "ema50_above": "⑥ فوق EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
     # Use &lt; (not raw <) — Telegram parse_mode=HTML rejects Stoch<80 as a bad tag.
@@ -375,8 +376,31 @@ def _step4(candidate, rules):
     )
 
 
+def _confirm_macd_eval_frame(candidate):
+    """MACD confirm uses the in-progress confirm bar (closed source candles).
+
+    Falls back to ``df_confirm`` when no source series is available (unit tests).
+    """
+    raw = candidate.get("raw_base")
+    if raw is None or getattr(raw, "empty", True):
+        get_raw = candidate.get("get_raw")
+        if get_raw is not None:
+            raw = get_raw(candidate["sym"], candidate.get("base_api", "1m"))
+    if raw is None or getattr(raw, "empty", True):
+        return candidate["df_confirm"]
+    frame = confirm_macd_frame(
+        raw,
+        candidate.get("base_api", "1m"),
+        int(candidate["confirm_frame"]),
+        now=candidate.get("asof"),
+    )
+    if frame is None or frame.empty:
+        return candidate["df_confirm"]
+    return frame
+
+
 def _step5(candidate, rules):
-    if not rules.confirm_histogram_check(candidate["df_confirm"]):
+    if not rules.confirm_histogram_check(_confirm_macd_eval_frame(candidate)):
         return False, rules.confirm_histogram_reason
     return True, "passed"
 
