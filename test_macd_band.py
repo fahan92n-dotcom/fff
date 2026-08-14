@@ -56,72 +56,53 @@ class TestMacdZeroBand(unittest.TestCase):
         self.assertEqual(ceiling, 40.0)
 
 
-class TestMacdInsideHistogram(unittest.TestCase):
-    def test_green_histogram_allows_macd_between_zero_and_tip(self):
-        self.assertTrue(ind._macd_inside_histogram(30.0, 50.0))
-        self.assertTrue(ind._macd_inside_histogram(0.0, 50.0))
-        self.assertTrue(ind._macd_inside_histogram(50.0, 50.0))
-
-    def test_green_histogram_rejects_below_zero_or_above_tip(self):
-        self.assertFalse(ind._macd_inside_histogram(-1.0, 50.0))
-        self.assertFalse(ind._macd_inside_histogram(51.0, 50.0))
-
-    def test_red_histogram_allows_macd_between_tip_and_zero(self):
-        self.assertTrue(ind._macd_inside_histogram(-30.0, -50.0))
-        self.assertTrue(ind._macd_inside_histogram(0.0, -50.0))
-        self.assertTrue(ind._macd_inside_histogram(-50.0, -50.0))
-
-    def test_red_histogram_rejects_below_tip_or_above_zero(self):
-        self.assertFalse(ind._macd_inside_histogram(-51.0, -50.0))
-        self.assertFalse(ind._macd_inside_histogram(1.0, -50.0))
-
-
 class TestMacdLineLong(unittest.TestCase):
     def _patch(self, df, macd, hist):
         signal = macd - hist
         return patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist))
 
-    def test_rejects_macd_below_red_histogram(self):
+    def test_buy_rejects_when_macd_is_below_histogram(self):
+        """شراء: الحد السفلي = خط MACD أكبر من الهوستقرام."""
         df = _df_with_hours()
         n = len(df)
         macd = pd.Series(np.full(n, -10.0))
         macd.iloc[-10] = 100.0
         macd.iloc[-8] = -100.0
-        macd.iloc[-1] = -60.0
-        hist = pd.Series(np.full(n, -50.0))  # تحت طرف العمود الأحمر
+        macd.iloc[-1] = -10.0
+        hist = pd.Series(np.full(n, -5.0))  # macd < hist
         with self._patch(df, macd, hist):
             self.assertFalse(ind.check_macd_line_long(df, pct=0.40, base_frame=60))
 
-    def test_rejects_macd_above_zero_on_red_histogram(self):
+    def test_buy_allows_macd_above_histogram_within_40_percent(self):
         df = _df_with_hours()
         n = len(df)
-        macd = pd.Series(np.full(n, 10.0))
+        macd = pd.Series(np.full(n, 30.0))
         macd.iloc[-10] = 100.0
         macd.iloc[-8] = -100.0
-        macd.iloc[-1] = 10.0  # فوق الصفر = فوق العمود الأحمر
-        hist = pd.Series(np.full(n, -50.0))
+        macd.iloc[-1] = 30.0  # 30 > hist(-1) وداخل [−40, +40]
+        hist = pd.Series(np.full(n, -1.0))
         with self._patch(df, macd, hist):
-            self.assertFalse(ind.check_macd_line_long(df, pct=0.40, base_frame=60))
+            self.assertTrue(ind.check_macd_line_long(df, pct=0.40, base_frame=60))
 
-    def test_allows_macd_inside_red_histogram_and_40_percent_band(self):
+    def test_buy_allows_touching_histogram(self):
         df = _df_with_hours()
         n = len(df)
         macd = pd.Series(np.full(n, -20.0))
         macd.iloc[-10] = 100.0
         macd.iloc[-8] = -100.0
-        macd.iloc[-1] = -20.0  # داخل [−50, 0] و [−40, +40]
-        hist = pd.Series(np.full(n, -50.0))
+        macd.iloc[-1] = -20.0
+        hist = pd.Series(np.full(n, -20.0))  # يلامس
         with self._patch(df, macd, hist):
             self.assertTrue(ind.check_macd_line_long(df, pct=0.40, base_frame=60))
 
-    def test_rejects_deeper_than_40_percent_of_trough_below_zero(self):
+    def test_buy_rejects_above_40_percent_of_peak_above_zero(self):
         df = _df_with_hours()
         n = len(df)
-        macd = pd.Series(np.full(n, -50.0))
-        macd.iloc[-10] = -100.0  # قاع −100 → أرضية −40
-        macd.iloc[-8] = 100.0
-        macd.iloc[-1] = -50.0    # داخل العمود لكن أعمق من −40
-        hist = pd.Series(np.full(n, -80.0))
+        macd = pd.Series(np.full(n, 50.0))
+        macd.iloc[-10] = 100.0  # قمة 100 → سقف 40
+        macd.iloc[-8] = -100.0
+        macd.iloc[-1] = 50.0    # أكبر من الهوستقرام لكن فوق 40٪
+        hist = pd.Series(np.full(n, -1.0))
         with self._patch(df, macd, hist):
             self.assertFalse(ind.check_macd_line_long(df, pct=0.40, base_frame=60))
 
@@ -131,48 +112,48 @@ class TestMacdLineShort(unittest.TestCase):
         signal = macd - hist
         return patch.object(ind, "_calc_macd_full", return_value=(macd, signal, hist))
 
-    def test_locked_lower_bound_rejects_macd_below_green_histogram(self):
-        """الحد السفلي مثبت: خط MACD لا ينزل تحت الهوستقرام الأخضر (تحت الصفر)."""
+    def test_sell_rejects_when_macd_is_above_green_histogram(self):
+        """بيع: خط MACD أقل من الهوستقرام الأخضر."""
+        df = _df_with_hours()
+        n = len(df)
+        macd = pd.Series(np.full(n, 10.0))
+        macd.iloc[-10] = 100.0
+        macd.iloc[-8] = -100.0
+        macd.iloc[-1] = 10.0
+        hist = pd.Series(np.full(n, 5.0))  # macd > hist
+        with self._patch(df, macd, hist):
+            self.assertFalse(ind.check_macd_line_short(df, pct=0.40, base_frame=60))
+
+    def test_sell_allows_macd_below_green_histogram_within_40_percent(self):
         df = _df_with_hours()
         n = len(df)
         macd = pd.Series(np.full(n, -10.0))
         macd.iloc[-10] = 100.0
         macd.iloc[-8] = -100.0
-        macd.iloc[-1] = -10.0  # تحت الصفر = تحت العمود الأخضر
+        macd.iloc[-1] = -10.0  # −10 < hist(50) وداخل [−40, +40]
         hist = pd.Series(np.full(n, 50.0))
         with self._patch(df, macd, hist):
-            self.assertFalse(ind.check_macd_line_short(df, pct=0.40, base_frame=60))
+            self.assertTrue(ind.check_macd_line_short(df, pct=0.40, base_frame=60))
 
-    def test_rejects_macd_above_green_histogram_tip(self):
-        df = _df_with_hours()
-        n = len(df)
-        macd = pd.Series(np.full(n, 60.0))
-        macd.iloc[-10] = 100.0
-        macd.iloc[-8] = -100.0
-        macd.iloc[-1] = 60.0  # فوق طرف العمود الأخضر
-        hist = pd.Series(np.full(n, 50.0))
-        with self._patch(df, macd, hist):
-            self.assertFalse(ind.check_macd_line_short(df, pct=0.40, base_frame=60))
-
-    def test_allows_macd_inside_green_histogram_and_40_percent_band(self):
+    def test_sell_allows_touching_green_histogram(self):
         df = _df_with_hours()
         n = len(df)
         macd = pd.Series(np.full(n, 20.0))
         macd.iloc[-10] = 100.0
         macd.iloc[-8] = -100.0
-        macd.iloc[-1] = 20.0  # داخل [0, 50] و [−40, +40]
-        hist = pd.Series(np.full(n, 50.0))
+        macd.iloc[-1] = 20.0
+        hist = pd.Series(np.full(n, 20.0))  # يلامس
         with self._patch(df, macd, hist):
             self.assertTrue(ind.check_macd_line_short(df, pct=0.40, base_frame=60))
 
-    def test_rejects_above_40_percent_of_peak_above_zero(self):
+    def test_sell_rejects_deeper_than_40_percent_of_trough_below_zero(self):
         df = _df_with_hours()
         n = len(df)
-        macd = pd.Series(np.full(n, 50.0))
-        macd.iloc[-10] = 100.0  # قمة 100 → سقف 40
-        macd.iloc[-8] = -100.0
-        macd.iloc[-1] = 50.0    # داخل العمود لكن فوق سقف 40٪
-        hist = pd.Series(np.full(n, 80.0))
+        macd = pd.Series(np.full(n, -50.0))
+        macd.iloc[-10] = -100.0  # قاع −100 → أرضية −40
+        macd.iloc[-8] = 100.0
+        macd.iloc[-1] = -50.0    # أقل من الهوستقرام لكن أعمق من 40٪
+        hist = pd.Series(np.full(n, 1.0))
         with self._patch(df, macd, hist):
             self.assertFalse(ind.check_macd_line_short(df, pct=0.40, base_frame=60))
 

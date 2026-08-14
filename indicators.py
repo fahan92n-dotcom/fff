@@ -278,50 +278,38 @@ def _macd_within_zero_band(current_macd, window, pct):
     return floor <= current_macd <= ceiling
 
 
-def _macd_inside_histogram(current_macd, current_hist):
-    """حدّان موحّدان: الخط داخل عمود الهوستقرام (بين خط الصفر وطرفه).
-
-    الحد السفلي مثبت: الخط ليس تحت الهوستقرام.
-    الحد العلوي: الخط ليس فوق الهوستقرام.
-    هيستوجرام أخضر (موجب): 0 ≤ macd ≤ hist
-    هيستوجرام أحمر (سالب): hist ≤ macd ≤ 0
+def check_macd_line_long(df, pct=MACD_LINE_PCT, base_frame=60):
     """
-    lower = min(0.0, current_hist)
-    upper = max(0.0, current_hist)
-    return lower <= current_macd <= upper
-
-
-def _check_macd_line(df, pct=MACD_LINE_PCT, base_frame=60):
-    """فحص موحّد لخط MACD في الخطوة ② (شراء وبيع)."""
+    شرط MACD Line للشراء في الخطوة ②:
+    - الحد السفلي: خط MACD أكبر من الهوستقرام أو يلامسه (macd >= hist)
+    - الحد العلوي: ≤ 40٪ من أقصى ارتفاع فوق خط الصفر في النافذة
+    """
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
     current_macd = float(macd_line.iloc[-1])
     current_hist = float(histogram.iloc[-1])
-    if not _macd_inside_histogram(current_macd, current_hist):
+    if current_macd < current_hist:
         return False
     window = _macd_window_series(macd_line, df["ts"], base_frame)
     return _macd_within_zero_band(current_macd, window, pct)
 
 
-def check_macd_line_long(df, pct=MACD_LINE_PCT, base_frame=60):
-    """
-    شرط MACD Line للشراء (هيستوجرام أحمر من المستدعي):
-    - حد سفلي مثبت: الخط ليس تحت الهوستقرام
-    - حد علوي: الخط ليس فوق الهوستقرام (بين الصفر وطرف العمود)
-    - وأيضًا داخل 40٪ من خط الصفر خلال النافذة اليومية
-    """
-    return _check_macd_line(df, pct=pct, base_frame=base_frame)
-
-
 def check_macd_line_short(df, pct=MACD_LINE_PCT, base_frame=60):
     """
-    شرط MACD Line للبيع (هيستوجرام أخضر من المستدعي):
-    - حد سفلي مثبت: الخط ليس تحت الهوستقرام الأخضر (لا ينزل تحت الصفر)
-    - حد علوي: الخط ليس فوق الهوستقرام الأخضر (لا يتجاوز طرف العمود)
-    - وأيضًا داخل 40٪ من خط الصفر خلال النافذة اليومية
+    شرط MACD Line للبيع في الخطوة ②:
+    - خط MACD أقل من الهوستقرام الأخضر أو يلامسه (macd <= hist)
+    - الحد السفلي من الصفر: ≥ 40٪ من أقصى نزول تحت خط الصفر في النافذة
     """
-    return _check_macd_line(df, pct=pct, base_frame=base_frame)
+    if len(df) < WARMUP_MACD:
+        return False
+    macd_line, _, histogram = _calc_macd_full(df["close"])
+    current_macd = float(macd_line.iloc[-1])
+    current_hist = float(histogram.iloc[-1])
+    if current_macd > current_hist:
+        return False
+    window = _macd_window_series(macd_line, df["ts"], base_frame)
+    return _macd_within_zero_band(current_macd, window, pct)
 
 # ------------------------------------------
 # Donchian
