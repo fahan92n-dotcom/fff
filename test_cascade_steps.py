@@ -27,6 +27,12 @@ class TestStepLabelsHtmlSafe(unittest.TestCase):
         self.assertIn("Stoch&lt;80", label)
         self.assertNotIn("Stoch<80", label)
 
+    def test_step2_labels_mention_histogram_side_and_40_percent(self):
+        self.assertIn("أكبر من الهوستقرام", strategy.STEP_LABELS["macd_red"])
+        self.assertIn("أقل من الهوستقرام", strategy.SHORT_STEP_LABELS["macd_green"])
+        self.assertIn("40٪", strategy.STEP_LABELS["macd_red"])
+        self.assertIn("40٪", strategy.SHORT_STEP_LABELS["macd_green"])
+
 
 class TestStepOwnership(unittest.TestCase):
     def test_pipeline_and_compatibility_module_reexport_strategy_steps(self):
@@ -91,6 +97,8 @@ class TestStep2PinnedToFirstSaturatedClose(unittest.TestCase):
         self.assertEqual(result, (True, "passed"))
         self.assertEqual(len(histogram_check.call_args[0][0]), 501)
         self.assertEqual(len(line_check.call_args[0][0]), 501)
+        self.assertEqual(line_check.call_args.kwargs["pct"], strategy.MACD_LINE_PCT)
+        self.assertEqual(strategy.MACD_LINE_PCT, 0.40)
 
     def test_long_and_short_pass_matching_saturation_direction(self):
         _, finder_long, _, _ = self._run_step2(

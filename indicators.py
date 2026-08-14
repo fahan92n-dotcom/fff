@@ -20,6 +20,7 @@ WARMUP_RSI = 200
 WARMUP_STOCH = 100
 WARMUP_DON = 50
 MIN_CANDLES = 300
+MACD_LINE_PCT = 0.40
 
 # ------------------------------------------
 # Donchian constant
@@ -240,6 +241,7 @@ def check_macd_green(df):
         return False
     return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
 
+
 def _get_macd_window_hours(base_frame_minutes):
     """نافذة قياس الـ 40٪ بمقياس يومي حسب حجم الفريم:
     - فريم ≤ 60 دقيقة → يوم واحد (24 ساعة)
@@ -258,66 +260,56 @@ def _macd_window_series(macd_line, ts, base_frame):
     return window if not window.empty else macd_line
 
 
-def check_macd_line_long(df, pct=0.40, base_frame=60):
+def _macd_zero_band(window, pct=MACD_LINE_PCT):
+    """حدّا 40٪ من خط الصفر: سقف من أقصى صعود فوق 0، وأرضية من أقصى نزول تحته.
+
+    مثال: قمة 100 وقاع −100 → النطاق [−40, +40].
+    إن لم يوجد صعود فوق الصفر فالسقف = 0؛ وإن لم يوجد نزول فالأرضية = 0.
     """
-    شرط MACD Line للشراء (مع هيستوجرام أحمر متوقع من المستدعي):
-    - الحد السفلي: الخط الأزرق فوق الهوستقرام أو يلامسه (macd >= hist) — ممنوع تحته
-    - الحد العلوي: ≤ pct من أقصى ارتفاع فوق خط الصفر خلال النافذة اليومية
-      مثال: أعلى قيمة موجبة = 100 → السقف = 40
+    positive = window[window > 0]
+    negative = window[window < 0]
+    ceiling = float(positive.max()) * pct if not positive.empty else 0.0
+    floor = float(negative.min()) * pct if not negative.empty else 0.0
+    return floor, ceiling
+
+
+def _macd_within_zero_band(current_macd, window, pct):
+    floor, ceiling = _macd_zero_band(window, pct)
+    return floor <= current_macd <= ceiling
+
+
+def check_macd_line_long(df, pct=MACD_LINE_PCT, base_frame=60):
+    """
+    شرط MACD Line للشراء في الخطوة ②:
+    - الحد السفلي: خط MACD أكبر من الهوستقرام أو يلامسه (macd >= hist)
+    - الحد العلوي: ≤ 40٪ من أقصى ارتفاع فوق خط الصفر في النافذة
     """
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
     current_macd = float(macd_line.iloc[-1])
     current_hist = float(histogram.iloc[-1])
-
-    # الحد السفلي: فوق الهوستقرام الأحمر أو يلامسه
     if current_macd < current_hist:
         return False
-
     window = _macd_window_series(macd_line, df["ts"], base_frame)
-    # أقصى ارتفاع فوق خط الصفر فقط
-    positive = window[window > 0]
-    if positive.empty:
-        # لا يوجد ارتفاع فوق الصفر في النافذة → السقف = 0
-        threshold = 0.0
-    else:
-        threshold = float(positive.max()) * pct
-
-    if current_macd > threshold:
-        return False
-    return True
+    return _macd_within_zero_band(current_macd, window, pct)
 
 
-def check_macd_line_short(df, pct=0.40, base_frame=60):
+def check_macd_line_short(df, pct=MACD_LINE_PCT, base_frame=60):
     """
-    شرط MACD Line للبيع (مع هيستوجرام أخضر متوقع من المستدعي):
-    - الحد العلوي: الخط الأزرق تحت الهوستقرام أو يلامسه (macd <= hist) — ممنوع فوقه
-    - الحد السفلي: ≥ pct من أقصى نزول تحت خط الصفر خلال النافذة اليومية
-      مثال: أدنى قيمة = -100 → الأرضية = -40 (ولا ينزل أعمق منها)
+    شرط MACD Line للبيع في الخطوة ②:
+    - خط MACD أقل من الهوستقرام الأخضر أو يلامسه (macd <= hist)
+    - الحد السفلي من الصفر: ≥ 40٪ من أقصى نزول تحت خط الصفر في النافذة
     """
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
     current_macd = float(macd_line.iloc[-1])
     current_hist = float(histogram.iloc[-1])
-
-    # الحد العلوي: تحت الهوستقرام الأخضر أو يلامسه
     if current_macd > current_hist:
         return False
-
     window = _macd_window_series(macd_line, df["ts"], base_frame)
-    # أقصى نزول تحت خط الصفر فقط
-    negative = window[window < 0]
-    if negative.empty:
-        # لا يوجد نزول تحت الصفر في النافذة → الأرضية = 0
-        threshold = 0.0
-    else:
-        threshold = float(negative.min()) * pct
-
-    if current_macd < threshold:
-        return False
-    return True
+    return _macd_within_zero_band(current_macd, window, pct)
 
 # ------------------------------------------
 # Donchian
@@ -550,7 +542,7 @@ def find_saturation_start_index(df, threshold=-40, direction="long"):
     return index
 
 
-def check_macd_at_saturation_start(df, base_frame, direction="long", pct=0.40):
+def check_macd_at_saturation_start(df, base_frame, direction="long", pct=MACD_LINE_PCT):
     """
     فحص MACD مرة واحدة فقط: على أول شمعة إغلاق متشبعة في نوبة التشبع
     الحالية، لا على آخر شمعة. تُقصّ السلسلة عند تلك الشمعة ثم يُقيَّم

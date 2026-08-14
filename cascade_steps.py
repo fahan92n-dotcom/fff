@@ -9,6 +9,7 @@ from typing import Callable
 
 from binance_data import get_cached
 from indicators import (
+    MACD_LINE_PCT,
     WARMUP_MACD,
     WARMUP_SMI,
     calc_smi,
@@ -89,7 +90,7 @@ STEP_NAMES = [
 ]
 STEP_LABELS = {
     "smi_oversold": "① تشبع بيعي SMI",
-    "macd_red": "② MACD أحمر (عند أول إغلاق تشبع)",
+    "macd_red": "② MACD أحمر + خط أكبر من الهوستقرام ضمن 40٪ (أول إغلاق تشبع)",
     "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
     "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
     "macd_confirm": "⑤ MACD Confirm أخضر (شمعة التأكيد الحالية)",
@@ -109,7 +110,7 @@ SHORT_STEP_NAMES = [
 ]
 SHORT_STEP_LABELS = {
     "smi_overbought": "① تشبع شرائي SMI ≥ +40",
-    "macd_green": "② MACD أخضر (عند أول إغلاق تشبع)",
+    "macd_green": "② MACD أخضر + خط أقل من الهوستقرام الأخضر ضمن 40٪ (أول إغلاق تشبع)",
     "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
     "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
     "macd_confirm_red": "⑤ MACD Confirm أحمر (شمعة التأكيد الحالية)",
@@ -322,7 +323,7 @@ def _step2(candidate, rules):
         return False, f"macd_histogram_not_{suffix}"
     if not rules.macd_line_check(
         df_eval,
-        pct=0.40,
+        pct=MACD_LINE_PCT,
         base_frame=candidate["base_frame"],
     ):
         return False, "macd_line_band"
