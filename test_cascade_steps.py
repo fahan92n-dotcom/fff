@@ -27,9 +27,13 @@ class TestStepLabelsHtmlSafe(unittest.TestCase):
         self.assertIn("Stoch&lt;80", label)
         self.assertNotIn("Stoch<80", label)
 
-    def test_step2_labels_mention_40_percent_zero_band(self):
-        self.assertIn("40٪", strategy.STEP_LABELS["macd_red"])
-        self.assertIn("40٪", strategy.SHORT_STEP_LABELS["macd_green"])
+    def test_step2_labels_mention_unified_histogram_bounds(self):
+        for label in (
+            strategy.STEP_LABELS["macd_red"],
+            strategy.SHORT_STEP_LABELS["macd_green"],
+        ):
+            self.assertIn("هوستقرام", label)
+            self.assertIn("40٪", label)
 
 
 class TestStepOwnership(unittest.TestCase):
