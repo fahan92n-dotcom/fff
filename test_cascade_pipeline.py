@@ -75,6 +75,39 @@ class TestCompatibilityExports(CascadePipelineTestCase):
         self.assertIs(bot.step1, pipeline.step1)
 
 
+class TestScanCacheAndMinCandles(CascadePipelineTestCase):
+    def test_long_and_short_scans_both_require_cache(self):
+        with patch.object(pipeline, "_run_cascade_scan") as run:
+            pipeline.run_cascade_scan()
+            pipeline.run_short_cascade_scan()
+        run.assert_any_call("buy", require_cache=True)
+        run.assert_any_call("sell", require_cache=True)
+
+    def test_classify_reports_short_confirm_separately(self):
+        from indicators import MIN_CANDLES
+
+        enough = pd.DataFrame({"close": [1.0] * MIN_CANDLES})
+        short = pd.DataFrame({"close": [1.0] * (MIN_CANDLES - 1)})
+
+        def get_resampled(_raw, _symbol, _source_tf, minutes):
+            if minutes == 27:
+                return short
+            return enough
+
+        issue = pipeline._classify_broken_frame(
+            {"1m": enough},
+            "BTCUSDT",
+            9,
+            27,
+            3,
+            "1m",
+            "1m",
+            get_resampled,
+        )
+        self.assertEqual(issue["reason"], "min_candles_confirm")
+        self.assertEqual(issue["candle_count"], MIN_CANDLES - 1)
+
+
 class TestStepBatch(CascadePipelineTestCase):
     def test_candidate_exception_is_isolated(self):
         good = {"id": "good"}

@@ -37,8 +37,9 @@ class TestAuditBrokenFrames(unittest.TestCase):
         self.assertEqual(report["broken_by_symbol"], {})
 
     def test_reports_missing_raw_and_min_candles(self):
-        # Deep 1m so small 1m-sourced frames pass; empty 30m/60m breaks the rest.
-        raw_1m = _ohlcv(rows=MIN_CANDLES * 45 + 200, freq="1min")
+        # Deep 1m so 1m-sourced frames (including confirm=3x base) pass;
+        # empty 30m/60m breaks the rest.
+        raw_1m = _ohlcv(rows=MIN_CANDLES * 135 + 200, freq="1min")
 
         def fake_cached(symbol, tf):
             if tf == "1m":
@@ -70,9 +71,9 @@ class TestAuditBrokenFrames(unittest.TestCase):
         )
 
     def test_all_ok_when_cache_is_deep(self):
-        raw_1m = _ohlcv(rows=MIN_CANDLES * 90 + 100, freq="1min")
-        raw_30m = _ohlcv(rows=MIN_CANDLES * 10 + 50, freq="30min")
-        raw_60m = _ohlcv(rows=MIN_CANDLES * 10 + 50, freq="60min")
+        raw_1m = _ohlcv(rows=MIN_CANDLES * 135 + 100, freq="1min")
+        raw_30m = _ohlcv(rows=MIN_CANDLES * 21 + 50, freq="30min")
+        raw_60m = _ohlcv(rows=MIN_CANDLES * 12 + 50, freq="60min")
 
         def fake_cached(symbol, tf):
             return {
