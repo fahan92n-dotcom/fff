@@ -452,6 +452,8 @@ def _step6(candidate, rules):
 
 
 def _step7(candidate, rules):
+    if _variant(candidate).get("enter_after_step6"):
+        return True, "passed"
     return _ribbon_step(
         candidate,
         rules,
@@ -470,6 +472,8 @@ def _step8(candidate, rules):
     3) تقاطع RSI مع متوسطه
     4) خلال 3 شموع بعده: Stoch فوق 20 / تحت 80
     """
+    if _variant(candidate).get("enter_after_step6"):
+        return True, "passed"
     since_ts = _ready_since(candidate, rules)
     frame = candidate["df_triple"]
     smi_index = find_smi_touch_index(

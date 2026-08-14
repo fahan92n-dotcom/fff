@@ -242,6 +242,36 @@ class TestResolveEntrySignalCandle(CascadePipelineTestCase):
         self.assertNotEqual(price, float(base["close"].iloc[-1]))
         self.assertNotEqual(price, float(entry["close"].iloc[-1]))
 
+    def test_enter_after_step6_uses_last_closed_entry_candle(self):
+        ts = pd.date_range("2024-01-01", periods=5, freq="3min", tz="UTC")
+        entry = pd.DataFrame(
+            {
+                "ts": ts,
+                "open": [1, 2, 3, 4, 5],
+                "high": [1, 2, 3, 4, 5],
+                "low": [1, 2, 3, 4, 5],
+                "close": [10.0, 11.0, 12.5, 13.0, 14.0],
+                "vol": [1, 1, 1, 1, 1],
+            }
+        )
+        candidate = {
+            "sym": "BTCUSDT",
+            "base_frame": 9,
+            "confirm_frame": 27,
+            "triple_frame": 3,
+            "df_triple": entry,
+            "variant": {"enter_after_step6": True},
+        }
+        with patch.object(pipeline, "find_step8_entry_index") as find_entry:
+            frame, price, candle_ts = pipeline._resolve_entry_signal_candle(
+                candidate,
+                "buy",
+            )
+        find_entry.assert_not_called()
+        self.assertIs(frame, entry)
+        self.assertEqual(price, 14.0)
+        self.assertEqual(candle_ts, ts[-1].to_pydatetime())
+
 
 if __name__ == "__main__":
     unittest.main()

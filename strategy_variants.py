@@ -44,6 +44,8 @@ class StrategyVariant:
     btc_corr_lookback: int = DEFAULT_BTC_CORR_LOOKBACK
     # When False, confirm_rsi_lookback is left unset so step6 uses live default 30.
     override_rsi_lookback: bool = True
+    # Enter on the last closed entry-TF candle after step ⑥; skip ⑦ and ⑧.
+    enter_after_step6: bool = False
 
     def to_dict(self):
         payload = {
@@ -51,6 +53,7 @@ class StrategyVariant:
             "ema_on_confirm": self.ema_on_confirm,
             "btc_corr_min": self.btc_corr_min,
             "btc_corr_lookback": self.btc_corr_lookback,
+            "enter_after_step6": self.enter_after_step6,
         }
         if self.override_rsi_lookback:
             payload["confirm_rsi_lookback"] = self.confirm_rsi_lookback
@@ -98,6 +101,12 @@ EXPERIMENT_VARIANTS = (
         ),
         btc_corr_min=DEFAULT_BTC_CORR_MIN,
         btc_corr_lookback=DEFAULT_BTC_CORR_LOOKBACK,
+        override_rsi_lookback=False,
+    ),
+    StrategyVariant(
+        id="enter_after_step6",
+        title_ar="6) دخول بعد الشرط ⑥ بدون Donchian الدخول وبدون RSI/Stoch",
+        enter_after_step6=True,
         override_rsi_lookback=False,
     ),
 )

@@ -107,7 +107,33 @@ class TestVariantStepOverrides(unittest.TestCase):
         self.assertNotIn("confirm_rsi_lookback", payload)
         self.assertFalse(payload["ema_on_confirm"])
         self.assertFalse(payload["skip_donchian_confirm"])
+        self.assertFalse(payload["enter_after_step6"])
         self.assertIsNone(payload["btc_corr_min"])
+
+    def test_enter_after_step6_skips_step7_and_step8(self):
+        candidate = {
+            "sym": "BTCUSDT",
+            "base_api": "1m",
+            "triple_api": "1m",
+            "triple_frame": 3,
+            "df_triple": pd.DataFrame(),
+            "disable_ribbon_cache": True,
+            "variant": {"enter_after_step6": True},
+        }
+        ok7, reason7 = steps.step7(candidate)
+        ok8, reason8 = steps.short_step8(candidate)
+        self.assertTrue(ok7)
+        self.assertTrue(ok8)
+        self.assertEqual(reason7, "passed")
+        self.assertEqual(reason8, "passed")
+
+    def test_enter_after_step6_variant_is_registered(self):
+        ids = [variant.id for variant in experiments.EXPERIMENT_VARIANTS]
+        self.assertIn("enter_after_step6", ids)
+        variant = next(
+            item for item in experiments.EXPERIMENT_VARIANTS if item.id == "enter_after_step6"
+        )
+        self.assertTrue(variant.to_dict()["enter_after_step6"])
 
 
 class TestExperimentRanking(unittest.TestCase):

@@ -768,35 +768,40 @@ def _resolve_entry_signal_candle(candidate, signal_type):
     شمعة التحقق على فريم الدخول (الثُلث): سعر إغلاقها ووقت فتحها.
 
     الترتيب: تشبع SMI أولًا ثم RSI/Stoch. لا نستخدم آخر شمعة ولا df_base.
+    تجربة enter_after_step6: آخر شمعة دخول مغلقة بعد نجاح ⑥.
     """
     entry_frame = candidate.get("df_triple")
     if entry_frame is None or entry_frame.empty:
         raise ValueError("Candidate is missing entry timeframe data")
 
-    since_ts = get_step1_ready_since(
-        candidate["sym"],
-        candidate["base_frame"],
-        candidate["confirm_frame"],
-        candidate["triple_frame"],
-        signal_type,
-    )
-    if signal_type == "buy":
-        smi_threshold, rsi_threshold, direction = -40, 35, "long"
-    elif signal_type == "sell":
-        smi_threshold, rsi_threshold, direction = 40, 65, "short"
-    else:
-        raise ValueError(f"Unsupported signal type: {signal_type}")
-
-    entry_index = find_step8_entry_index(
-        entry_frame,
-        since_ts,
-        smi_threshold=smi_threshold,
-        rsi_threshold=rsi_threshold,
-        direction=direction,
-        max_gap=3,
-    )
-    if entry_index is None:
+    variant = candidate.get("variant") if isinstance(candidate.get("variant"), dict) else {}
+    if variant.get("enter_after_step6"):
         entry_index = len(entry_frame) - 1
+    else:
+        since_ts = get_step1_ready_since(
+            candidate["sym"],
+            candidate["base_frame"],
+            candidate["confirm_frame"],
+            candidate["triple_frame"],
+            signal_type,
+        )
+        if signal_type == "buy":
+            smi_threshold, rsi_threshold, direction = -40, 35, "long"
+        elif signal_type == "sell":
+            smi_threshold, rsi_threshold, direction = 40, 65, "short"
+        else:
+            raise ValueError(f"Unsupported signal type: {signal_type}")
+
+        entry_index = find_step8_entry_index(
+            entry_frame,
+            since_ts,
+            smi_threshold=smi_threshold,
+            rsi_threshold=rsi_threshold,
+            direction=direction,
+            max_gap=3,
+        )
+        if entry_index is None:
+            entry_index = len(entry_frame) - 1
 
     candle = entry_frame.iloc[entry_index]
     candle_ts = candle["ts"]

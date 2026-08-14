@@ -445,6 +445,38 @@ class TestSliceClosed(unittest.TestCase):
         self.assertEqual(len(still_open), 0)
 
 
+class TestEnterAfterStep6Entry(unittest.TestCase):
+    def test_uses_last_entry_candle_without_rsi_stoch(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        df_triple = _bars(start, 4, minutes=3, price=100.0)
+        candidate = {
+            "df_triple": df_triple,
+            "triple_frame": 3,
+            "ready_since": start,
+            "variant": {"enter_after_step6": True},
+        }
+        with (
+            patch.object(week_scan, "step6", return_value=(True, "passed")),
+            patch.object(week_scan, "find_step8_entry_index") as find_entry,
+        ):
+            entry = week_scan._try_step8_entry(candidate, "buy")
+        find_entry.assert_not_called()
+        self.assertEqual(entry["entry_ts"], start + timedelta(minutes=9))
+        self.assertAlmostEqual(entry["price"], 100.0)
+        self.assertEqual(entry["triple_frame"], 3)
+
+    def test_still_requires_step6(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        candidate = {
+            "df_triple": _bars(start, 2, minutes=3, price=100.0),
+            "triple_frame": 3,
+            "ready_since": start,
+            "variant": {"enter_after_step6": True},
+        }
+        with patch.object(week_scan, "step6", return_value=(False, "ema50")):
+            self.assertIsNone(week_scan._try_step8_entry(candidate, "buy"))
+
+
 def _utc_safe(ts):
     if hasattr(ts, "to_pydatetime"):
         ts = ts.to_pydatetime()

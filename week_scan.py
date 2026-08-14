@@ -269,41 +269,51 @@ def _passes_steps_1_5(candidate, signal_type):
 
 
 def _try_step8_entry(candidate, signal_type):
+    variant = candidate.get("variant") if isinstance(candidate.get("variant"), dict) else {}
+    enter_after_step6 = bool(variant.get("enter_after_step6"))
     if signal_type == "buy":
         ok6, _ = step6(candidate)
         if not ok6:
             return None
-        ok7, _ = step7(candidate)
-        if not ok7:
-            return None
-        ok8, _ = step8(candidate)
-        if not ok8:
-            return None
+        if not enter_after_step6:
+            ok7, _ = step7(candidate)
+            if not ok7:
+                return None
+            ok8, _ = step8(candidate)
+            if not ok8:
+                return None
         smi_threshold, rsi_threshold, direction = -40, 35, "long"
     else:
         ok6, _ = short_step6(candidate)
         if not ok6:
             return None
-        ok7, _ = short_step7(candidate)
-        if not ok7:
-            return None
-        ok8, _ = short_step8(candidate)
-        if not ok8:
-            return None
+        if not enter_after_step6:
+            ok7, _ = short_step7(candidate)
+            if not ok7:
+                return None
+            ok8, _ = short_step8(candidate)
+            if not ok8:
+                return None
         smi_threshold, rsi_threshold, direction = 40, 65, "short"
 
-    entry_index = find_step8_entry_index(
-        candidate["df_triple"],
-        candidate["ready_since"],
-        smi_threshold=smi_threshold,
-        rsi_threshold=rsi_threshold,
-        direction=direction,
-        max_gap=3,
-    )
-    if entry_index is None:
+    df_triple = candidate.get("df_triple")
+    if df_triple is None or df_triple.empty:
         return None
 
-    candle = candidate["df_triple"].iloc[entry_index]
+    if enter_after_step6:
+        candle = df_triple.iloc[-1]
+    else:
+        entry_index = find_step8_entry_index(
+            df_triple,
+            candidate["ready_since"],
+            smi_threshold=smi_threshold,
+            rsi_threshold=rsi_threshold,
+            direction=direction,
+            max_gap=3,
+        )
+        if entry_index is None:
+            return None
+        candle = df_triple.iloc[entry_index]
     return {
         "entry_ts": _utc(candle["ts"]),
         "price": float(candle["close"]),
