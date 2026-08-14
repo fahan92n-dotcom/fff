@@ -139,7 +139,11 @@ def _build_tripling_candidates(symbols, get_resampled):
             )
             if df_base.empty or df_confirm.empty or df_triple.empty:
                 continue
-            if len(df_base) < MIN_CANDLES:
+            if (
+                len(df_base) < MIN_CANDLES
+                or len(df_confirm) < MIN_CANDLES
+                or len(df_triple) < MIN_CANDLES
+            ):
                 continue
 
             candidates.append(
@@ -248,6 +252,34 @@ def _classify_broken_frame(
             "reason": "min_candles",
             "detail": f"شموع غير كافية على الأساسي ({candle_count}/{MIN_CANDLES})",
             "candle_count": candle_count,
+        }
+    confirm_count = len(df_confirm)
+    if confirm_count < MIN_CANDLES:
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "min_candles_confirm",
+            "detail": (
+                f"شموع غير كافية على التأكيد ({confirm_count}/{MIN_CANDLES})"
+            ),
+            "candle_count": confirm_count,
+        }
+    triple_count = len(df_triple)
+    if triple_count < MIN_CANDLES:
+        return {
+            "base_frame": base_frame,
+            "confirm_frame": confirm_frame,
+            "triple_frame": triple_frame,
+            "base_api": base_api,
+            "triple_api": triple_api,
+            "reason": "min_candles_triple",
+            "detail": (
+                f"شموع غير كافية على التثليث ({triple_count}/{MIN_CANDLES})"
+            ),
+            "candle_count": triple_count,
         }
 
     return None
@@ -481,7 +513,7 @@ def run_cascade_scan():
 
 
 def run_short_cascade_scan():
-    _run_cascade_scan("sell", require_cache=False)
+    _run_cascade_scan("sell", require_cache=True)
 
 
 def _refresh_waiting_candidate(
@@ -510,7 +542,12 @@ def _refresh_waiting_candidate(
             candidate["base_api"],
             candidate["confirm_frame"],
         )
-        if df_base.empty or df_confirm.empty or len(df_base) < MIN_CANDLES:
+        if (
+            df_base.empty
+            or df_confirm.empty
+            or len(df_base) < MIN_CANDLES
+            or len(df_confirm) < MIN_CANDLES
+        ):
             return None
         refreshed.update(
             {
@@ -560,7 +597,12 @@ def _refresh_and_validate_step5_side(
         candidate["base_api"],
         candidate["confirm_frame"],
     )
-    if df_base.empty or df_confirm.empty or len(df_base) < MIN_CANDLES:
+    if (
+        df_base.empty
+        or df_confirm.empty
+        or len(df_base) < MIN_CANDLES
+        or len(df_confirm) < MIN_CANDLES
+    ):
         return None
 
     smi, _, _ = calc_smi(
