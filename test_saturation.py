@@ -540,6 +540,44 @@ class TestResampleOrigin(unittest.TestCase):
         stub = result[result["ts"] == pd.Timestamp("2026-08-13 23:51:00+00:00")]
         self.assertEqual(len(stub), 1)
 
+    def test_live_cache_forming_1m_does_not_enter_signal_frames(self):
+        """Updater merges the unclosed 1m; resample_ohlcv / confirm MACD drop it.
+
+        Distinctive close=999 on the forming minute must not appear in the
+        closed 9m base used by steps ①–④/⑥–⑧, and confirm_macd_frame must
+        ignore that source minute while still keeping the in-progress 9m.
+        """
+        start = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
+        times = pd.date_range(start=start, periods=11, freq="1min", tz="UTC")
+        raw = pd.DataFrame(
+            {
+                "ts": times,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": [100.0] * 10 + [999.0],
+                "vol": 1.0,
+            }
+        )
+        asof = datetime(2026, 8, 14, 12, 10, 30, tzinfo=timezone.utc)
+
+        with patch.object(ind, "datetime") as mock_dt:
+            mock_dt.now.return_value = asof
+            base9 = ind.resample_ohlcv(raw.copy(), 9)
+
+        self.assertEqual(
+            pd.Timestamp(base9["ts"].iloc[-1]),
+            pd.Timestamp("2026-08-14 12:00:00+00:00"),
+        )
+        self.assertNotIn(999.0, [float(value) for value in base9["close"]])
+
+        live_confirm = ind.confirm_macd_frame(raw, "1m", 9, now=asof)
+        self.assertEqual(
+            pd.Timestamp(live_confirm["ts"].iloc[-1]),
+            pd.Timestamp("2026-08-14 12:09:00+00:00"),
+        )
+        self.assertNotIn(999.0, [float(value) for value in live_confirm["close"]])
+
 
 class TestQuickCheckWatcherInterval(unittest.TestCase):
     """يتحقق أن quick_check_watcher يفحص بسرعة كافية لحذف المرشحات الصغيرة فورًا."""

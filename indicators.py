@@ -33,6 +33,25 @@ DONCHIAN_DLEN = 20  # Pine's default dlen (matches dlen = input(defval = 20, ...
 
 _ribbon_cache = {}
 _ribbon_cache_lock = threading.Lock()
+_ribbon_cache_generation = 0
+
+
+def clear_ribbon_cache() -> None:
+    """Drop cached Donchian hues and invalidate in-flight computes.
+
+    Full scan and quick_check run on separate threads and both call this
+    before/after a pass. Incrementing the generation prevents a compute that
+    started before the clear from writing a stale hue into the new pass.
+    """
+    global _ribbon_cache_generation
+    with _ribbon_cache_lock:
+        _ribbon_cache.clear()
+        _ribbon_cache_generation += 1
+
+
+def _ribbon_store_key(cache_key, df):
+    """Caller key plus the last bar timestamp so two tips cannot collide."""
+    return (*cache_key, df["ts"].iloc[-1])
 
 # ------------------------------------------
 # Resampling
@@ -403,24 +422,30 @@ def check_donchian_trend_ribbon(df, direction="green", cache_key=None):
     The 19..11 sub-trends only control opacity in the Pine script and do not
     affect this binary green/red decision.
 
-    Thread-safe via _ribbon_cache_lock.
+    Thread-safe via _ribbon_cache_lock. Cache entries are keyed by the
+    caller identity plus the last bar timestamp, and are not stored if
+    clear_ribbon_cache() ran during the unlocked Donchian compute.
     """
     if df.empty or len(df) < DONCHIAN_DLEN + 1:
         return False
 
     if cache_key is not None:
+        store_key = _ribbon_store_key(cache_key, df)
         with _ribbon_cache_lock:
-            cached = _ribbon_cache.get(cache_key)
+            generation_at_lookup = _ribbon_cache_generation
+            cached = _ribbon_cache.get(store_key)
         if cached is None:
             close = df["close"].values
             high = df["high"].values
             low = df["low"].values
             result = _calc_donchian_ribbon_result(close, high, low)
-            # double-checked locking: another thread may have stored it already
             with _ribbon_cache_lock:
-                cached = _ribbon_cache.get(cache_key)
-                if cached is None:
-                    _ribbon_cache[cache_key] = result
+                if _ribbon_cache_generation == generation_at_lookup:
+                    cached = _ribbon_cache.get(store_key)
+                    if cached is None:
+                        _ribbon_cache[store_key] = result
+                        cached = result
+                else:
                     cached = result
     else:
         close = df["close"].values

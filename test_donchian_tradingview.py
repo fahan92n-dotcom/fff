@@ -1,6 +1,7 @@
 """Tests for TradingView-compatible Donchian Trend Ribbon hue."""
 
 import unittest
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -54,12 +55,10 @@ class TestTradingViewDonchianHue(unittest.TestCase):
     """The binary condition follows dchannel(20), not all opacity bands."""
 
     def setUp(self):
-        with ind._ribbon_cache_lock:
-            ind._ribbon_cache.clear()
+        ind.clear_ribbon_cache()
 
     def tearDown(self):
-        with ind._ribbon_cache_lock:
-            ind._ribbon_cache.clear()
+        ind.clear_ribbon_cache()
 
     def test_default_period_matches_tradingview_input(self):
         self.assertEqual(ind.DONCHIAN_DLEN, 20)
@@ -82,11 +81,43 @@ class TestTradingViewDonchianHue(unittest.TestCase):
     def test_cache_keeps_same_maintrend_result(self):
         df = _mixed_green_dataframe()
         key = ("BTCUSDT", "1m", 20)
+        store_key = ind._ribbon_store_key(key, df)
 
         self.assertTrue(
             ind.check_donchian_trend_ribbon(df, "green", cache_key=key)
         )
-        self.assertEqual(ind._ribbon_cache[key], 1)
+        self.assertEqual(ind._ribbon_cache[store_key], 1)
+        self.assertNotIn(key, ind._ribbon_cache)
+
+    def test_cache_separates_tips_by_last_bar_ts(self):
+        df = _mixed_green_dataframe()
+        later = df.copy()
+        later.loc[later.index[-1], "ts"] = later["ts"].iloc[-1] + pd.Timedelta(hours=1)
+        key = ("BTCUSDT", "1m", 20)
+
+        self.assertTrue(ind.check_donchian_trend_ribbon(df, "green", cache_key=key))
+        self.assertTrue(ind.check_donchian_trend_ribbon(later, "green", cache_key=key))
+        self.assertEqual(len(ind._ribbon_cache), 2)
+        self.assertIn(ind._ribbon_store_key(key, df), ind._ribbon_cache)
+        self.assertIn(ind._ribbon_store_key(key, later), ind._ribbon_cache)
+
+    def test_clear_drops_in_flight_store(self):
+        df = _mixed_green_dataframe()
+        key = ("BTCUSDT", "1m", 20)
+        orig = ind._calc_donchian_ribbon_result
+        calls = {"n": 0}
+
+        def wrapped(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                ind.clear_ribbon_cache()
+            return orig(*args, **kwargs)
+
+        with mock.patch.object(ind, "_calc_donchian_ribbon_result", wrapped):
+            self.assertTrue(
+                ind.check_donchian_trend_ribbon(df, "green", cache_key=key)
+            )
+        self.assertEqual(ind._ribbon_cache, {})
 
 
 if __name__ == "__main__":

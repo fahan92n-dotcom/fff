@@ -119,5 +119,93 @@ class TestCleanupOldSymbolsCache(unittest.TestCase):
         self.assertNotIn(("OLDUSDT", "1m"), bd.ohlcv_cache)
 
 
+class _LazyMapExecutor:
+    """Mimic ThreadPoolExecutor.map: work runs only if the iterator is consumed."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def map(self, fn, items):
+        return (fn(item) for item in items)
+
+
+class TestExecutorMapConsumed(unittest.TestCase):
+    def setUp(self):
+        with bd.ohlcv_cache_lock:
+            bd.ohlcv_cache.clear()
+
+    def tearDown(self):
+        with bd.ohlcv_cache_lock:
+            bd.ohlcv_cache.clear()
+
+    def test_update_batch_consumes_map_so_workers_run(self):
+        df = _make_df(2)
+        with unittest.mock.patch.object(
+            bd,
+            "ThreadPoolExecutor",
+            _LazyMapExecutor,
+        ):
+            bd._update_batch_impl(["BTCUSDT"], "1m", 2, lambda *_a, **_k: df)
+        self.assertIn(("BTCUSDT", "1m"), bd.ohlcv_cache)
+
+    def test_update_batch_logs_worker_exception_and_continues(self):
+        df = _make_df(2)
+
+        def fetch_fn(sym, tf, limit=2):
+            if sym == "BADUSDT":
+                raise RuntimeError("worker boom")
+            return df
+
+        with self.assertLogs(bd.log, level="ERROR") as logs:
+            bd._update_batch_impl(["BADUSDT", "BTCUSDT"], "1m", 2, fetch_fn)
+        self.assertTrue(any("update_batch BADUSDT 1m failed" in line for line in logs.output))
+        self.assertIn(("BTCUSDT", "1m"), bd.ohlcv_cache)
+        self.assertNotIn(("BADUSDT", "1m"), bd.ohlcv_cache)
+
+
+class TestOhlcvErrorLogging(unittest.TestCase):
+    def test_get_ohlcv_logs_api_error_dict(self):
+        session = unittest.mock.Mock()
+        session.get.return_value.json.return_value = {
+            "code": -1121,
+            "msg": "Invalid symbol.",
+        }
+        with unittest.mock.patch.object(bd, "get_session", return_value=session):
+            with self.assertLogs(bd.log, level="WARNING") as logs:
+                got = bd._get_ohlcv_impl(
+                    "BADUSDT",
+                    "1m",
+                    10,
+                    "https://example.invalid/klines",
+                )
+        self.assertTrue(got.empty)
+        self.assertTrue(
+            any("API error" in line and "Invalid symbol" in line for line in logs.output)
+        )
+
+    def test_get_ohlcv_full_logs_request_exception(self):
+        session = unittest.mock.Mock()
+        session.get.side_effect = bd.requests.ConnectionError("down")
+        with unittest.mock.patch.object(bd, "get_session", return_value=session):
+            with unittest.mock.patch.object(bd.time, "sleep"):
+                with self.assertLogs(bd.log, level="WARNING") as logs:
+                    got = bd._get_ohlcv_full_impl(
+                        "BTCUSDT",
+                        "1m",
+                        10,
+                        "https://example.invalid/klines",
+                        "Futures",
+                    )
+        self.assertTrue(got.empty)
+        self.assertTrue(any("network error" in line for line in logs.output))
+        self.assertTrue(any("giving up after 3 network errors" in line for line in logs.output))
+
+
 if __name__ == "__main__":
     unittest.main()

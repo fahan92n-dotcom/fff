@@ -166,6 +166,29 @@ def _parse_binance_klines(resp):
     return df.sort_values("ts").reset_index(drop=True)[["ts", "open", "high", "low", "close", "vol"]]
 
 
+def _log_klines_api_error(op, symbol, tf, resp):
+    if isinstance(resp, dict) and ("code" in resp or "msg" in resp):
+        log.warning(
+            "%s %s %s API error: code=%s msg=%s",
+            op,
+            symbol,
+            tf,
+            resp.get("code"),
+            resp.get("msg"),
+        )
+        return True
+    if not isinstance(resp, list):
+        log.warning(
+            "%s %s %s unexpected response type %s",
+            op,
+            symbol,
+            tf,
+            type(resp).__name__,
+        )
+        return True
+    return False
+
+
 def _get_ohlcv_impl(symbol, tf, limit, klines_url):
     binance_tf = TF_MAP.get(tf, "1m")
     try:
@@ -176,6 +199,8 @@ def _get_ohlcv_impl(symbol, tf, limit, klines_url):
         ).json()
         if isinstance(resp, list) and resp:
             return _parse_binance_klines(resp)
+        if not _log_klines_api_error("get_ohlcv", symbol, tf, resp):
+            log.warning("get_ohlcv %s %s empty klines list", symbol, tf)
     except requests.RequestException as exc:
         log.error("get_ohlcv %s %s: %s", symbol, tf, exc)
     return pd.DataFrame()
@@ -220,8 +245,29 @@ def _get_ohlcv_full_impl(symbol, tf, target, klines_url, market_label):
 
             resp = r.json()
             if not isinstance(resp, list) or not resp:
+                if all_dfs and isinstance(resp, list) and not resp:
+                    break
                 retries += 1
+                if not _log_klines_api_error(
+                    f"get_ohlcv_full[{market_label}]",
+                    symbol,
+                    tf,
+                    resp,
+                ):
+                    log.warning(
+                        "get_ohlcv_full[%s] %s %s empty klines (retry %s/3)",
+                        market_label,
+                        symbol,
+                        tf,
+                        retries,
+                    )
                 if retries >= 3:
+                    log.error(
+                        "get_ohlcv_full[%s] %s %s giving up after 3 empty/invalid responses",
+                        market_label,
+                        symbol,
+                        tf,
+                    )
                     break
                 time.sleep(2 ** retries)
                 continue
@@ -235,9 +281,23 @@ def _get_ohlcv_full_impl(symbol, tf, target, klines_url, market_label):
             if len(df) < batch:
                 break
 
-        except requests.RequestException:
+        except requests.RequestException as exc:
             retries += 1
+            log.warning(
+                "get_ohlcv_full[%s] %s %s network error: %s (retry %s/3)",
+                market_label,
+                symbol,
+                tf,
+                exc,
+                retries,
+            )
             if retries >= 3:
+                log.error(
+                    "get_ohlcv_full[%s] %s %s giving up after 3 network errors",
+                    market_label,
+                    symbol,
+                    tf,
+                )
                 break
             time.sleep(2)
 
@@ -292,24 +352,30 @@ def cleanup_old_symbols_cache():
 
 def _prefetch_all_impl(symbols, get_full_fn, fast_msg, full_msg):
     def fetch_sym_fast(sym):
-        for tf, n in FAST_FETCH_CANDLES.items():
-            df = get_full_fn(sym, tf, target=n)
-            cache_merge(sym, tf, df)
+        try:
+            for tf, n in FAST_FETCH_CANDLES.items():
+                df = get_full_fn(sym, tf, target=n)
+                cache_merge(sym, tf, df)
+        except Exception:  # pylint: disable=broad-exception-caught
+            log.exception("prefetch fast %s failed", sym)
 
     def fetch_sym_full(sym):
-        for tf, n in API_FETCH_CANDLES.items():
-            df = get_full_fn(sym, tf, target=n)
-            cache_merge(sym, tf, df)
+        try:
+            for tf, n in API_FETCH_CANDLES.items():
+                df = get_full_fn(sym, tf, target=n)
+                cache_merge(sym, tf, df)
+        except Exception:  # pylint: disable=broad-exception-caught
+            log.exception("prefetch full %s failed", sym)
 
     log.info("🚀 بدء التحميل السريع %s...", fast_msg)
     with ThreadPoolExecutor(max_workers=5) as executor:
-        executor.map(fetch_sym_fast, symbols)
+        list(executor.map(fetch_sym_fast, symbols))
     fast_prefetch_done.set()
     _notify_telegram(f"⚡ <b>التحميل السريع {fast_msg} اكتمل — البوت يعمل الآن!</b>")
 
     log.info("📦 بدء التحميل الكامل %s...", full_msg)
     with ThreadPoolExecutor(max_workers=3) as executor:
-        executor.map(fetch_sym_full, symbols)
+        list(executor.map(fetch_sym_full, symbols))
     prefetch_done.set()
     _notify_telegram(f"✅ <b>التحميل الكامل {full_msg} اكتمل وجاهز للعمل!</b>")
 
@@ -324,11 +390,14 @@ def prefetch_all_futures(symbols):
 
 def _update_batch_impl(symbols, tf, limit, fetch_fn):
     def fetch_one(sym):
-        df = fetch_fn(sym, tf, limit=limit)
-        if not df.empty:
-            cache_merge(sym, tf, df)
+        try:
+            df = fetch_fn(sym, tf, limit=limit)
+            if not df.empty:
+                cache_merge(sym, tf, df)
+        except Exception:  # pylint: disable=broad-exception-caught
+            log.exception("update_batch %s %s failed", sym, tf)
     with ThreadPoolExecutor(max_workers=30) as executor:
-        executor.map(fetch_one, symbols)
+        list(executor.map(fetch_one, symbols))
 
 
 def _update_batch(symbols, tf, limit):

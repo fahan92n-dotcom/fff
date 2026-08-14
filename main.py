@@ -42,7 +42,7 @@ from cascade_pipeline import (
     set_signal_handler,
 )
 from config import PORT
-from indicators import _ribbon_cache, _ribbon_cache_lock
+from indicators import clear_ribbon_cache
 from state_manager import (
     BROKEN_FRAMES_SNAPSHOT_INTERVAL,
     cleanup_alerted_keys,
@@ -111,8 +111,7 @@ def _run_full_scan_pair():
             worker.start()
         for worker in workers:
             worker.join()
-        with _ribbon_cache_lock:
-            _ribbon_cache.clear()
+        clear_ribbon_cache()
         trim_memory()
         return True
     finally:
