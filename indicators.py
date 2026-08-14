@@ -55,7 +55,7 @@ def _resample_origin_mode(minutes):
     Applies to every cascade frame (base, confirm, entry), not a subset.
     If 1440 % minutes == 0 (3/4/5/6/8/9/10/12/15/18/20/24/30/36/40/45/60/72/80/
     90/120/180/240/360/720) Unix epoch already matches TradingView.
-    Otherwise (7/21/27/50/54/63/70/81/135/150/210/270/450/540/630, …) epoch
+    Otherwise (7/21/27/50/54/63/70/81/135/150/210/270/300/450/540/630, …) epoch
     drifts and bars restart at 00:00 UTC each day like the chart.
     """
     return "epoch" if _MINUTES_PER_DAY % int(minutes) == 0 else "utc_day"

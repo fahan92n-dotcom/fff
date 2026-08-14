@@ -64,6 +64,12 @@ NEXT_TF = {
 }
 TF_TO_API = {pair[0]: pair[3] for pair in TRIPLING_PAIRS}
 
+# 5h is a cancel-only ceiling: SMI sat on 300m blocks 240m and emits no 5h signals.
+CANCEL_ONLY_HIGHER_TF = 300
+CANCEL_ONLY_HIGHER_API = "60m"
+NEXT_TF[TIMEFRAME_CHAIN[-1]] = CANCEL_ONLY_HIGHER_TF
+TF_TO_API[CANCEL_ONLY_HIGHER_TF] = CANCEL_ONLY_HIGHER_API
+
 
 def iter_cascade_frames():
     """Every closed candle the cascade builds: base, confirm, and entry.
@@ -217,6 +223,8 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
 
     مثال: تشبع 30m انتهى → أثناء إغلاق الشمعة 1 و 2 بعده → تشبع 27m يُرفض.
     من الشمعة الثالثة بدون تشبع على الأكبر، الأصغر يُسمح له.
+
+    240m يُلغى بتشبع 5 ساعات (300m). فريم 5 ساعات سقف إلغاء فقط ولا يصدر إشارات.
     """
     higher_tf = NEXT_TF.get(candidate["base_frame"])
     if higher_tf is None:
