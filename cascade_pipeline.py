@@ -27,8 +27,6 @@ from indicators import (
     calc_smi,
     check_donchian_trend_ribbon,
     check_macd_at_saturation_start,
-    check_macd_green,
-    check_macd_red,
     find_step8_entry_index,
     resample_ohlcv,
 )
@@ -582,7 +580,6 @@ def _refresh_and_validate_step5_side(
             direction="long",
         )
         ribbon_direction = "green"
-        confirm_macd_ok = check_macd_green(df_confirm)
     elif signal_type == "sell":
         if current_smi < 40:
             return None
@@ -592,7 +589,6 @@ def _refresh_and_validate_step5_side(
             direction="short",
         )
         ribbon_direction = "red"
-        confirm_macd_ok = check_macd_red(df_confirm)
     else:
         raise ValueError(f"Unsupported signal type: {signal_type}")
 
@@ -629,16 +625,19 @@ def _refresh_and_validate_step5_side(
         cache_key=confirm_key,
     ):
         return None
-    if not confirm_macd_ok:
-        return None
 
     candidate.update(
         {
             "df_base": df_base,
             "df_confirm": df_confirm,
+            "raw_base": raw_base,
             "get_resampled": get_resampled,
         }
     )
+    step5_fn = step5 if signal_type == "buy" else short_step5
+    ok_confirm_macd, _reason = step5_fn(candidate)
+    if not ok_confirm_macd:
+        return None
     return candidate
 
 
