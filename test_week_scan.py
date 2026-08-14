@@ -495,8 +495,8 @@ class TestWaitingBlindWindow(unittest.TestCase):
 
     def test_entry_inside_final_base_candle_window_is_recorded(self):
         t0 = datetime(2026, 8, 3, tzinfo=timezone.utc)
-        raw = _bars(t0, 3000, minutes=1, price=100.0)
-        sat_index = 120  # شمعة 15m المتشبعة تفتح عند t0+1800 دقيقة
+        raw = _bars(t0, 5000, minutes=1, price=100.0)
+        sat_index = 300  # بعد warmup؛ شمعة 15m تفتح عند t0+4500 دقيقة
         sat_ts = t0 + timedelta(minutes=sat_index * 15)
         entry_candle_ts = sat_ts + timedelta(minutes=20)  # شمعة 5m داخل نافذة الشمعة التالية
 
@@ -539,7 +539,7 @@ class TestWaitingBlindWindow(unittest.TestCase):
                 "sell",
                 {"1m": raw},
                 t0,
-                t0 + timedelta(minutes=3000),
+                t0 + timedelta(minutes=5000),
                 raw,
             )
 

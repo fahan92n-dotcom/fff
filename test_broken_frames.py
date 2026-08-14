@@ -63,7 +63,7 @@ class TestAuditBrokenFrames(unittest.TestCase):
         ok_frames = report["ok_frames_by_symbol"]["AAAUSDT"]
         self.assertGreater(len(ok_frames), 0)
         ok_bases = {item["base_frame"] for item in ok_frames}
-        self.assertIn(9, ok_bases)
+        self.assertIn(15, ok_bases)
         self.assertIn(45, ok_bases)
         self.assertEqual(
             len(ok_frames) + len(issues),
