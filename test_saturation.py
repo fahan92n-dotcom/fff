@@ -18,6 +18,7 @@ import numpy as np
 import cascade_steps
 import cascade_pipeline as pipeline
 import fahadal92 as bot
+import indicators as ind
 
 
 def _make_ohlcv(n: int, smi_value: float = -50.0) -> pd.DataFrame:
@@ -410,6 +411,27 @@ class TestResampleOrigin(unittest.TestCase):
                 minutes_from_midnight = ts.hour * 60 + ts.minute
                 self.assertIn(minutes_from_midnight, expected_boundaries,
                               f"حد الشمعة {ts} غير متوافق مع epoch UTC")
+
+    def test_150min_matches_tradingview_utc_midnight_grid(self):
+        """150m لا ينقسم على اليوم؛ يجب 00:00, 02:30, 07:30, 12:30 وليس شبكة epoch."""
+        times = pd.date_range(
+            start=datetime(2026, 8, 12, 0, 0, tzinfo=timezone.utc),
+            periods=24 * 60,
+            freq="1min",
+        )
+        df = pd.DataFrame({
+            "ts": times,
+            "open": 1.0, "high": 1.001, "low": 0.999, "close": 1.0, "vol": 1.0,
+        })
+        result = ind.resample_ohlcv_closed(df, 150)
+        opens = [
+            ts.hour * 60 + ts.minute
+            for ts in result["ts"]
+            if ts.date() == datetime(2026, 8, 12).date()
+        ]
+        self.assertIn(12 * 60 + 30, opens)
+        self.assertIn(7 * 60 + 30, opens)
+        self.assertNotIn(12 * 60, opens)
 
 
 class TestQuickCheckWatcherInterval(unittest.TestCase):
