@@ -705,6 +705,7 @@ def _refresh_stage(signal_type, stage_num, get_resampled):
         candidate2 = _refresh_waiting_candidate(
             candidate,
             get_resampled,
+            need_base=True,
             need_triple=True,
         )
         if candidate2 is None:
@@ -875,13 +876,35 @@ def _emit_signals(signal_type, label, passed, evaluated_count):
     )
 
 
+def _keep_step5_valid(signal_type, candidates, get_resampled):
+    """Re-check live confirm MACD (and the rest of stage 5) on every waiter.
+
+    Step ⑤ is "MACD Confirm on the *current* confirm bar". Candidates that
+    already passed it into stages 6/7 used to skip that check, so a LONG could
+    still fire after the 27m histogram flipped red (signal line above MACD).
+    Week-scan already calls ``_stage5_still_valid`` before every entry tip.
+    """
+    if signal_type == "buy":
+        validate = _refresh_and_validate_step5
+    elif signal_type == "sell":
+        validate = _refresh_and_validate_step5_short
+    else:
+        raise ValueError(f"Unsupported signal type: {signal_type}")
+    kept = []
+    for candidate in candidates:
+        refreshed = validate(candidate, get_resampled)
+        if refreshed is None:
+            abandon_waiting_candidate(signal_type, candidate)
+        else:
+            kept.append(refreshed)
+    return kept
+
+
 def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
     label = "LONG" if signal_type == "buy" else "SHORT"
     if signal_type == "buy":
-        validate_step5 = _refresh_and_validate_step5
         stage6_fn, stage7_fn, stage8_fn = step6, step7, step8
     elif signal_type == "sell":
-        validate_step5 = _refresh_and_validate_step5_short
         stage6_fn, stage7_fn, stage8_fn = (
             short_step6,
             short_step7,
@@ -890,13 +913,11 @@ def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
     else:
         raise ValueError(f"Unsupported signal type: {signal_type}")
 
-    validated_stage5 = []
-    for candidate in stage5_candidates:
-        refreshed = validate_step5(candidate, get_resampled)
-        if refreshed is None:
-            abandon_waiting_candidate(signal_type, candidate)
-        else:
-            validated_stage5.append(refreshed)
+    validated_stage5 = _keep_step5_valid(
+        signal_type,
+        stage5_candidates,
+        get_resampled,
+    )
 
     if validated_stage5:
         _evaluate_transition(
@@ -907,9 +928,13 @@ def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
             label,
         )
 
-    stage6_candidates = _waiting_transition_candidates(
+    stage6_candidates = _keep_step5_valid(
         signal_type,
-        6,
+        _waiting_transition_candidates(
+            signal_type,
+            6,
+            get_resampled,
+        ),
         get_resampled,
     )
     if stage6_candidates:
@@ -921,9 +946,13 @@ def _advance_pipeline(signal_type, stage5_candidates, get_resampled):
             label,
         )
 
-    stage7_candidates = _waiting_transition_candidates(
+    stage7_candidates = _keep_step5_valid(
         signal_type,
-        7,
+        _waiting_transition_candidates(
+            signal_type,
+            7,
+            get_resampled,
+        ),
         get_resampled,
     )
     if not stage7_candidates:

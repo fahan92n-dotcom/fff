@@ -185,11 +185,12 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
             return state.get_stage_candidates(signal_type, stage_num)
 
         candle_ts = pd.Timestamp("2024-01-01 11:57:00", tz="UTC")
+        validate_step5 = Mock(return_value=candidate)
         try:
             with patch.object(
                 pipeline,
                 "_refresh_and_validate_step5",
-                return_value=candidate,
+                validate_step5,
             ), patch.object(
                 pipeline,
                 "_refresh_stage",
@@ -231,6 +232,87 @@ class TestQuickStageAdvancement(CascadePipelineTestCase):
             price=12.5,
             candle_ts=candle_ts.to_pydatetime(),
         )
+        # Stage 5, then again for the stage-6 waiter, then the stage-7 waiter.
+        self.assertEqual(validate_step5.call_count, 3)
+
+    def _advance_with_step5_gate(self, candidate, signal_type, validate_name):
+        handler = Mock()
+        original_handler = pipeline._signal_handler
+        pipeline.set_signal_handler(handler)
+
+        def refresh_stage(_side, stage_num, _get_resampled):
+            return state.get_stage_candidates(_side, stage_num)
+
+        candle_ts = pd.Timestamp("2026-08-14 00:27:00", tz="UTC")
+        try:
+            with patch.object(
+                pipeline,
+                validate_name,
+                return_value=None,
+            ), patch.object(
+                pipeline,
+                "_refresh_stage",
+                side_effect=refresh_stage,
+            ), patch.object(
+                pipeline,
+                "_filter_base_saturation",
+                side_effect=lambda _side, candidates: candidates,
+            ), patch.object(
+                pipeline,
+                "_filter_higher_saturation",
+                side_effect=lambda _side, _stage, candidates, _resample: candidates,
+            ), patch.object(
+                pipeline,
+                "_run_step_batch",
+                side_effect=lambda candidates, *_args, **_kwargs: [
+                    (item, True, "passed") for item in candidates
+                ],
+            ), patch.object(
+                pipeline,
+                "_resolve_entry_signal_candle",
+                return_value=(
+                    candidate["df_triple"],
+                    21.8,
+                    candle_ts.to_pydatetime(),
+                ),
+            ):
+                pipeline._advance_pipeline(signal_type, [], Mock())
+        finally:
+            pipeline.set_signal_handler(original_handler)
+        return handler
+
+    def test_stage6_waiter_dropped_when_confirm_macd_flips_against_long(self):
+        """KORUUSDT-style: 27m signal > MACD after leaving stage 5 must not LONG."""
+        candidate = _candidate(symbol="KORUUSDT", base_frame=9)
+        with state.last_complete_lock:
+            state.last_complete_survivors[6] = [candidate]
+
+        handler = self._advance_with_step5_gate(
+            candidate,
+            "buy",
+            "_refresh_and_validate_step5",
+        )
+
+        handler.assert_not_called()
+        self.assertEqual(state.get_stage_candidates("buy", 6), [])
+        self.assertEqual(state.get_stage_candidates("buy", 7), [])
+        self.assertEqual(state.get_stage_candidates("buy", 8), [])
+
+    def test_stage7_waiter_dropped_when_confirm_macd_flips_against_short(self):
+        candidate = _candidate(symbol="KORUUSDT", base_frame=9)
+        with state.last_complete_short_lock:
+            state.last_complete_short_survivors[7] = [candidate]
+
+        handler = self._advance_with_step5_gate(
+            candidate,
+            "sell",
+            "_refresh_and_validate_step5_short",
+        )
+
+        handler.assert_not_called()
+        self.assertEqual(state.get_stage_candidates("sell", 7), [])
+        self.assertEqual(state.get_stage_candidates("sell", 8), [])
+
 
 class TestResolveEntrySignalCandle(CascadePipelineTestCase):
     def test_uses_verification_candle_not_later_triple_bar(self):
