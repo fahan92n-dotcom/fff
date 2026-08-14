@@ -3,7 +3,7 @@ Step 8:
 1) إغلاق تشبع SMI
 2) لمس RSI على شمعة مغلقة (35 / 65)
 3) تقاطع RSI مع متوسطه
-4) Stoch فوق 20 / تحت 80، وبينه وبين التقاطع ≤ 3 شموع (الاتجاه لا يهم)
+4) بعده خلال 3 شموع: Stoch فوق 20 / تحت 80
 """
 import unittest
 from unittest.mock import patch
@@ -88,7 +88,7 @@ class TestRsiCrossThenStochWithin3(unittest.TestCase):
             )
             self.assertFalse(ind.check_rsi_stoch(df, since_ts, max_gap=3))
 
-    def test_passes_when_stoch_above_20_within_3_before_rsi_cross(self):
+    def test_fails_when_stoch_only_before_rsi_cross(self):
         n = 220
         df = _base_df(n)
         since_ts = df["ts"].iloc[150]
@@ -100,30 +100,7 @@ class TestRsiCrossThenStochWithin3(unittest.TestCase):
         rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
 
         k = pd.Series(np.full(n, 10.0))
-        k.iloc[178] = 25.0  # فجوتين قبل التقاطع — مسموح
-        d = pd.Series(np.full(n, 50.0))
-
-        with patch.object(ind, "calc_rsi_tv", return_value=rsi), \
-             patch.object(ind, "calc_stoch_tv", return_value=(k, d)):
-            self.assertTrue(ind.check_rsi_stoch(df, since_ts, max_gap=3))
-            self.assertEqual(
-                ind.find_rsi_stoch_entry_index(df, since_ts, max_gap=3, side="long"),
-                180,  # شمعة التقاطع لأنها الأحدث
-            )
-
-    def test_fails_when_stoch_more_than_3_before_rsi_cross(self):
-        n = 220
-        df = _base_df(n)
-        since_ts = df["ts"].iloc[150]
-        rsi_vals = np.full(n, 40.0)
-        ma_vals = np.full(n, 45.0)
-        rsi_vals[160] = 34.0
-        rsi_vals[179] = 44.0
-        rsi_vals[180] = 46.0
-        rsi = _series_with_fixed_ma(rsi_vals, ma_vals)
-
-        k = pd.Series(np.full(n, 10.0))
-        k.iloc[175] = 25.0  # 5 شموع قبل التقاطع
+        k.iloc[175] = 25.0  # قبل التقاطع فقط
         d = pd.Series(np.full(n, 50.0))
 
         with patch.object(ind, "calc_rsi_tv", return_value=rsi), \

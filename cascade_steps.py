@@ -81,7 +81,7 @@ STEP_LABELS = {
     "macd_confirm": "⑤ MACD Confirm أخضر",
     "ema50": "⑥ تحت EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
-    "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع RSI + Stoch&gt;20 خلال 3",
+    "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع RSI → Stoch>20 خلال 3",
 }
 SHORT_STEP_NAMES = [
     "smi_overbought",
@@ -102,7 +102,7 @@ SHORT_STEP_LABELS = {
     "ema50_above": "⑥ فوق EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
     # Use &lt; (not raw <) — Telegram parse_mode=HTML rejects Stoch<80 as a bad tag.
-    "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI + Stoch&lt;80 خلال 3",
+    "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI → Stoch&lt;80 خلال 3",
 }
 
 StepResult = tuple[bool, str]
@@ -432,7 +432,7 @@ def _step8(candidate, rules):
     1) إغلاق كامل لتشبع SMI
     2) لمس RSI (35 تشبع بيعي / 65 تشبع شرائي)
     3) تقاطع RSI مع متوسطه
-    4) Stoch فوق 20 / تحت 80، وبينه وبين تقاطع RSI ≤ 3 شموع (الاتجاه لا يهم)
+    4) خلال 3 شموع بعده: Stoch فوق 20 / تحت 80
     """
     since_ts = _ready_since(candidate, rules)
     frame = candidate["df_triple"]
