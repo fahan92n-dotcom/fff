@@ -7,6 +7,7 @@ while TradingView already showed a red histogram on the forming confirm bar.
 import unittest
 from datetime import datetime, timezone
 from dataclasses import replace
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -122,6 +123,94 @@ class TestConfirmMacdLiveBar(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "passed")
         self.assertEqual(seen[-1], pd.Timestamp("2026-08-14 00:00:00+00:00"))
+
+
+class TestConfirmDonchianLiveBar(unittest.TestCase):
+    """Confirm Donchian (step ④) must follow the chart's current confirm bar.
+
+    Closed-only 27m resampling could stay green on 02:42 while TradingView
+    already showed a red ribbon on the forming 03:09 bar (XTZUSDT LONG).
+    """
+
+    def setUp(self):
+        with ind._ribbon_cache_lock:
+            ind._ribbon_cache.clear()
+
+    def tearDown(self):
+        with ind._ribbon_cache_lock:
+            ind._ribbon_cache.clear()
+
+    def _xtz_confirm_dump(self):
+        start = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
+        asof = datetime(2026, 8, 14, 3, 15, tzinfo=timezone.utc)
+        n = int((asof - start).total_seconds() // 60)
+        raw = _1m_range(start, minutes=n, close=20.0)
+        # Closed 02:15 27m bar breaks up so dchannel(20) is green on closed bars.
+        brk = (raw["ts"] >= pd.Timestamp("2026-08-14 02:15:00+00:00")) & (
+            raw["ts"] < pd.Timestamp("2026-08-14 02:42:00+00:00")
+        )
+        raw.loc[brk, ["open", "high", "low", "close"]] = [30.0, 30.1, 29.9, 30.0]
+        # Forming 03:09 bar dumps below the prior 20-bar low → red on the chart.
+        dump = raw["ts"] >= pd.Timestamp("2026-08-14 03:09:00+00:00")
+        raw.loc[dump, ["open", "high", "low", "close"]] = [10.0, 10.1, 9.9, 10.0]
+        closed_confirm = ind.resample_ohlcv_closed(raw, 27)
+        closed_confirm = closed_confirm[
+            closed_confirm["ts"] < pd.Timestamp("2026-08-14 03:09:00+00:00")
+        ]
+        live = ind.confirm_macd_frame(raw, "1m", 27, now=asof)
+        return raw, closed_confirm, live, asof
+
+    def test_closed_confirm_stays_green_while_live_bar_is_red(self):
+        _raw, closed_confirm, live, _asof = self._xtz_confirm_dump()
+        self.assertEqual(
+            pd.Timestamp(live["ts"].iloc[-1]),
+            pd.Timestamp("2026-08-14 03:09:00+00:00"),
+        )
+        self.assertTrue(ind.check_donchian_trend_ribbon(closed_confirm, "green"))
+        self.assertFalse(ind.check_donchian_trend_ribbon(closed_confirm, "red"))
+        self.assertTrue(ind.check_donchian_trend_ribbon(live, "red"))
+        self.assertFalse(ind.check_donchian_trend_ribbon(live, "green"))
+
+    def test_buy_step4_rejects_when_current_confirm_bar_is_red(self):
+        raw, closed_confirm, _live, asof = self._xtz_confirm_dump()
+        candidate = {
+            "sym": "XTZUSDT",
+            "base_api": "1m",
+            "confirm_frame": 27,
+            "df_confirm": closed_confirm,
+            "raw_base": raw,
+            "asof": asof,
+        }
+        ok, reason = strategy.step4(candidate)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "donchian_confirm")
+
+    def test_sell_step4_uses_current_confirm_bar(self):
+        raw, closed_confirm, _live, asof = self._xtz_confirm_dump()
+        seen = []
+
+        def spy(df, direction="red", cache_key=None):
+            seen.append(pd.Timestamp(df["ts"].iloc[-1]))
+            return True
+
+        candidate = {
+            "sym": "XTZUSDT",
+            "base_api": "1m",
+            "confirm_frame": 27,
+            "df_confirm": closed_confirm,
+            "raw_base": raw,
+            "asof": asof,
+        }
+        with patch.object(
+            strategy, "check_donchian_trend_ribbon", side_effect=spy
+        ):
+            ok, reason = strategy.short_step4(candidate)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "passed")
+        self.assertEqual(
+            seen[-1],
+            pd.Timestamp("2026-08-14 03:09:00+00:00"),
+        )
 
 
 if __name__ == "__main__":

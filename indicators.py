@@ -170,7 +170,7 @@ def resample_ohlcv_closed(df, minutes):
     يُعيد تجميع OHLCV دون حذف الشمعة الأخيرة. نفس محاذاة ``resample_ohlcv``.
 
     ⚠️ لا تستخدمها مباشرة في خطوات الإشارة إلا عبر ``confirm_macd_frame``
-    (لون MACD فريم التأكيد يطابق شمعة TradingView الجارية من مصدر مغلق).
+    (MACD ودونشيان فريم التأكيد يطابقان شمعة TradingView الجارية من مصدر مغلق).
     """
     if df.empty:
         return pd.DataFrame()
@@ -188,12 +188,12 @@ def _as_utc_timestamp(now):
 
 
 def confirm_macd_frame(raw_df, source_tf, confirm_minutes, now=None):
-    """Confirm-TF OHLCV for MACD color, including the in-progress confirm bar.
+    """Confirm-TF OHLCV including the in-progress confirm bar.
 
-    TradingView paints MACD on the current 27m (etc.) bar as soon as closed
-    1m/30m/60m source candles land in that bucket. Live cascade used to drop
-    that incomplete confirm bar, so step ⑤ could pass on a *previous* closed
-    green histogram while the chart's current confirm bar was already red.
+    TradingView paints MACD and Donchian on the current 27m (etc.) bar as soon
+    as closed 1m/30m/60m source candles land in that bucket. Live cascade used
+    to drop that incomplete confirm bar, so a LONG could pass on a *previous*
+    closed green confirm bar while the chart's current bar was already red.
 
     Only source candles whose period has fully closed by ``now`` are used, so
     this does not read an unclosed 1m/30m/60m candle.
