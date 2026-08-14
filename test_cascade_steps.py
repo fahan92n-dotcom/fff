@@ -126,6 +126,28 @@ class TestStep2PinnedToFirstSaturatedClose(unittest.TestCase):
         self.assertEqual(result, (False, "warmup"))
         histogram_check.assert_not_called()
 
+    def test_forwards_open_macd_band_from_variant(self):
+        histogram_check = Mock(return_value=True)
+        line_check = Mock(return_value=True)
+        pinned_rules = replace(
+            strategy.LONG_RULES,
+            base_histogram_check=histogram_check,
+            macd_line_check=line_check,
+        )
+        candidate = {
+            "df_base": pd.DataFrame({"close": [1.0] * 1000}),
+            "base_frame": 60,
+            "variant": {"macd_line_pct": None},
+        }
+        with patch.object(
+            strategy,
+            "find_saturation_start_index",
+            return_value=500,
+        ):
+            result = strategy._step2(candidate, pinned_rules)
+        self.assertEqual(result, (True, "passed"))
+        self.assertIsNone(line_check.call_args.kwargs["pct"])
+
 
 class TestImmediateHigherFrame(unittest.TestCase):
     def test_saturation_uses_only_next_timeframe(self):

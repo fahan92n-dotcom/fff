@@ -25,6 +25,7 @@ from indicators import (
     check_macd_line_short,
     check_macd_red,
     confirm_macd_frame,
+    resolve_macd_line_pct,
     check_rsi_stoch,
     check_rsi_stoch_short,
     check_rsi_touched_since,
@@ -322,7 +323,7 @@ def _step2(candidate, rules):
         return False, f"macd_histogram_not_{suffix}"
     if not rules.macd_line_check(
         df_eval,
-        pct=0.40,
+        pct=resolve_macd_line_pct(_variant(candidate)),
         base_frame=candidate["base_frame"],
     ):
         return False, "macd_line_band"

@@ -214,6 +214,18 @@ def confirm_macd_frame(raw_df, source_tf, confirm_minutes, now=None):
 # MACD
 # ------------------------------------------
 
+# Live / baseline step-② band vs the window peak/trough above/below zero.
+# None disables that 40% cap/floor and keeps only the histogram-side check.
+DEFAULT_MACD_LINE_PCT = 0.40
+
+
+def resolve_macd_line_pct(variant=None):
+    """Return the MACD line band pct, or None to leave the far side open."""
+    if isinstance(variant, dict) and "macd_line_pct" in variant:
+        return variant["macd_line_pct"]
+    return DEFAULT_MACD_LINE_PCT
+
+
 def wilder_rma(series, period):
     return series.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
 
@@ -258,12 +270,13 @@ def _macd_window_series(macd_line, ts, base_frame):
     return window if not window.empty else macd_line
 
 
-def check_macd_line_long(df, pct=0.40, base_frame=60):
+def check_macd_line_long(df, pct=DEFAULT_MACD_LINE_PCT, base_frame=60):
     """
     شرط MACD Line للشراء (مع هيستوجرام أحمر متوقع من المستدعي):
     - الحد السفلي: الخط الأزرق فوق الهوستقرام أو يلامسه (macd >= hist) — ممنوع تحته
     - الحد العلوي: ≤ pct من أقصى ارتفاع فوق خط الصفر خلال النافذة اليومية
       مثال: أعلى قيمة موجبة = 100 → السقف = 40
+    - pct=None يلغي السقف ويُبقي شرط الهوستقرام فقط (الحد العلوي مفتوح)
     """
     if len(df) < WARMUP_MACD:
         return False
@@ -274,6 +287,8 @@ def check_macd_line_long(df, pct=0.40, base_frame=60):
     # الحد السفلي: فوق الهوستقرام الأحمر أو يلامسه
     if current_macd < current_hist:
         return False
+    if pct is None:
+        return True
 
     window = _macd_window_series(macd_line, df["ts"], base_frame)
     # أقصى ارتفاع فوق خط الصفر فقط
@@ -289,12 +304,13 @@ def check_macd_line_long(df, pct=0.40, base_frame=60):
     return True
 
 
-def check_macd_line_short(df, pct=0.40, base_frame=60):
+def check_macd_line_short(df, pct=DEFAULT_MACD_LINE_PCT, base_frame=60):
     """
     شرط MACD Line للبيع (مع هيستوجرام أخضر متوقع من المستدعي):
     - الحد العلوي: الخط الأزرق تحت الهوستقرام أو يلامسه (macd <= hist) — ممنوع فوقه
     - الحد السفلي: ≥ pct من أقصى نزول تحت خط الصفر خلال النافذة اليومية
       مثال: أدنى قيمة = -100 → الأرضية = -40 (ولا ينزل أعمق منها)
+    - pct=None يلغي الأرضية ويُبقي شرط الهوستقرام فقط (الحد السفلي مفتوح)
     """
     if len(df) < WARMUP_MACD:
         return False
@@ -305,6 +321,8 @@ def check_macd_line_short(df, pct=0.40, base_frame=60):
     # الحد العلوي: تحت الهوستقرام الأخضر أو يلامسه
     if current_macd > current_hist:
         return False
+    if pct is None:
+        return True
 
     window = _macd_window_series(macd_line, df["ts"], base_frame)
     # أقصى نزول تحت خط الصفر فقط
@@ -550,7 +568,9 @@ def find_saturation_start_index(df, threshold=-40, direction="long"):
     return index
 
 
-def check_macd_at_saturation_start(df, base_frame, direction="long", pct=0.40):
+def check_macd_at_saturation_start(
+    df, base_frame, direction="long", pct=DEFAULT_MACD_LINE_PCT
+):
     """
     فحص MACD مرة واحدة فقط: على أول شمعة إغلاق متشبعة في نوبة التشبع
     الحالية، لا على آخر شمعة. تُقصّ السلسلة عند تلك الشمعة ثم يُقيَّم

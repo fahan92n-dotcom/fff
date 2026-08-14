@@ -108,6 +108,14 @@ class TestVariantStepOverrides(unittest.TestCase):
         self.assertFalse(payload["ema_on_confirm"])
         self.assertFalse(payload["skip_donchian_confirm"])
         self.assertIsNone(payload["btc_corr_min"])
+        self.assertNotIn("macd_line_pct", payload)
+
+    def test_macd_hist_only_variant_opens_the_40_percent_band(self):
+        variant = experiments.EXPERIMENT_VARIANTS[-1]
+        self.assertEqual(variant.id, "macd_hist_only")
+        payload = variant.to_dict()
+        self.assertIn("macd_line_pct", payload)
+        self.assertIsNone(payload["macd_line_pct"])
 
 
 class TestExperimentRanking(unittest.TestCase):
