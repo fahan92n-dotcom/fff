@@ -52,11 +52,43 @@ _MINUTES_PER_DAY = 24 * 60
 def _resample_origin_mode(minutes):
     """Epoch when the TF tiles a UTC day; else midnight of each UTC day.
 
-    12m/30m/60m/90m divide 1440 so Unix epoch matches Binance/TradingView.
-    150m (and 21/27/210) do not: epoch is 30 minutes off the UTC chart
-    grid 00:00, 02:30, 07:30, 12:30 that TradingView shows.
+    9m/12m/30m/60m/90m divide 1440 so Unix epoch matches Binance/TradingView.
+    21m/27m/150m/210m do not: epoch drifts (e.g. 150m opens 12:00 instead of
+    TradingView's 12:30). Those TFs restart at 00:00 UTC every day.
     """
     return "epoch" if _MINUTES_PER_DAY % int(minutes) == 0 else "utc_day"
+
+
+def candle_period_end(ts, minutes):
+    """UTC close time of the candle that opens at ``ts``.
+
+    TFs that tile a UTC day last exactly ``minutes``.
+    TFs that restart at midnight are clipped at the next 00:00 UTC so a
+    remainder bar (27m at 23:51, 150m at 22:30) closes when TradingView
+    closes it — at the session end — not ``minutes`` later into the next day.
+    """
+    minutes = int(minutes)
+    start = pd.Timestamp(ts)
+    if start.tzinfo is None:
+        start = start.tz_localize("UTC")
+    else:
+        start = start.tz_convert("UTC")
+    nominal = start + pd.Timedelta(minutes=minutes)
+    if _resample_origin_mode(minutes) == "epoch":
+        return nominal
+    next_midnight = start.floor("D") + pd.Timedelta(days=1)
+    return min(nominal, next_midnight)
+
+
+def candle_period_ends(ts_series, minutes):
+    """Vectorized ``candle_period_end`` for a Series of bar opens."""
+    minutes = int(minutes)
+    start = pd.to_datetime(ts_series, utc=True)
+    nominal = start + pd.Timedelta(minutes=minutes)
+    if _resample_origin_mode(minutes) == "epoch":
+        return nominal
+    next_midnight = start.dt.floor("D") + pd.Timedelta(days=1)
+    return nominal.clip(upper=next_midnight)
 
 
 def _resample_ohlcv_frame(df, minutes):
@@ -108,8 +140,8 @@ def resample_ohlcv(df, minutes):
     يُعيد تجميع (resample) بيانات OHLCV إلى فريم زمني محدد بالدقائق.
 
     الفريمات التي تنقسم على 1440 دقيقة تستخدم Unix epoch (مطابقة Binance).
-    الفريمات التي لا تنقسم (مثل 150m) تُحاذى على منتصف الليل UTC كل يوم
-    حتى تطابق شبكة TradingView 00:00 / 02:30 / 07:30 / 12:30.
+    الفريمات التي لا تنقسم (21/27/150/210...) تُحاذى على منتصف الليل UTC كل يوم
+    حتى تطابق شبكة TradingView. شمعة آخر اليوم القصيرة تُقفل عند 00:00 UTC.
 
     هذه الدالة تحذف الشمعة الأخيرة إذا لم تُغلق بعد (شمعة جارية).
     استخدم هذه الدالة حصرًا في مسارات تقييم الإشارات (step1-step8 وما شابه).
@@ -120,8 +152,13 @@ def resample_ohlcv(df, minutes):
     resampled = _resample_ohlcv_frame(df, minutes)
     if resampled.empty:
         return resampled
-    last_candle_end = resampled["ts"].iloc[-1] + pd.Timedelta(minutes=int(minutes))
-    if now < last_candle_end:
+    last_candle_end = candle_period_end(resampled["ts"].iloc[-1], minutes)
+    now_ts = pd.Timestamp(now)
+    if now_ts.tzinfo is None:
+        now_ts = now_ts.tz_localize("UTC")
+    else:
+        now_ts = now_ts.tz_convert("UTC")
+    if now_ts < last_candle_end:
         resampled = resampled.iloc[:-1]
     return resampled
 

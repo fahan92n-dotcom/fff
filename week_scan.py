@@ -57,6 +57,8 @@ from indicators import (
     check_macd_red,
     find_step8_entry_index,
     resample_ohlcv_closed,
+    candle_period_end,
+    candle_period_ends,
 )
 from state_manager import ALERT_EXPIRY_HOURS
 
@@ -113,7 +115,8 @@ def _utc(ts):
 
 
 def _candle_end(ts, minutes):
-    return _utc(ts) + timedelta(minutes=int(minutes))
+    end = candle_period_end(ts, minutes)
+    return _utc(end.to_pydatetime() if hasattr(end, "to_pydatetime") else end)
 
 
 def _slice_closed(full_df, minutes, asof):
@@ -121,7 +124,7 @@ def _slice_closed(full_df, minutes, asof):
     if full_df is None or full_df.empty:
         return pd.DataFrame()
     asof_ts = pd.Timestamp(_utc(asof))
-    ends = full_df["ts"] + pd.Timedelta(minutes=int(minutes))
+    ends = candle_period_ends(full_df["ts"], minutes)
     sliced = full_df.loc[ends <= asof_ts]
     if sliced.empty:
         return pd.DataFrame()
