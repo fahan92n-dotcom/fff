@@ -214,7 +214,6 @@ def _stage5_still_valid(candidate, signal_type):
 
     smi, _, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
     current_smi = float(smi.iloc[-1])
-    variant = candidate.get("variant") if isinstance(candidate.get("variant"), dict) else {}
 
     # فحص MACD الأساسي مثبّت على أول شمعة إغلاق متشبعة (مطابق للمسار الحي).
     if signal_type == "buy":
@@ -248,11 +247,9 @@ def _stage5_still_valid(candidate, signal_type):
         df_base, ribbon_direction, cache_key=None
     ):
         return False
-    if not variant.get("skip_donchian_confirm"):
-        if not check_donchian_trend_ribbon(
-            df_confirm, ribbon_direction, cache_key=None
-        ):
-            return False
+    ok_confirm_don, _reason = steps_1_5[3](candidate)
+    if not ok_confirm_don:
+        return False
     ok_confirm_macd, _reason = steps_1_5[4](candidate)
     if not ok_confirm_macd:
         return False
