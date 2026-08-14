@@ -90,7 +90,7 @@ STEP_NAMES = [
 ]
 STEP_LABELS = {
     "smi_oversold": "① تشبع بيعي SMI",
-    "macd_red": "② MACD أحمر + خط بين حدّي 40٪ من الصفر (أول إغلاق تشبع)",
+    "macd_red": "② MACD أحمر + خط داخل الهوستقرام (لا تحته ولا فوقه) ضمن 40٪ (أول إغلاق تشبع)",
     "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
     "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
     "macd_confirm": "⑤ MACD Confirm أخضر (شمعة التأكيد الحالية)",
@@ -110,7 +110,7 @@ SHORT_STEP_NAMES = [
 ]
 SHORT_STEP_LABELS = {
     "smi_overbought": "① تشبع شرائي SMI ≥ +40",
-    "macd_green": "② MACD أخضر + خط بين حدّي 40٪ من الصفر (أول إغلاق تشبع)",
+    "macd_green": "② MACD أخضر + خط داخل الهوستقرام (لا تحته ولا فوقه) ضمن 40٪ (أول إغلاق تشبع)",
     "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
     "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
     "macd_confirm_red": "⑤ MACD Confirm أحمر (شمعة التأكيد الحالية)",

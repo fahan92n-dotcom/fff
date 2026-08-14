@@ -278,44 +278,50 @@ def _macd_within_zero_band(current_macd, window, pct):
     return floor <= current_macd <= ceiling
 
 
-def check_macd_line_long(df, pct=MACD_LINE_PCT, base_frame=60):
+def _macd_inside_histogram(current_macd, current_hist):
+    """حدّان موحّدان: الخط داخل عمود الهوستقرام (بين خط الصفر وطرفه).
+
+    الحد السفلي مثبت: الخط ليس تحت الهوستقرام.
+    الحد العلوي: الخط ليس فوق الهوستقرام.
+    هيستوجرام أخضر (موجب): 0 ≤ macd ≤ hist
+    هيستوجرام أحمر (سالب): hist ≤ macd ≤ 0
     """
-    شرط MACD Line للشراء (مع هيستوجرام أحمر متوقع من المستدعي):
-    - الخط الأزرق فوق الهوستقرام أو يلامسه (macd >= hist) — ممنوع تحته
-    - الخط بين حدّي 40٪ من خط الصفر خلال النافذة اليومية
-      مثال: قمة 100 وقاع −100 → يجب أن يكون الخط بين −40 و +40
-    """
+    lower = min(0.0, current_hist)
+    upper = max(0.0, current_hist)
+    return lower <= current_macd <= upper
+
+
+def _check_macd_line(df, pct=MACD_LINE_PCT, base_frame=60):
+    """فحص موحّد لخط MACD في الخطوة ② (شراء وبيع)."""
     if len(df) < WARMUP_MACD:
         return False
     macd_line, _, histogram = _calc_macd_full(df["close"])
     current_macd = float(macd_line.iloc[-1])
     current_hist = float(histogram.iloc[-1])
-
-    if current_macd < current_hist:
+    if not _macd_inside_histogram(current_macd, current_hist):
         return False
-
     window = _macd_window_series(macd_line, df["ts"], base_frame)
     return _macd_within_zero_band(current_macd, window, pct)
+
+
+def check_macd_line_long(df, pct=MACD_LINE_PCT, base_frame=60):
+    """
+    شرط MACD Line للشراء (هيستوجرام أحمر من المستدعي):
+    - حد سفلي مثبت: الخط ليس تحت الهوستقرام
+    - حد علوي: الخط ليس فوق الهوستقرام (بين الصفر وطرف العمود)
+    - وأيضًا داخل 40٪ من خط الصفر خلال النافذة اليومية
+    """
+    return _check_macd_line(df, pct=pct, base_frame=base_frame)
 
 
 def check_macd_line_short(df, pct=MACD_LINE_PCT, base_frame=60):
     """
-    شرط MACD Line للبيع (مع هيستوجرام أخضر متوقع من المستدعي):
-    - الخط الأزرق تحت الهوستقرام أو يلامسه (macd <= hist) — ممنوع فوقه
-    - الخط بين حدّي 40٪ من خط الصفر خلال النافذة اليومية
-      مثال: قمة 100 وقاع −100 → يجب أن يكون الخط بين −40 و +40
+    شرط MACD Line للبيع (هيستوجرام أخضر من المستدعي):
+    - حد سفلي مثبت: الخط ليس تحت الهوستقرام الأخضر (لا ينزل تحت الصفر)
+    - حد علوي: الخط ليس فوق الهوستقرام الأخضر (لا يتجاوز طرف العمود)
+    - وأيضًا داخل 40٪ من خط الصفر خلال النافذة اليومية
     """
-    if len(df) < WARMUP_MACD:
-        return False
-    macd_line, _, histogram = _calc_macd_full(df["close"])
-    current_macd = float(macd_line.iloc[-1])
-    current_hist = float(histogram.iloc[-1])
-
-    if current_macd > current_hist:
-        return False
-
-    window = _macd_window_series(macd_line, df["ts"], base_frame)
-    return _macd_within_zero_band(current_macd, window, pct)
+    return _check_macd_line(df, pct=pct, base_frame=base_frame)
 
 # ------------------------------------------
 # Donchian
