@@ -22,11 +22,10 @@ from binance_data import (
 from indicators import (
     MIN_CANDLES,
     WARMUP_SMI,
-    _ribbon_cache,
-    _ribbon_cache_lock,
     calc_smi,
     check_donchian_trend_ribbon,
     check_macd_at_saturation_start,
+    clear_ribbon_cache,
     find_step8_entry_index,
     resample_ohlcv,
 )
@@ -504,8 +503,7 @@ def _run_cascade_scan(signal_type, require_cache):
         len(step_survivors.get(5, [])),
     )
     resample_cache.clear()
-    with _ribbon_cache_lock:
-        _ribbon_cache.clear()
+    clear_ribbon_cache()
 
 
 def run_cascade_scan():
@@ -996,8 +994,7 @@ def quick_check_once():
     if not fast_prefetch_done.is_set():
         return
 
-    with _ribbon_cache_lock:
-        _ribbon_cache.clear()
+    clear_ribbon_cache()
     snapshot = _snapshot_quick_candidates()
     _refresh_quick_data(snapshot)
     _, get_resampled = _new_resampler()

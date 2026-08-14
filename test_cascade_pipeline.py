@@ -276,5 +276,69 @@ class TestResolveEntrySignalCandle(CascadePipelineTestCase):
         self.assertNotEqual(price, float(entry["close"].iloc[-1]))
 
 
+class TestLiveCandidatesOmitBtcBase(CascadePipelineTestCase):
+    def test_live_tripling_candidates_do_not_attach_df_btc_base(self):
+        from indicators import MIN_CANDLES
+
+        enough = pd.DataFrame(
+            {
+                "ts": pd.date_range(
+                    "2024-01-01",
+                    periods=MIN_CANDLES,
+                    freq="1min",
+                    tz="UTC",
+                ),
+                "open": 1.0,
+                "high": 1.0,
+                "low": 1.0,
+                "close": 1.0,
+                "vol": 1.0,
+            }
+        )
+
+        def get_resampled(*_args, **_kwargs):
+            return enough
+
+        with patch.object(pipeline, "get_cached", return_value=enough), patch.object(
+            pipeline,
+            "TRIPLING_PAIRS",
+            [(9, 27, 3, "1m", "1m")],
+        ):
+            candidates = pipeline._build_tripling_candidates(
+                ["ETHUSDT"],
+                get_resampled,
+            )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertNotIn("df_btc_base", candidates[0])
+        self.assertEqual(candidates[0]["sym"], "ETHUSDT")
+
+
+class TestQuickCheckClearsRibbon(CascadePipelineTestCase):
+    def test_quick_check_once_clears_ribbon_cache(self):
+        with patch.object(pipeline, "fast_prefetch_done") as prefetch, patch.object(
+            pipeline,
+            "clear_ribbon_cache",
+        ) as clear_ribbon, patch.object(
+            pipeline,
+            "_snapshot_quick_candidates",
+            return_value={"buy": {5: []}, "sell": {5: []}},
+        ), patch.object(
+            pipeline,
+            "_refresh_quick_data",
+        ), patch.object(
+            pipeline,
+            "_new_resampler",
+            return_value=(None, Mock()),
+        ), patch.object(
+            pipeline,
+            "_advance_pipeline",
+        ), patch.object(pipeline, "touch_scan_times"):
+            prefetch.is_set.return_value = True
+            pipeline.quick_check_once()
+
+        clear_ribbon.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()

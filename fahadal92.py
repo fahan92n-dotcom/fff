@@ -41,7 +41,7 @@ from binance_data import (
 
 from indicators import (
     MIN_CANDLES,
-    _ribbon_cache, _ribbon_cache_lock,
+    _ribbon_cache, _ribbon_cache_lock, clear_ribbon_cache,
     resample_ohlcv,
     _calc_macd_full,
     calc_smi,

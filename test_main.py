@@ -48,15 +48,54 @@ class TestScanPair(unittest.TestCase):
             ImmediateThread,
         ), patch.object(runtime, "trim_memory"), patch.object(
             runtime,
-            "_ribbon_cache",
-            {},
-        ):
+            "clear_ribbon_cache",
+        ) as clear_ribbon:
             ran = runtime._run_full_scan_pair()
 
         self.assertTrue(ran)
         self.assertEqual(len(workers), 2)
         long_scan.assert_called_once_with()
         short_scan.assert_called_once_with()
+        clear_ribbon.assert_called_once_with()
+
+
+class TestBackgroundWatchers(unittest.TestCase):
+    def test_start_background_services_starts_cascade_and_quick_check(self):
+        started = []
+
+        def fake_run_forever(target, name):
+            started.append((target, name))
+
+        with patch.object(runtime, "HTTPServer") as http, patch.object(
+            runtime,
+            "delete_webhook",
+        ), patch.object(
+            runtime,
+            "_start_market_threads",
+        ), patch.object(
+            runtime,
+            "run_forever",
+            fake_run_forever,
+        ), patch.object(runtime, "send_telegram"):
+            http.return_value = Mock()
+            runtime.start_background_services()
+
+        names = [name for _target, name in started]
+        self.assertEqual(
+            names,
+            [
+                "poll_telegram_commands",
+                "cascade_watcher",
+                "quick_check_watcher",
+            ],
+        )
+        by_name = {name: target for target, name in started}
+        self.assertIs(by_name["cascade_watcher"], runtime.cascade_watcher)
+        self.assertIs(by_name["quick_check_watcher"], runtime.quick_check_watcher)
+        self.assertIs(
+            by_name["poll_telegram_commands"],
+            runtime.poll_telegram_commands,
+        )
 
 
 if __name__ == "__main__":
