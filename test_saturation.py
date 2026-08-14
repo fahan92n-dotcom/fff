@@ -76,6 +76,7 @@ class TestTFToAPI(unittest.TestCase):
         self.assertEqual(bot.TF_TO_API[180], "60m")
         self.assertEqual(bot.TF_TO_API[210], "30m")  # 210 لا ينقسم على 60
         self.assertEqual(bot.TF_TO_API[240], "60m")
+        self.assertEqual(bot.TF_TO_API[cascade_steps.CANCEL_ONLY_HIGHER_TF], "60m")
 
     def test_all_tripling_targets_divisible_by_source(self):
         """كل base/confirm/triple يجب أن ينقسم على مصدره."""
@@ -93,9 +94,26 @@ class TestTFToAPI(unittest.TestCase):
                           f"الفريم {tf}m غير موجود في TF_TO_API")
 
     def test_derived_from_tripling_pairs(self):
-        """TF_TO_API يجب أن يكون مشتقًا مباشرة من TRIPLING_PAIRS (العمود الرابع)."""
+        """TF_TO_API = مصادر TRIPLING_PAIRS + سقف الإلغاء 5 ساعات."""
         expected = {p[0]: p[3] for p in bot.TRIPLING_PAIRS}
+        expected[cascade_steps.CANCEL_ONLY_HIGHER_TF] = (
+            cascade_steps.CANCEL_ONLY_HIGHER_API
+        )
         self.assertEqual(bot.TF_TO_API, expected)
+
+    def test_five_hour_ceiling_cancels_240_and_does_not_trade(self):
+        """5 ساعات يلغي 240m ولا يدخل سلسلة الإشارات."""
+        self.assertEqual(bot.NEXT_TF[240], cascade_steps.CANCEL_ONLY_HIGHER_TF)
+        self.assertNotIn(cascade_steps.CANCEL_ONLY_HIGHER_TF, bot.TIMEFRAME_CHAIN)
+        self.assertNotIn(
+            cascade_steps.CANCEL_ONLY_HIGHER_TF,
+            [pair[0] for pair in bot.TRIPLING_PAIRS],
+        )
+        self.assertEqual(
+            cascade_steps.CANCEL_ONLY_HIGHER_TF
+            % int(cascade_steps.CANCEL_ONLY_HIGHER_API.replace("m", "")),
+            0,
+        )
 
 
 class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
@@ -364,24 +382,53 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
 
         self.assertFalse(result)
 
-    def test_skips_frame_when_base_frame_equal(self):
-        """لا يفحص فريمًا مساوياً لـ base_frame."""
+    def test_240m_checks_five_hour_ceiling_on_60m_source(self):
+        """مرشح 240m يفحص تشبع 5 ساعات من مصدر 60m."""
         candidate = self._make_candidate(base_frame=240)
         calls = []
+        resampled_tfs = []
 
         def mock_get_cached(sym, api):
             calls.append(api)
-            return pd.DataFrame()
+            return pd.DataFrame({"ts": [1]})
 
-        def mock_get_resampled(raw, sym, api, tf):
+        def mock_get_resampled(raw_df, sym, api, tf):
+            resampled_tfs.append(tf)
             return pd.DataFrame()
 
         with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
             bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
 
-        # base_frame = 240 وهو أكبر فريم في TIMEFRAME_CHAIN → لا استدعاءات
-        self.assertEqual(len(calls), 0,
-                         "يجب عدم فحص أي فريم عندما base_frame = 240 (أعلى فريم)")
+        self.assertEqual(calls, ["60m"])
+        self.assertEqual(resampled_tfs, [cascade_steps.CANCEL_ONLY_HIGHER_TF])
+
+    def test_returns_true_when_five_hour_ceiling_oversold(self):
+        """تشبع 5 ساعات يلغي إشارة 240m."""
+        candidate = self._make_candidate(base_frame=240)
+        large_df = _make_ohlcv(n=500, smi_value=-50.0)
+        smi = pd.Series([-50.0] * len(large_df))
+
+        def mock_get_cached(sym, api):
+            return large_df.copy()
+
+        def mock_get_resampled(raw, sym, api, tf):
+            if tf == cascade_steps.CANCEL_ONLY_HIGHER_TF:
+                return large_df.copy()
+            return pd.DataFrame()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "buy",
+                    mock_get_resampled,
+                )
+
+        self.assertTrue(result)
 
 
 class TestResampleOrigin(unittest.TestCase):
