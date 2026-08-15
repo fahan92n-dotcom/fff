@@ -106,11 +106,12 @@ f_log(string msg) =>
     array.unshift(past, msg)
     if array.size(past) > 10
         array.pop(past)
+    0
 
 // ── بيانات الفريمات ──────────────────────────────────────────
-[smi15, m15, s15] = request.security(syminfo.tickerid, "15", f_htf(), lookahead=barmerge.lookahead_off)
-[smi30, m30, s30] = request.security(syminfo.tickerid, "30", f_htf(), lookahead=barmerge.lookahead_off)
-[smi45, m45, s45] = request.security(syminfo.tickerid, "45", f_htf(), lookahead=barmerge.lookahead_off)
+[smi15, macdLn15, sig15] = request.security(syminfo.tickerid, "15", f_htf(), lookahead=barmerge.lookahead_off)
+[smi30, macdLn30, sig30] = request.security(syminfo.tickerid, "30", f_htf(), lookahead=barmerge.lookahead_off)
+[smi45, macdLn45, sig45] = request.security(syminfo.tickerid, "45", f_htf(), lookahead=barmerge.lookahead_off)
 [don2, cl2, ema2] = request.security(syminfo.tickerid, "2", f_entry(), lookahead=barmerge.lookahead_off)
 [don3, cl3, ema3] = request.security(syminfo.tickerid, "3", f_entry(), lookahead=barmerge.lookahead_off)
 
@@ -118,12 +119,12 @@ don1 = f_donchian()
 ema1 = ta.ema(close, emaLen)
 cl1  = close
 
-macdGreen15 = m15 > s15
-macdRed15   = m15 < s15
-macdGreen30 = m30 > s30
-macdRed30   = m30 < s30
-macdGreen45 = m45 > s45
-macdRed45   = m45 < s45
+macdGreen15 = macdLn15 > sig15
+macdRed15   = macdLn15 < sig15
+macdGreen30 = macdLn30 > sig30
+macdRed30   = macdLn30 < sig30
+macdGreen45 = macdLn45 > sig45
+macdRed45   = macdLn45 < sig45
 
 sellSat15 = not na(smi15) and smi15 <= osLvl
 buySat15  = not na(smi15) and smi15 >= obLvl
@@ -165,25 +166,25 @@ goodSel3 = don3 == -1 and cl3 < ema3
 new2 = timeframe.change("2")
 new3 = timeframe.change("3")
 
-var int b15 = 0
-var int s15 = 0
-var int b30 = 0
-var int s30 = 0
-var int b45 = 0
-var int s45 = 0
+var int stBuy15 = 0
+var int stSel15 = 0
+var int stBuy30 = 0
+var int stSel30 = 0
+var int stBuy45 = 0
+var int stSel45 = 0
 
-[b15n, buy15hit]  = f_advance(buySetup15,  badBuy1, goodBuy1, true, b15)
-[s15n, sell15hit] = f_advance(sellSetup15, badSel1, goodSel1, true, s15)
-[b30n, buy30hit]  = f_advance(buySetup30,  badBuy2, goodBuy2, new2, b30)
-[s30n, sell30hit] = f_advance(sellSetup30, badSel2, goodSel2, new2, s30)
-[b45n, buy45hit]  = f_advance(buySetup45,  badBuy3, goodBuy3, new3, b45)
-[s45n, sell45hit] = f_advance(sellSetup45, badSel3, goodSel3, new3, s45)
-b15 := b15n
-s15 := s15n
-b30 := b30n
-s30 := s30n
-b45 := b45n
-s45 := s45n
+[stBuy15n, buy15hit]  = f_advance(buySetup15,  badBuy1, goodBuy1, true, stBuy15)
+[stSel15n, sell15hit] = f_advance(sellSetup15, badSel1, goodSel1, true, stSel15)
+[stBuy30n, buy30hit]  = f_advance(buySetup30,  badBuy2, goodBuy2, new2, stBuy30)
+[stSel30n, sell30hit] = f_advance(sellSetup30, badSel2, goodSel2, new2, stSel30)
+[stBuy45n, buy45hit]  = f_advance(buySetup45,  badBuy3, goodBuy3, new3, stBuy45)
+[stSel45n, sell45hit] = f_advance(sellSetup45, badSel3, goodSel3, new3, stSel45)
+stBuy15 := stBuy15n
+stSel15 := stSel15n
+stBuy30 := stBuy30n
+stSel30 := stSel30n
+stBuy45 := stBuy45n
+stSel45 := stSel45n
 
 long15 = useLong and buy15hit
 long30 = useLong and buy30hit
@@ -302,17 +303,17 @@ if showTable and barstate.islast
     f_cell(0, 5, "1m", color.white)
     f_cell(1, 5, don1 == 1 ? "أخضر" : don1 == -1 ? "أحمر" : "—", don1 == 1 ? color.lime : don1 == -1 ? color.red : color.gray)
     f_cell(2, 5, cl1 > ema1 ? "فوق" : cl1 < ema1 ? "تحت" : "على", cl1 > ema1 ? color.lime : color.red)
-    f_cell(3, 5, b15 == 2 ? "شراء" : s15 == 2 ? "بيع" : "—", b15 == 2 ? color.lime : s15 == 2 ? color.red : color.gray)
+    f_cell(3, 5, stBuy15 == 2 ? "شراء" : stSel15 == 2 ? "بيع" : "—", stBuy15 == 2 ? color.lime : stSel15 == 2 ? color.red : color.gray)
 
     f_cell(0, 6, "2m", color.white)
     f_cell(1, 6, don2 == 1 ? "أخضر" : don2 == -1 ? "أحمر" : "—", don2 == 1 ? color.lime : don2 == -1 ? color.red : color.gray)
     f_cell(2, 6, cl2 > ema2 ? "فوق" : cl2 < ema2 ? "تحت" : "على", cl2 > ema2 ? color.lime : color.red)
-    f_cell(3, 6, b30 == 2 ? "شراء" : s30 == 2 ? "بيع" : "—", b30 == 2 ? color.lime : s30 == 2 ? color.red : color.gray)
+    f_cell(3, 6, stBuy30 == 2 ? "شراء" : stSel30 == 2 ? "بيع" : "—", stBuy30 == 2 ? color.lime : stSel30 == 2 ? color.red : color.gray)
 
     f_cell(0, 7, "3m", color.white)
     f_cell(1, 7, don3 == 1 ? "أخضر" : don3 == -1 ? "أحمر" : "—", don3 == 1 ? color.lime : don3 == -1 ? color.red : color.gray)
     f_cell(2, 7, cl3 > ema3 ? "فوق" : cl3 < ema3 ? "تحت" : "على", cl3 > ema3 ? color.lime : color.red)
-    f_cell(3, 7, b45 == 2 ? "شراء" : s45 == 2 ? "بيع" : "—", b45 == 2 ? color.lime : s45 == 2 ? color.red : color.gray)
+    f_cell(3, 7, stBuy45 == 2 ? "شراء" : stSel45 == 2 ? "بيع" : "—", stBuy45 == 2 ? color.lime : stSel45 == 2 ? color.red : color.gray)
 
     f_cell(0, 8, "آخر الفرص السابقة", color.gray)
     f_cell(1, 8, "", color.gray)
