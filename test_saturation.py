@@ -4,7 +4,7 @@
 تتحقق هذه الاختبارات من:
 1. أن TF_TO_API يربط كل فريم بمصدره الصحيح المحدد في TRIPLING_PAIRS.
 2. أن _has_higher_tf_saturation تفحص الفريم التالي مباشرة وتستخدم مصدره الصحيح
-   (مثل 30m لفريم 90، و60m لفريم 180) وليس دائماً مصدر المرشح.
+   (مثل 30m لفريم 90، و60m لفريم 300) وليس دائماً مصدر المرشح.
 3. أن الفريمات ذات البيانات الكافية يتم تقييمها بشكل صحيح (لا ترجع False بسبب بيانات وهمية ناقصة).
 """
 import unittest
@@ -66,27 +66,28 @@ class TestTFToAPI(unittest.TestCase):
         self.assertEqual(bot.TF_TO_API[60], "60m")
 
     def test_medium_frames_use_30m(self):
-        """الفريمات 90/120/150 دقيقة يجب أن تستخدم مصدر 30m."""
-        for tf in [90, 120, 150]:
+        """الفريمات 90/120/150/210 دقيقة يجب أن تستخدم مصدر 30m."""
+        for tf in [90, 120, 150, 210]:
             self.assertEqual(bot.TF_TO_API[tf], "30m",
                              f"الفريم {tf}m يجب أن يستخدم 30m كمصدر")
 
     def test_high_frames_use_native_divisible_sources(self):
-        """سقف الإلغاء 180m يستخدم مصدر 60m."""
+        """سقف الإلغاء 300m (5 ساعات) يستخدم مصدر 60m."""
         self.assertEqual(bot.TF_TO_API[cascade_steps.CANCEL_ONLY_HIGHER_TF], "60m")
-        self.assertEqual(cascade_steps.CANCEL_ONLY_HIGHER_TF, 180)
+        self.assertEqual(cascade_steps.CANCEL_ONLY_HIGHER_TF, 300)
+        self.assertEqual(bot.TF_TO_API[240], "60m")
+        self.assertEqual(bot.TF_TO_API[210], "30m")
 
     def test_trading_bases_match_policy(self):
-        """الفريمات الأساسية المعتمدة: 15–30 و 45–150."""
+        """الفريمات الأساسية المعتمدة: 15–30 و 45–240، بدون 9/12/180 كإشارات."""
         self.assertEqual(
             [pair[0] for pair in bot.TRIPLING_PAIRS],
-            [15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150],
+            [15, 18, 21, 24, 27, 30, 45, 60, 90, 120, 150, 210, 240],
         )
         self.assertNotIn(9, bot.TIMEFRAME_CHAIN)
         self.assertNotIn(12, bot.TIMEFRAME_CHAIN)
         self.assertNotIn(180, bot.TIMEFRAME_CHAIN)
-        self.assertNotIn(210, bot.TIMEFRAME_CHAIN)
-        self.assertNotIn(240, bot.TIMEFRAME_CHAIN)
+        self.assertNotIn(300, bot.TIMEFRAME_CHAIN)
 
     def test_all_tripling_targets_divisible_by_source(self):
         """كل base/confirm/triple يجب أن ينقسم على مصدره."""
@@ -104,16 +105,18 @@ class TestTFToAPI(unittest.TestCase):
                           f"الفريم {tf}m غير موجود في TF_TO_API")
 
     def test_derived_from_tripling_pairs(self):
-        """TF_TO_API = مصادر TRIPLING_PAIRS + سقف الإلغاء 180m."""
+        """TF_TO_API = مصادر TRIPLING_PAIRS + سقف الإلغاء 300m."""
         expected = {p[0]: p[3] for p in bot.TRIPLING_PAIRS}
         expected[cascade_steps.CANCEL_ONLY_HIGHER_TF] = (
             cascade_steps.CANCEL_ONLY_HIGHER_API
         )
         self.assertEqual(bot.TF_TO_API, expected)
 
-    def test_cancel_ceiling_blocks_150_and_does_not_trade(self):
-        """180m يلغي 150m ولا يدخل سلسلة الإشارات."""
-        self.assertEqual(bot.NEXT_TF[150], cascade_steps.CANCEL_ONLY_HIGHER_TF)
+    def test_cancel_ceiling_blocks_240_and_does_not_trade(self):
+        """210m يوقفه 240m، و240m يوقفه 300m دون أن يدخل 5h سلسلة الإشارات."""
+        self.assertEqual(bot.NEXT_TF[150], 210)
+        self.assertEqual(bot.NEXT_TF[210], 240)
+        self.assertEqual(bot.NEXT_TF[240], cascade_steps.CANCEL_ONLY_HIGHER_TF)
         self.assertNotIn(cascade_steps.CANCEL_ONLY_HIGHER_TF, bot.TIMEFRAME_CHAIN)
         self.assertNotIn(
             cascade_steps.CANCEL_ONLY_HIGHER_TF,
@@ -160,11 +163,27 @@ class TestHasHigherTFSaturationSourceRouting(unittest.TestCase):
         apis_called = [api for _, api in calls]
         self.assertEqual(apis_called, ["30m"])
 
-    def test_uses_60m_source_for_immediate_180m_frame(self):
-        """
-        لمرشح base_api='1m'، عند فحص الفريم 180m يجب استدعاء get_cached بـ '60m' لا '1m'.
-        """
+    def test_uses_30m_source_for_immediate_210m_frame(self):
+        """مرشح 150m يفحص 210m من مصدر 30m."""
         candidate = self._make_candidate(base_frame=150, base_api="30m")
+        calls = []
+
+        def mock_get_cached(sym, api):
+            calls.append((sym, api))
+            return pd.DataFrame()
+
+        def mock_get_resampled(raw_df, sym, api, tf):
+            return pd.DataFrame()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
+
+        apis_called = [api for _, api in calls]
+        self.assertEqual(apis_called, ["30m"])
+
+    def test_uses_60m_source_for_immediate_300m_ceiling(self):
+        """مرشح 240m يفحص سقف 300m من مصدر 60m لا مصدر المرشح."""
+        candidate = self._make_candidate(base_frame=240, base_api="60m")
         calls = []
 
         def mock_get_cached(sym, api):
@@ -392,9 +411,29 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
 
         self.assertFalse(result)
 
-    def test_150m_checks_180m_ceiling_on_60m_source(self):
-        """مرشح 150m يفحص تشبع 180m من مصدر 60m."""
+    def test_150m_checks_210m_on_30m_source(self):
+        """مرشح 150m يفحص تشبع 210m من مصدر 30m."""
         candidate = self._make_candidate(base_frame=150)
+        calls = []
+        resampled_tfs = []
+
+        def mock_get_cached(sym, api):
+            calls.append(api)
+            return pd.DataFrame({"ts": [1]})
+
+        def mock_get_resampled(raw_df, sym, api, tf):
+            resampled_tfs.append(tf)
+            return pd.DataFrame()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            bot._has_higher_tf_saturation(candidate, "buy", mock_get_resampled)
+
+        self.assertEqual(calls, ["30m"])
+        self.assertEqual(resampled_tfs, [210])
+
+    def test_240m_checks_300m_ceiling_on_60m_source(self):
+        """مرشح 240m يفحص تشبع 300m من مصدر 60m."""
+        candidate = self._make_candidate(base_frame=240)
         calls = []
         resampled_tfs = []
 
@@ -412,9 +451,9 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
         self.assertEqual(calls, ["60m"])
         self.assertEqual(resampled_tfs, [cascade_steps.CANCEL_ONLY_HIGHER_TF])
 
-    def test_returns_true_when_180m_ceiling_oversold(self):
-        """تشبع 180m يلغي إشارة 150m."""
-        candidate = self._make_candidate(base_frame=150)
+    def test_returns_true_when_300m_ceiling_oversold(self):
+        """تشبع 300m يلغي إشارة 240m."""
+        candidate = self._make_candidate(base_frame=240)
         large_df = _make_ohlcv(n=500, smi_value=-50.0)
         smi = pd.Series([-50.0] * len(large_df))
 
@@ -423,6 +462,34 @@ class TestHasHigherTFSaturationLogic(unittest.TestCase):
 
         def mock_get_resampled(raw, sym, api, tf):
             if tf == cascade_steps.CANCEL_ONLY_HIGHER_TF:
+                return large_df.copy()
+            return pd.DataFrame()
+
+        with patch.object(cascade_steps, "get_cached", side_effect=mock_get_cached):
+            with patch.object(
+                cascade_steps,
+                "calc_smi",
+                return_value=(smi, smi, smi),
+            ):
+                result = bot._has_higher_tf_saturation(
+                    candidate,
+                    "buy",
+                    mock_get_resampled,
+                )
+
+        self.assertTrue(result)
+
+    def test_returns_true_when_210m_oversold_blocks_150(self):
+        """تشبع 210m يلغي إشارة 150m."""
+        candidate = self._make_candidate(base_frame=150)
+        large_df = _make_ohlcv(n=500, smi_value=-50.0)
+        smi = pd.Series([-50.0] * len(large_df))
+
+        def mock_get_cached(sym, api):
+            return large_df.copy()
+
+        def mock_get_resampled(raw, sym, api, tf):
+            if tf == 210:
                 return large_df.copy()
             return pd.DataFrame()
 
@@ -609,7 +676,11 @@ class TestResampleOrigin(unittest.TestCase):
             seen.append(minutes)
         self.assertIn(135, seen)
         self.assertIn(180, seen)
+        self.assertIn(210, seen)
+        self.assertIn(240, seen)
         self.assertIn(450, seen)
+        self.assertIn(630, seen)
+        self.assertIn(720, seen)
 
 
 class TestTradingViewIndicatorFormulas(unittest.TestCase):

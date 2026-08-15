@@ -3,7 +3,7 @@
 `/week` and `/today` replay the cascade on OHLCV, then classify each entry
 by base-frame outcome levels:
   - 15m..30m   → win +0.67% / loss 0.52% against
-  - 45m..150m  → win +1.00% / loss 0.75% against
+  - 45m..240m  → win +1.00% / loss 0.75% against
   - open       → neither level hit yet (reported as مستمرة)
 """
 
@@ -69,11 +69,11 @@ SHORT_TF_MAX = 30
 SHORT_WIN_PCT = 0.67
 SHORT_LOSS_PCT = 0.52
 LONG_TF_MIN = 45
-LONG_TF_MAX = 150
+LONG_TF_MAX = 240
 LONG_WIN_PCT = 1.0
 LONG_LOSS_PCT = 0.75
 
-# Back-compat defaults = long-frame bucket (45m..150m).
+# Back-compat defaults = long-frame bucket (45m..240m).
 WIN_PCT = LONG_WIN_PCT
 LOSS_PCT = LONG_LOSS_PCT
 WEEK_DAYS = 7
