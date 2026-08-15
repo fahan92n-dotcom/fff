@@ -51,6 +51,8 @@ TRIPLING_PAIRS = [
     (90, 270, 30, "30m", "30m"),
     (120, 360, 40, "30m", "1m"),
     (150, 450, 50, "30m", "1m"),
+    (210, 630, 70, "30m", "1m"),
+    (240, 720, 80, "60m", "1m"),
 ]
 
 TIMEFRAME_CHAIN = [pair[0] for pair in TRIPLING_PAIRS]
@@ -60,8 +62,8 @@ NEXT_TF = {
 }
 TF_TO_API = {pair[0]: pair[3] for pair in TRIPLING_PAIRS}
 
-# 180m is a cancel-only ceiling: SMI sat on 180m blocks 150m and emits no 180m signals.
-CANCEL_ONLY_HIGHER_TF = 180
+# 5h is a cancel-only ceiling: SMI sat on 300m blocks 240m and emits no 5h signals.
+CANCEL_ONLY_HIGHER_TF = 300
 CANCEL_ONLY_HIGHER_API = "60m"
 NEXT_TF[TIMEFRAME_CHAIN[-1]] = CANCEL_ONLY_HIGHER_TF
 TF_TO_API[CANCEL_ONLY_HIGHER_TF] = CANCEL_ONLY_HIGHER_API
@@ -220,8 +222,8 @@ def _has_higher_tf_saturation(candidate, signal_type, get_resampled):
     مثال: تشبع 30m انتهى → أثناء إغلاق الشمعة 1 و 2 بعده → تشبع 27m يُرفض.
     من الشمعة الثالثة بدون تشبع على الأكبر، الأصغر يُسمح له.
 
-    150m يُلغى بتشبع 180m (3 ساعات TradingView: 00:00/03:00/06:00 UTC).
-    فريم 180m سقف إلغاء فقط ولا يصدر إشارات.
+    210m يُلغى بتشبع 240m (4 ساعات). 240m يُلغى بتشبع 5 ساعات (300m).
+    فريم 5 ساعات سقف إلغاء فقط ولا يصدر إشارات.
 
     يُقيَّم على شمعة الفريم الأكبر الجارية من مصدر مغلق (مثل شارت TV) لكل
     زوج في السلسلة، لا على آخر عمود مغلق بينما الشارت يعرض العمود الحالي.

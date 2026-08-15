@@ -42,7 +42,7 @@ class TestOutcomeLevels(unittest.TestCase):
             )
 
     def test_long_frames_use_wide_levels(self):
-        for frame in (45, 60, 150):
+        for frame in (45, 60, 150, 210, 240):
             self.assertEqual(
                 week_scan.outcome_levels(frame),
                 (week_scan.LONG_WIN_PCT, week_scan.LONG_LOSS_PCT),
