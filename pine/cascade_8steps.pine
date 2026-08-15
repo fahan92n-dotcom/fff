@@ -2,12 +2,13 @@
 // استراتيجية Cascade ذات 8 خطوات — نسخة TradingView
 //
 // MACD خطوة ② بدون حد 40٪:
-//   شراء: هيستوجرام أحمر، وخط MACD فوق الهستوجرام أو يلامسه (ما ينزل تحته).
-//   بيع:  هيستوجرام أخضر، وخط MACD تحت الهستوجرام أو يلامسه (ما يتجاوزه).
+//   شراء: هيستوجرام أحمر، وخط MACD فوق الهستوجرام أو يلامسه.
+//   بيع:  هيستوجرام أخضر، وخط MACD تحت الهستوجرام أو يلامسه.
 //
-// ضع أي فريم على الشارت؛ البيانات تُجلب بالفريمات أدناه.
-// اختر زوجًا واحدًا من المدخلات (أساسي / تأكيد ×3 / دخول ÷3).
-// الحجم: 5٪ من رأس المال لكل صفقة. كل عملة شارت مستقل.
+// الأزواج الصحيحة:
+// 15/45/5→18 | 18/54/6→21 | 21/63/7→24 | 24/72/8→27 | 27/81/9→30
+// 30/90/10→45 | 45/135/15→60 | 60/180/20→90 | 90/270/30→120
+// 120/360/40→150 | 150/450/50→210 | 210/630/70→240 | 240/720/80→300
 strategy("Cascade 8 خطوات — MACD بدون 40٪",
      overlay                  = true,
      pyramiding               = 0,
@@ -22,7 +23,6 @@ strategy("Cascade 8 خطوات — MACD بدون 40٪",
      max_labels_count         = 500,
      max_bars_back            = 5000)
 
-// ── مدخلات ───────────────────────────────────────────────────
 grpInd = "المؤشرات"
 smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
 smiD   = input.int(3,  "SMI D", minval=1, group=grpInd)
@@ -45,23 +45,11 @@ stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
 stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch خلال كم شمعة بعد التقاطع", minval=0, group=grpInd)
 
-grpLv = "الفريم"
-pairSel = input.string("60 / 180 / 20", "زوج الفريمات (أساسي / تأكيد / دخول)",
-     options = [
-         "15 / 45 / 5",
-         "18 / 54 / 6",
-         "21 / 63 / 7",
-         "24 / 72 / 8",
-         "27 / 81 / 9",
-         "30 / 90 / 10",
-         "45 / 135 / 15",
-         "60 / 180 / 20",
-         "90 / 270 / 30",
-         "120 / 360 / 40",
-         "150 / 450 / 50",
-         "210 / 630 / 70",
-         "240 / 720 / 80"],
-     group = grpLv)
+grpLv = "الفريم — اختر الأربعة مع بعض حسب الزوج"
+baseTf = input.string("60", "1) أساسي", options=["15","18","21","24","27","30","45","60","90","120","150","210","240"], group=grpLv)
+confTf = input.string("180", "2) تأكيد ×3", options=["45","54","63","72","81","90","135","180","270","360","450","630","720"], group=grpLv)
+tripTf = input.string("20", "3) دخول ÷3", options=["5","6","7","8","9","10","15","20","30","40","50","70","80"], group=grpLv)
+highTf = input.string("90", "4) إلغاء (الأكبر)", options=["18","21","24","27","30","45","60","90","120","150","210","240","300"], group=grpLv)
 
 grpRisk = "إغلاق الصفقات"
 useLong = input.bool(true, "تفعيل الشراء", group=grpRisk)
@@ -74,94 +62,28 @@ exitOpp = input.bool(true, "إغلاق عند إشارة عكسية", group=grpR
 
 grpVis = "العرض"
 showBg  = input.bool(true, "تظليل أثناء إعداد 1–7", group=grpVis)
-showLog = input.bool(true, "لوحة الخطوات + آخر الصفقات", group=grpVis)
+showLog = input.bool(true, "لوحة الخطوات", group=grpVis)
 
-// ── فريمات الزوج المختار ─────────────────────────────────────
-baseTf = switch pairSel
-    "15 / 45 / 5"    => "15"
-    "18 / 54 / 6"    => "18"
-    "21 / 63 / 7"    => "21"
-    "24 / 72 / 8"    => "24"
-    "27 / 81 / 9"    => "27"
-    "30 / 90 / 10"   => "30"
-    "45 / 135 / 15"  => "45"
-    "60 / 180 / 20"  => "60"
-    "90 / 270 / 30"  => "90"
-    "120 / 360 / 40" => "120"
-    "150 / 450 / 50" => "150"
-    "210 / 630 / 70" => "210"
-    "240 / 720 / 80" => "240"
-    => "60"
-
-confTf = switch pairSel
-    "15 / 45 / 5"    => "45"
-    "18 / 54 / 6"    => "54"
-    "21 / 63 / 7"    => "63"
-    "24 / 72 / 8"    => "72"
-    "27 / 81 / 9"    => "81"
-    "30 / 90 / 10"   => "90"
-    "45 / 135 / 15"  => "135"
-    "60 / 180 / 20"  => "180"
-    "90 / 270 / 30"  => "270"
-    "120 / 360 / 40" => "360"
-    "150 / 450 / 50" => "450"
-    "210 / 630 / 70" => "630"
-    "240 / 720 / 80" => "720"
-    => "180"
-
-tripTf = switch pairSel
-    "15 / 45 / 5"    => "5"
-    "18 / 54 / 6"    => "6"
-    "21 / 63 / 7"    => "7"
-    "24 / 72 / 8"    => "8"
-    "27 / 81 / 9"    => "9"
-    "30 / 90 / 10"   => "10"
-    "45 / 135 / 15"  => "15"
-    "60 / 180 / 20"  => "20"
-    "90 / 270 / 30"  => "30"
-    "120 / 360 / 40" => "40"
-    "150 / 450 / 50" => "50"
-    "210 / 630 / 70" => "70"
-    "240 / 720 / 80" => "80"
-    => "20"
-
-// الفريم الأكبر التالي: تشبعه يلغي الأصغر (5 ساعات سقف إلغاء لـ 240م)
-highTf = switch pairSel
-    "15 / 45 / 5"    => "18"
-    "18 / 54 / 6"    => "21"
-    "21 / 63 / 7"    => "24"
-    "24 / 72 / 8"    => "27"
-    "27 / 81 / 9"    => "30"
-    "30 / 90 / 10"   => "45"
-    "45 / 135 / 15"  => "60"
-    "60 / 180 / 20"  => "90"
-    "90 / 270 / 30"  => "120"
-    "120 / 360 / 40" => "150"
-    "150 / 450 / 50" => "210"
-    "210 / 630 / 70" => "240"
-    "240 / 720 / 80" => "300"
-    => "90"
-
-baseMin = switch pairSel
-    "15 / 45 / 5"    => 15
-    "18 / 54 / 6"    => 18
-    "21 / 63 / 7"    => 21
-    "24 / 72 / 8"    => 24
-    "27 / 81 / 9"    => 27
-    "30 / 90 / 10"   => 30
-    "45 / 135 / 15"  => 45
-    "60 / 180 / 20"  => 60
-    "90 / 270 / 30"  => 90
-    "120 / 360 / 40" => 120
-    "150 / 450 / 50" => 150
-    "210 / 630 / 70" => 210
-    "240 / 720 / 80" => 240
+baseMin = switch baseTf
+    "15"  => 15
+    "18"  => 18
+    "21"  => 21
+    "24"  => 24
+    "27"  => 27
+    "30"  => 30
+    "45"  => 45
+    "60"  => 60
+    "90"  => 90
+    "120" => 120
+    "150" => 150
+    "210" => 210
+    "240" => 240
     => 60
 
 tpPct = autoLvl ? (baseMin <= 30 ? 0.67 : 1.00) : tpPctIn
 slPct = autoLvl ? (baseMin <= 30 ? 0.52 : 0.75) : slPctIn
+tag   = baseTf + "/" + confTf + "/" + tripTf
 
-// ── مؤشرات ───────────────────────────────────────────────────
 f_smi() =>
     ll      = ta.lowest(low, smiK)
     hh      = ta.highest(high, smiK)
@@ -178,7 +100,6 @@ f_don() =>
     trend := close > hh[1] ? 1.0 : close < ll[1] ? -1.0 : nz(trend[1], 0.0)
     trend
 
-// MACD على أول إغلاق متشبع في النوبة الحالية — بدون سقف/أرضية 40٪
 f_macd_ok(bool isLong, float smi, float hist, float macd) =>
     bool ok = false
     bool sat = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
@@ -214,17 +135,15 @@ f_ema_ok(bool isLong, float smi, float ema, float cl) =>
 f_rsi_conf(bool isLong, float rsi) =>
     bool bad = false
     for i = 0 to rsiLook - 1
-        if na(rsi[i])
-            continue
-        if isLong and rsi[i] <= rsiConfOs
-            bad := true
-            break
-        if not isLong and rsi[i] >= rsiConfOb
-            bad := true
-            break
+        if not na(rsi[i])
+            if isLong and rsi[i] <= rsiConfOs
+                bad := true
+                break
+            if not isLong and rsi[i] >= rsiConfOb
+                bad := true
+                break
     not bad
 
-// الفريم الأكبر: متشبع الآن، أو أول/ثاني شمعة بعد خروج التشبع
 f_block(bool isLong, float smi) =>
     bool sat0 = isLong ? smi <= osLvl : smi >= obLvl
     bool blocked = sat0
@@ -238,37 +157,40 @@ f_block(bool isLong, float smi) =>
         blocked := last == 1 or last == 2
     blocked
 
-// خطوة ⑧ على شموع مغلقة: SMI → RSI → تقاطع RSI/SMA(14) → Stoch خلال gap
+// خطوة ⑧ بدون دوال داخلية (Pine يرفض الدالة داخل الدالة)
 f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
     float smiTh = isLong ? osLvl : obLvl
     float rsiTh = isLong ? rsiOs : rsiOb
     float stTh  = isLong ? stochBuy : stochSell
-    smiHit(int i) => isLong ? smi[i] <= smiTh : smi[i] >= smiTh
-    rsiHit(int i) => isLong ? rsi[i] <= rsiTh : rsi[i] >= rsiTh
     bool ok = false
     int smiIdx = -1
-    if smiHit(1)
+    bool sat1 = isLong ? smi[1] <= smiTh : smi[1] >= smiTh
+    if sat1
         smiIdx := 1
         for i = 2 to 120
-            if not smiHit(i)
+            bool satI = isLong ? smi[i] <= smiTh : smi[i] >= smiTh
+            if not satI
                 break
             smiIdx := i
     else
         int lastSat = -1
         for i = 1 to 120
-            if smiHit(i)
+            bool satI = isLong ? smi[i] <= smiTh : smi[i] >= smiTh
+            if satI
                 lastSat := i
                 break
         if lastSat > 0
             smiIdx := lastSat
             for i = lastSat + 1 to 120
-                if not smiHit(i)
+                bool satI = isLong ? smi[i] <= smiTh : smi[i] >= smiTh
+                if not satI
                     break
                 smiIdx := i
     if smiIdx > 0
         int rsiIdx = -1
         for i = smiIdx to 1
-            if rsiHit(i)
+            bool rHit = isLong ? rsi[i] <= rsiTh : rsi[i] >= rsiTh
+            if rHit
                 rsiIdx := i
                 break
         if rsiIdx > 0
@@ -278,41 +200,34 @@ f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
                 float prevM = rsiMa[i + 1]
                 float curR  = rsi[i]
                 float curM  = rsiMa[i]
-                if na(prevR) or na(prevM) or na(curR) or na(curM)
-                    continue
-                bool crossed = isLong ? (prevR < prevM and curR >= curM) : (prevR > prevM and curR <= curM)
-                if crossed
-                    crossIdx := i
-                    break
+                if not na(prevR) and not na(prevM) and not na(curR) and not na(curM)
+                    bool crossed = isLong ? (prevR < prevM and curR >= curM) : (prevR > prevM and curR <= curM)
+                    if crossed
+                        crossIdx := i
+                        break
             if crossIdx > 0
                 int newest = math.max(1, crossIdx - stochGap)
                 for j = crossIdx to newest
-                    if na(k[j])
-                        continue
-                    bool st = isLong ? k[j] > stTh : k[j] < stTh
-                    if st
-                        ok := true
-                        break
+                    if not na(k[j])
+                        bool st = isLong ? k[j] > stTh : k[j] < stTh
+                        if st
+                            ok := true
+                            break
     ok
 
 f_base_pack() =>
     smi = f_smi()
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
-    histUse = hist + nz(sigLine) * 0
+    histUse = hist + nz(sigLine) * 0.0
     don = f_don()
     ema = ta.ema(close, emaLen)
-    [smi[1],
-     don[1],
-     f_macd_ok(true,  smi, histUse, macdLine),
-     f_macd_ok(false, smi, histUse, macdLine),
-     f_ema_ok(true,  smi, ema, close),
-     f_ema_ok(false, smi, ema, close)]
+    [smi[1], don[1], f_macd_ok(true, smi, histUse, macdLine), f_macd_ok(false, smi, histUse, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close)]
 
 f_conf_pack() =>
     don = f_don()
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     rsi = ta.rsi(close, rsiLen)
-    histAdj = hist + nz(macdLine) * 0 + nz(sigLine) * 0
+    histAdj = hist + nz(macdLine) * 0.0 + nz(sigLine) * 0.0
     [don, histAdj, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi)]
 
 f_trip_pack() =>
@@ -332,7 +247,6 @@ f_high_pack() =>
 [donTC, s8TL, s8TS] = request.security(syminfo.tickerid, tripTf, f_trip_pack(), barmerge.gaps_off, barmerge.lookahead_off)
 [bHL, bHS] = request.security(syminfo.tickerid, highTf, f_high_pack(), barmerge.gaps_off, barmerge.lookahead_off)
 
-// ── الخطوات ──────────────────────────────────────────────────
 step1L = not bHL and not na(smiBC) and smiBC <= osLvl
 step2L = mOkBL
 step3L = donBC == 1
@@ -356,7 +270,6 @@ shortSetup = step1S and step2S and step3S and step4S and step5S and step6S and s
 buyHit  = useLong and longSetup and step8L
 sellHit = useShrt and shortSetup and step8S
 
-// منع إعادة نفس الإشارة حتى ينكسر الإعداد
 var bool longArmed  = true
 var bool shortArmed = true
 if not longSetup
@@ -370,9 +283,6 @@ if longEntry
 if shortEntry
     shortArmed := false
 
-tag = pairSel
-
-// ── أوامر ────────────────────────────────────────────────────
 var float longStop  = na
 var float longLim   = na
 var float shortStop = na
@@ -408,16 +318,16 @@ bgcolor(showBg ? (longSetup ? color.new(color.teal, 90) : shortSetup ? color.new
 plotshape(longEntry,  title="شراء", style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small)
 plotshape(shortEntry, title="بيع",  style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small)
 
-mk(bool v) => v ? "✓" : "✗"
+mk(bool v) => v ? "OK" : "X"
 
 var label logLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(#111111, 8), textcolor=color.white, size=size.normal, textalign=text.align_left)
 
 if showLog
     string txt = "Cascade 8 | " + tag + "\n"
-    txt += "MACD بدون 40٪ (حد الهستوجرام فقط)\n"
-    txt += "شراء ①" + mk(step1L) + " ②" + mk(step2L) + " ③" + mk(step3L) + " ④" + mk(step4L) + " ⑤" + mk(step5L) + " ⑥" + mk(step6L) + " ⑦" + mk(step7L) + " ⑧" + mk(step8L) + "\n"
-    txt += "بيع   ①" + mk(step1S) + " ②" + mk(step2S) + " ③" + mk(step3S) + " ④" + mk(step4S) + " ⑤" + mk(step5S) + " ⑥" + mk(step6S) + " ⑦" + mk(step7S) + " ⑧" + mk(step8S) + "\n"
-    txt += "وقف " + str.tostring(slPct, "#.##") + "% | هدف " + str.tostring(tpPct, "#.##") + "%"
+    txt += "MACD بدون 40%\n"
+    txt += "Buy 1" + mk(step1L) + " 2" + mk(step2L) + " 3" + mk(step3L) + " 4" + mk(step4L) + " 5" + mk(step5L) + " 6" + mk(step6L) + " 7" + mk(step7L) + " 8" + mk(step8L) + "\n"
+    txt += "Sell 1" + mk(step1S) + " 2" + mk(step2S) + " 3" + mk(step3S) + " 4" + mk(step4S) + " 5" + mk(step5S) + " 6" + mk(step6S) + " 7" + mk(step7S) + " 8" + mk(step8S) + "\n"
+    txt += "SL " + str.tostring(slPct, "#.##") + "% | TP " + str.tostring(tpPct, "#.##") + "%"
     label.set_xy(logLbl, bar_index, high)
     label.set_text(logLbl, txt)
 else
