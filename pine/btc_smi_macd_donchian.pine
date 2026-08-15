@@ -1,0 +1,328 @@
+//@version=5
+// استراتيجية BTC: تشبع SMI + لون MACD على 15/30/45، والدخول على 1/2/3
+// بدونيشيان ترند ريبن + EMA50.
+//
+// الشراء: تشبع بيعي (SMI <= -40) وMACD أخضر (الخط فوق الإشارة).
+//         على فريم الدخول: دونيشيان أحمر وتحت EMA50، ثم يصير أخضر وفوق EMA50.
+// البيع:  تشبع شرائي (SMI >= +40) وMACD أحمر (الإشارة فوق الخط).
+//         على فريم الدخول: دونيشيان أخضر وفوق EMA50، ثم يصير أحمر وتحت EMA50.
+//
+// المستويات: 15m → دخول 1m | 30m → دخول 2m | 45m → دخول 3m
+// 15 يتوقف عند أي تشبع SMI على 30 أو 45.
+// 30 يتوقف عند أي تشبع SMI على 45.
+//
+// ضع الشارت على 1 دقيقة. الأسهم على التاريخ = الفرص التي تحققت سابقاً.
+// قائمة الصفقات في Strategy Tester.
+strategy("BTC SMI MACD Donchian",
+     overlay                  = true,
+     pyramiding               = 0,
+     initial_capital          = 10000,
+     default_qty_type         = strategy.percent_of_equity,
+     default_qty_value        = 10,
+     commission_type          = strategy.commission.percent,
+     commission_value         = 0.04,
+     process_orders_on_close  = true,
+     calc_on_every_tick       = false,
+     max_labels_count         = 500,
+     max_bars_back            = 5000)
+
+// ── مدخلات ───────────────────────────────────────────────────
+grpInd = "المؤشرات"
+smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
+smiD   = input.int(3,  "SMI D", minval=1, group=grpInd)
+osLvl  = input.float(-40, "تشبع بيعي SMI", group=grpInd)
+obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
+macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
+macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
+macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
+dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
+emaLen = input.int(50, "EMA", minval=1, group=grpInd)
+
+grpLv  = "المستويات"
+use15  = input.bool(true, "15m → دخول 1m", group=grpLv)
+use30  = input.bool(true, "30m → دخول 2m", group=grpLv)
+use45  = input.bool(true, "45m → دخول 3m", group=grpLv)
+
+grpRisk = "إغلاق الصفقات (لعرض النتائج السابقة)"
+useLong = input.bool(true,  "تفعيل الشراء", group=grpRisk)
+useShrt = input.bool(true,  "تفعيل البيع",  group=grpRisk)
+usePct  = input.bool(true,  "وقف/هدف بالنسبة المئوية", group=grpRisk)
+tpPct   = input.float(1.0,  "هدف %", minval=0.1, step=0.1, group=grpRisk)
+slPct   = input.float(0.7,  "وقف %", minval=0.1, step=0.1, group=grpRisk)
+exitOpp = input.bool(true,  "إغلاق عند إشارة عكسية", group=grpRisk)
+
+grpVis = "العرض"
+showBg    = input.bool(true,  "تظليل أثناء تشبع الفريم الكبير", group=grpVis)
+showTable = input.bool(true,  "لوحة الحالة وآخر الفرص", group=grpVis)
+showEma   = input.bool(true,  "رسم EMA50 (1m)", group=grpVis)
+
+// ── دوال المؤشرات ────────────────────────────────────────────
+f_smi() =>
+    ll      = ta.lowest(low, smiK)
+    hh      = ta.highest(high, smiK)
+    diff    = hh - ll
+    rdiff   = close - (hh + ll) / 2.0
+    avgrel  = ta.ema(ta.ema(rdiff, smiD), smiD)
+    avgdiff = ta.ema(ta.ema(diff, smiD), smiD)
+    avgdiff != 0 ? (avgrel / (avgdiff / 2.0)) * 100.0 : 0.0
+
+// لون شريط Donchian Trend Ribbon: 1 أخضر، -1 أحمر
+f_donchian() =>
+    hh = ta.highest(high, dlen)
+    ll = ta.lowest(low, dlen)
+    float trend = 0.0
+    trend := close > hh[1] ? 1.0 : close < ll[1] ? -1.0 : nz(trend[1], 0.0)
+    trend
+
+// قيم الفريم الكبير على آخر شمعة مغلقة (بدون إعادة رسم)
+f_htf() =>
+    smi = f_smi()
+    [m, s, _] = ta.macd(close, macdF, macdS, macdG)
+    [smi[1], m[1], s[1]]
+
+f_entry() =>
+    don = f_donchian()
+    ema = ta.ema(close, emaLen)
+    [don[1], close[1], ema[1]]
+
+// 0 خامل، 1 يراقب، 2 تسلّح (كان أحمر+تحت أو أخضر+فوق)، 3 دخل في هذه النوبة
+f_advance(bool htfOn, bool bothBad, bool bothGood, bool stepBar, int st) =>
+    int newSt = st
+    bool hit = false
+    if not htfOn
+        newSt := 0
+    else if stepBar
+        if newSt == 0
+            newSt := 1
+        if newSt == 1 and bothBad
+            newSt := 2
+        else if newSt == 2 and bothGood
+            hit := true
+            newSt := 3
+    [newSt, hit]
+
+var array<string> past = array.new_string()
+f_log(string msg) =>
+    array.unshift(past, msg)
+    if array.size(past) > 10
+        array.pop(past)
+
+// ── بيانات الفريمات ──────────────────────────────────────────
+[smi15, m15, s15] = request.security(syminfo.tickerid, "15", f_htf(), lookahead=barmerge.lookahead_off)
+[smi30, m30, s30] = request.security(syminfo.tickerid, "30", f_htf(), lookahead=barmerge.lookahead_off)
+[smi45, m45, s45] = request.security(syminfo.tickerid, "45", f_htf(), lookahead=barmerge.lookahead_off)
+[don2, cl2, ema2] = request.security(syminfo.tickerid, "2", f_entry(), lookahead=barmerge.lookahead_off)
+[don3, cl3, ema3] = request.security(syminfo.tickerid, "3", f_entry(), lookahead=barmerge.lookahead_off)
+
+don1 = f_donchian()
+ema1 = ta.ema(close, emaLen)
+cl1  = close
+
+macdGreen15 = m15 > s15
+macdRed15   = m15 < s15
+macdGreen30 = m30 > s30
+macdRed30   = m30 < s30
+macdGreen45 = m45 > s45
+macdRed45   = m45 < s45
+
+sellSat15 = not na(smi15) and smi15 <= osLvl
+buySat15  = not na(smi15) and smi15 >= obLvl
+sellSat30 = not na(smi30) and smi30 <= osLvl
+buySat30  = not na(smi30) and smi30 >= obLvl
+sellSat45 = not na(smi45) and smi45 <= osLvl
+buySat45  = not na(smi45) and smi45 >= obLvl
+
+sat30any = sellSat30 or buySat30
+sat45any = sellSat45 or buySat45
+
+live15 = use15 and not sat30any and not sat45any
+live30 = use30 and not sat45any
+live45 = use45
+
+// تشبع بيعي + MACD أخضر = إعداد شراء | تشبع شرائي + MACD أحمر = إعداد بيع
+buySetup15  = live15 and sellSat15 and macdGreen15
+sellSetup15 = live15 and buySat15  and macdRed15
+buySetup30  = live30 and sellSat30 and macdGreen30
+sellSetup30 = live30 and buySat30  and macdRed30
+buySetup45  = live45 and sellSat45 and macdGreen45
+sellSetup45 = live45 and buySat45  and macdRed45
+
+badBuy1  = don1 == -1 and cl1 < ema1
+goodBuy1 = don1 ==  1 and cl1 > ema1
+badSel1  = don1 ==  1 and cl1 > ema1
+goodSel1 = don1 == -1 and cl1 < ema1
+
+badBuy2  = don2 == -1 and cl2 < ema2
+goodBuy2 = don2 ==  1 and cl2 > ema2
+badSel2  = don2 ==  1 and cl2 > ema2
+goodSel2 = don2 == -1 and cl2 < ema2
+
+badBuy3  = don3 == -1 and cl3 < ema3
+goodBuy3 = don3 ==  1 and cl3 > ema3
+badSel3  = don3 ==  1 and cl3 > ema3
+goodSel3 = don3 == -1 and cl3 < ema3
+
+new2 = timeframe.change("2")
+new3 = timeframe.change("3")
+
+var int b15 = 0
+var int s15 = 0
+var int b30 = 0
+var int s30 = 0
+var int b45 = 0
+var int s45 = 0
+
+[b15n, buy15hit]  = f_advance(buySetup15,  badBuy1, goodBuy1, true, b15)
+[s15n, sell15hit] = f_advance(sellSetup15, badSel1, goodSel1, true, s15)
+[b30n, buy30hit]  = f_advance(buySetup30,  badBuy2, goodBuy2, new2, b30)
+[s30n, sell30hit] = f_advance(sellSetup30, badSel2, goodSel2, new2, s30)
+[b45n, buy45hit]  = f_advance(buySetup45,  badBuy3, goodBuy3, new3, b45)
+[s45n, sell45hit] = f_advance(sellSetup45, badSel3, goodSel3, new3, s45)
+b15 := b15n
+s15 := s15n
+b30 := b30n
+s30 := s30n
+b45 := b45n
+s45 := s45n
+
+long15 = useLong and buy15hit
+long30 = useLong and buy30hit
+long45 = useLong and buy45hit
+short15 = useShrt and sell15hit
+short30 = useShrt and sell30hit
+short45 = useShrt and sell45hit
+
+buyHit  = long45 or long30 or long15
+sellHit = short45 or short30 or short15
+buyTag  = long45 ? "45→3" : long30 ? "30→2" : "15→1"
+sellTag = short45 ? "45→3" : short30 ? "30→2" : "15→1"
+
+// ── أوامر + وقف/هدف لعرض نتائج الفرص السابقة ─────────────────
+var float longStop  = na
+var float longLim   = na
+var float shortStop = na
+var float shortLim  = na
+
+if buyHit
+    if exitOpp and strategy.position_size < 0
+        strategy.close("Short", comment="عكس→شراء")
+    if strategy.position_size <= 0
+        strategy.entry("Long", strategy.long, comment="شراء " + buyTag)
+        longStop := close * (1.0 - slPct / 100.0)
+        longLim  := close * (1.0 + tpPct / 100.0)
+
+if sellHit
+    if exitOpp and strategy.position_size > 0
+        strategy.close("Long", comment="عكس→بيع")
+    if strategy.position_size >= 0
+        strategy.entry("Short", strategy.short, comment="بيع " + sellTag)
+        shortStop := close * (1.0 + slPct / 100.0)
+        shortLim  := close * (1.0 - tpPct / 100.0)
+
+if usePct and strategy.position_size > 0
+    strategy.exit("L-Exit", from_entry="Long", stop=longStop, limit=longLim)
+if usePct and strategy.position_size < 0
+    strategy.exit("S-Exit", from_entry="Short", stop=shortStop, limit=shortLim)
+
+// ── سجل الفرص السابقة ────────────────────────────────────────
+if long15
+    f_log(str.format_time(time, "MM-dd HH:mm") + "  شراء 15→1  " + str.tostring(close, "#.##"))
+if long30
+    f_log(str.format_time(time, "MM-dd HH:mm") + "  شراء 30→2  " + str.tostring(close, "#.##"))
+if long45
+    f_log(str.format_time(time, "MM-dd HH:mm") + "  شراء 45→3  " + str.tostring(close, "#.##"))
+if short15
+    f_log(str.format_time(time, "MM-dd HH:mm") + "  بيع 15→1  " + str.tostring(close, "#.##"))
+if short30
+    f_log(str.format_time(time, "MM-dd HH:mm") + "  بيع 30→2  " + str.tostring(close, "#.##"))
+if short45
+    f_log(str.format_time(time, "MM-dd HH:mm") + "  بيع 45→3  " + str.tostring(close, "#.##"))
+
+if long15
+    label.new(bar_index, low,  "شراء\n15→1", xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_label_up,   color=color.new(color.lime, 0),   textcolor=color.black, size=size.small)
+if long30
+    label.new(bar_index, low,  "شراء\n30→2", xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_label_up,   color=color.new(color.aqua, 0),   textcolor=color.black, size=size.small)
+if long45
+    label.new(bar_index, low,  "شراء\n45→3", xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_label_up,   color=color.new(color.teal, 0),   textcolor=color.white, size=size.small)
+if short15
+    label.new(bar_index, high, "بيع\n15→1", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.red, 0),    textcolor=color.white, size=size.small)
+if short30
+    label.new(bar_index, high, "بيع\n30→2", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.black, size=size.small)
+if short45
+    label.new(bar_index, high, "بيع\n45→3", xloc=xloc.bar_index, yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.small)
+
+// ── رسم ──────────────────────────────────────────────────────
+plot(showEma ? ema1 : na, "EMA50 (1m)", color=color.new(color.orange, 0), linewidth=2)
+barcolor(don1 == 1 ? color.new(color.green, 65) : don1 == -1 ? color.new(color.red, 65) : na)
+
+bgBuy  = buySetup45 ? color.new(color.teal, 88) : buySetup30 ? color.new(color.aqua, 90) : buySetup15 ? color.new(color.lime, 92) : na
+bgSell = sellSetup45 ? color.new(color.maroon, 88) : sellSetup30 ? color.new(color.orange, 90) : sellSetup15 ? color.new(color.red, 92) : na
+bgcolor(showBg ? (buySetup45 or buySetup30 or buySetup15 ? bgBuy : bgSell) : na)
+
+plotshape(long15,  title="شراء 15→1", style=shape.triangleup,   location=location.belowbar, color=color.lime,   size=size.small)
+plotshape(long30,  title="شراء 30→2", style=shape.triangleup,   location=location.belowbar, color=color.aqua,   size=size.small)
+plotshape(long45,  title="شراء 45→3", style=shape.triangleup,   location=location.belowbar, color=color.teal,   size=size.small)
+plotshape(short15, title="بيع 15→1",  style=shape.triangledown, location=location.abovebar, color=color.red,    size=size.small)
+plotshape(short30, title="بيع 30→2",  style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.small)
+plotshape(short45, title="بيع 45→3",  style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small)
+
+// ── لوحة الحالة + آخر الفرص السابقة ──────────────────────────
+var table dash = table.new(position.top_right, 4, 19, bgcolor=color.new(#111111, 10), border_width=1, border_color=color.new(color.gray, 50))
+
+f_cell(int c, int r, string txt, color col) =>
+    table.cell(dash, c, r, txt, text_color=col, text_size=size.small, bgcolor=color.new(#111111, 10))
+
+if showTable and barstate.islast
+    tfOk = timeframe.in_seconds() == 60
+    f_cell(0, 0, tfOk ? "المستوى" : "ضع الشارت على 1 دقيقة", tfOk ? color.gray : color.red)
+    f_cell(1, 0, "SMI", color.gray)
+    f_cell(2, 0, "MACD", color.gray)
+    f_cell(3, 0, "الحالة", color.gray)
+
+    f_cell(0, 1, "15m", color.white)
+    f_cell(1, 1, str.tostring(smi15, "#.0"), sellSat15 ? color.lime : buySat15 ? color.red : color.white)
+    f_cell(2, 1, macdGreen15 ? "أخضر" : macdRed15 ? "أحمر" : "—", macdGreen15 ? color.lime : macdRed15 ? color.red : color.gray)
+    f_cell(3, 1, not live15 ? "متوقف" : buySetup15 ? "شراء" : sellSetup15 ? "بيع" : "انتظار", not live15 ? color.gray : buySetup15 ? color.lime : sellSetup15 ? color.red : color.silver)
+
+    f_cell(0, 2, "30m", color.white)
+    f_cell(1, 2, str.tostring(smi30, "#.0"), sellSat30 ? color.lime : buySat30 ? color.red : color.white)
+    f_cell(2, 2, macdGreen30 ? "أخضر" : macdRed30 ? "أحمر" : "—", macdGreen30 ? color.lime : macdRed30 ? color.red : color.gray)
+    f_cell(3, 2, not live30 ? "متوقف" : buySetup30 ? "شراء" : sellSetup30 ? "بيع" : "انتظار", not live30 ? color.gray : buySetup30 ? color.lime : sellSetup30 ? color.red : color.silver)
+
+    f_cell(0, 3, "45m", color.white)
+    f_cell(1, 3, str.tostring(smi45, "#.0"), sellSat45 ? color.lime : buySat45 ? color.red : color.white)
+    f_cell(2, 3, macdGreen45 ? "أخضر" : macdRed45 ? "أحمر" : "—", macdGreen45 ? color.lime : macdRed45 ? color.red : color.gray)
+    f_cell(3, 3, buySetup45 ? "شراء" : sellSetup45 ? "بيع" : "انتظار", buySetup45 ? color.lime : sellSetup45 ? color.red : color.silver)
+
+    f_cell(0, 4, "دخول", color.gray)
+    f_cell(1, 4, "Donchian", color.gray)
+    f_cell(2, 4, "مقابل EMA50", color.gray)
+    f_cell(3, 4, "تسلّح", color.gray)
+
+    f_cell(0, 5, "1m", color.white)
+    f_cell(1, 5, don1 == 1 ? "أخضر" : don1 == -1 ? "أحمر" : "—", don1 == 1 ? color.lime : don1 == -1 ? color.red : color.gray)
+    f_cell(2, 5, cl1 > ema1 ? "فوق" : cl1 < ema1 ? "تحت" : "على", cl1 > ema1 ? color.lime : color.red)
+    f_cell(3, 5, b15 == 2 ? "شراء" : s15 == 2 ? "بيع" : "—", b15 == 2 ? color.lime : s15 == 2 ? color.red : color.gray)
+
+    f_cell(0, 6, "2m", color.white)
+    f_cell(1, 6, don2 == 1 ? "أخضر" : don2 == -1 ? "أحمر" : "—", don2 == 1 ? color.lime : don2 == -1 ? color.red : color.gray)
+    f_cell(2, 6, cl2 > ema2 ? "فوق" : cl2 < ema2 ? "تحت" : "على", cl2 > ema2 ? color.lime : color.red)
+    f_cell(3, 6, b30 == 2 ? "شراء" : s30 == 2 ? "بيع" : "—", b30 == 2 ? color.lime : s30 == 2 ? color.red : color.gray)
+
+    f_cell(0, 7, "3m", color.white)
+    f_cell(1, 7, don3 == 1 ? "أخضر" : don3 == -1 ? "أحمر" : "—", don3 == 1 ? color.lime : don3 == -1 ? color.red : color.gray)
+    f_cell(2, 7, cl3 > ema3 ? "فوق" : cl3 < ema3 ? "تحت" : "على", cl3 > ema3 ? color.lime : color.red)
+    f_cell(3, 7, b45 == 2 ? "شراء" : s45 == 2 ? "بيع" : "—", b45 == 2 ? color.lime : s45 == 2 ? color.red : color.gray)
+
+    f_cell(0, 8, "آخر الفرص السابقة", color.gray)
+    f_cell(1, 8, "", color.gray)
+    f_cell(2, 8, "", color.gray)
+    f_cell(3, 8, "", color.gray)
+    for i = 0 to 9
+        row = 9 + i
+        txt = i < array.size(past) ? array.get(past, i) : "—"
+        table.cell(dash, 0, row, txt, text_color=color.white, text_size=size.small, bgcolor=color.new(#111111, 10))
+        table.merge_cells(dash, 0, row, 3, row)
+
+alertcondition(buyHit,  title="شراء", message="BTC SMI/MACD/Donchian: شراء")
+alertcondition(sellHit, title="بيع",  message="BTC SMI/MACD/Donchian: بيع")
