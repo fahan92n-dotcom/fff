@@ -7,14 +7,14 @@
 //
 // ضع أي فريم على الشارت؛ البيانات تُجلب بالفريمات أدناه.
 // اختر زوجًا واحدًا من المدخلات (أساسي / تأكيد ×3 / دخول ÷3).
-// الحجم: 10٪ من رأس المال لكل صفقة. على 10 عملات = كل عملة شارت مستقل.
+// الحجم: 5٪ من رأس المال لكل صفقة. كل عملة شارت مستقل.
 strategy("Cascade 8 خطوات — MACD بدون 40٪",
      overlay                  = true,
      pyramiding               = 0,
      initial_capital          = 100000,
      currency                 = currency.USD,
      default_qty_type         = strategy.percent_of_equity,
-     default_qty_value        = 10,
+     default_qty_value        = 5,
      commission_type          = strategy.commission.percent,
      commission_value         = 0.04,
      process_orders_on_close  = true,
