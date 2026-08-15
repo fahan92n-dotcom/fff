@@ -11,8 +11,8 @@
 // 15 يتوقف عند أي تشبع SMI على 30 أو 45.
 // 30 يتوقف عند أي تشبع SMI على 45.
 //
-// ضع الشارت على 1 دقيقة. الأسهم على التاريخ = الفرص التي تحققت سابقاً.
-// قائمة الصفقات في Strategy Tester.
+// ضع الشارت على 1 دقيقة. الأسهم على التاريخ = الفرص السابقة.
+// الجدول الصغير: آخر 10 صفقات، ناجحة +0.67% / فاشلة −0.52% عكس الصفقة.
 strategy("BTC SMI MACD Donchian",
      overlay                  = true,
      pyramiding               = 0,
@@ -47,13 +47,14 @@ grpRisk = "إغلاق الصفقات (لعرض النتائج السابقة)"
 useLong = input.bool(true,  "تفعيل الشراء", group=grpRisk)
 useShrt = input.bool(true,  "تفعيل البيع",  group=grpRisk)
 usePct  = input.bool(true,  "وقف/هدف بالنسبة المئوية", group=grpRisk)
-tpPct   = input.float(1.0,  "هدف %", minval=0.1, step=0.1, group=grpRisk)
-slPct   = input.float(0.7,  "وقف %", minval=0.1, step=0.1, group=grpRisk)
+tpPct   = input.float(0.67, "رابحة %", minval=0.01, step=0.01, group=grpRisk)
+slPct   = input.float(0.52, "فاشلة % (عكس الصفقة)", minval=0.01, step=0.01, group=grpRisk)
 exitOpp = input.bool(true,  "إغلاق عند إشارة عكسية", group=grpRisk)
 
 grpVis = "العرض"
 showBg  = input.bool(true, "تظليل أثناء تشبع الفريم الكبير", group=grpVis)
 showEma = input.bool(true, "رسم EMA50 (1m)", group=grpVis)
+showLog = input.bool(true, "جدول آخر 10 صفقات", group=grpVis)
 
 // ── دوال المؤشرات ────────────────────────────────────────────
 f_smi() =>
@@ -99,6 +100,36 @@ f_advance(bool htfOn, bool bothBad, bool bothGood, bool stepBar, int st) =>
             hit := true
             newSt := 3
     [newSt, hit]
+
+var array<int>    pendDir  = array.new_int()
+var array<float>  pendPx   = array.new_float()
+var array<int>    pendTime = array.new_int()
+var array<string> pendTag  = array.new_string()
+var array<int>    pendBar  = array.new_int()
+var array<bool>   pendDone = array.new_bool()
+var array<int>    histTime = array.new_int()
+var array<string> histTag  = array.new_string()
+var array<string> histRes  = array.new_string()
+
+f_push(int dir, string tag) =>
+    array.unshift(pendDir, dir)
+    array.unshift(pendPx, close)
+    array.unshift(pendTime, time)
+    array.unshift(pendTag, tag)
+    array.unshift(pendBar, bar_index)
+    array.unshift(pendDone, false)
+    0
+
+f_finish(int i, string res) =>
+    array.set(pendDone, i, true)
+    array.unshift(histTime, array.get(pendTime, i))
+    array.unshift(histTag, array.get(pendTag, i))
+    array.unshift(histRes, res)
+    if array.size(histTime) > 10
+        array.pop(histTime)
+        array.pop(histTag)
+        array.pop(histRes)
+    0
 
 // ── بيانات الفريمات ──────────────────────────────────────────
 [smi15, macdLn15, sig15] = request.security(syminfo.tickerid, "15", f_htf(), lookahead=barmerge.lookahead_off)
@@ -217,6 +248,25 @@ if usePct and strategy.position_size > 0
 if usePct and strategy.position_size < 0
     strategy.exit("S-Exit", from_entry="Short", stop=shortStop, limit=shortLim)
 
+if buyHit
+    f_push(1, "شراء " + buyTag)
+if sellHit
+    f_push(-1, "بيع " + sellTag)
+
+if array.size(pendDir) > 0
+    for i = 0 to array.size(pendDir) - 1
+        if not array.get(pendDone, i) and bar_index > array.get(pendBar, i)
+            dir = array.get(pendDir, i)
+            px  = array.get(pendPx, i)
+            tp  = dir == 1 ? px * (1.0 + tpPct / 100.0) : px * (1.0 - tpPct / 100.0)
+            sl  = dir == 1 ? px * (1.0 - slPct / 100.0) : px * (1.0 + slPct / 100.0)
+            hitSL = dir == 1 ? low <= sl : high >= sl
+            hitTP = dir == 1 ? high >= tp : low <= tp
+            if hitSL
+                f_finish(i, "فاشلة")
+            else if hitTP
+                f_finish(i, "ناجحة")
+
 if long15
     label.new(bar_index, low,  "شراء\n15→1", xloc=xloc.bar_index, yloc=yloc.belowbar, style=label.style_label_up,   color=color.new(color.lime, 0),   textcolor=color.black, size=size.small)
 if long30
@@ -244,6 +294,27 @@ plotshape(long45,  title="شراء 45→3", style=shape.triangleup,   location=l
 plotshape(short15, title="بيع 15→1",  style=shape.triangledown, location=location.abovebar, color=color.red,    size=size.small)
 plotshape(short30, title="بيع 30→2",  style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.small)
 plotshape(short45, title="بيع 45→3",  style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small)
+
+var table dash = table.new(position.top_right, 3, 11, bgcolor=color.new(#111111, 35), border_width=1, border_color=color.new(color.gray, 55), frame_width=1, frame_color=color.new(color.gray, 55))
+
+f_tc(int c, int r, string txt, color col) =>
+    table.cell(dash, c, r, txt, text_color=col, text_size=size.tiny, bgcolor=color.new(#111111, 35))
+
+if showLog and barstate.islast
+    f_tc(0, 0, "التاريخ", color.gray)
+    f_tc(1, 0, "الفريم", color.gray)
+    f_tc(2, 0, "النتيجة", color.gray)
+    for i = 0 to 9
+        r = 1 + i
+        if i < array.size(histTime)
+            res = array.get(histRes, i)
+            f_tc(0, r, str.format_time(array.get(histTime, i), "MM-dd HH:mm"), color.white)
+            f_tc(1, r, array.get(histTag, i), color.silver)
+            f_tc(2, r, res, res == "ناجحة" ? color.lime : color.red)
+        else
+            f_tc(0, r, "—", color.gray)
+            f_tc(1, r, "", color.gray)
+            f_tc(2, r, "", color.gray)
 
 alertcondition(buyHit,  title="شراء", message="BTC SMI/MACD/Donchian: شراء")
 alertcondition(sellHit, title="بيع",  message="BTC SMI/MACD/Donchian: بيع")
