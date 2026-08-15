@@ -12,7 +12,7 @@
 // 30 يتوقف عند أي تشبع SMI على 45.
 //
 // ضع الشارت على 1 دقيقة. الأسهم على التاريخ = الفرص السابقة.
-// الجدول الصغير: آخر 10 صفقات، ناجحة +0.67% / فاشلة −0.52% عكس الصفقة.
+// آخر 10 صفقات تظهر كملصق على اليمين (يعمل على الجوال؛ الجدول لا يظهر في التطبيق).
 strategy("BTC SMI MACD Donchian",
      overlay                  = true,
      pyramiding               = 0,
@@ -54,7 +54,7 @@ exitOpp = input.bool(true,  "إغلاق عند إشارة عكسية", group=grp
 grpVis = "العرض"
 showBg  = input.bool(true, "تظليل أثناء تشبع الفريم الكبير", group=grpVis)
 showEma = input.bool(true, "رسم EMA50 (1m)", group=grpVis)
-showLog = input.bool(true, "جدول آخر 10 صفقات", group=grpVis)
+showLog = input.bool(true, "لوحة آخر 10 صفقات", group=grpVis)
 
 // ── دوال المؤشرات ────────────────────────────────────────────
 f_smi() =>
@@ -295,26 +295,25 @@ plotshape(short15, title="بيع 15→1",  style=shape.triangledown, location=lo
 plotshape(short30, title="بيع 30→2",  style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.small)
 plotshape(short45, title="بيع 45→3",  style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small)
 
-var table dash = table.new(position.top_right, 3, 11, bgcolor=color.new(#111111, 35), border_width=1, border_color=color.new(color.gray, 55), frame_width=1, frame_color=color.new(color.gray, 55))
+// لوحة آخر 10: ملصق على آخر شمعة (يظهر في تطبيق الجوال، بخلاف table)
+var label logLbl = label.new(bar_index, high, "آخر 10 صفقات", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_right, color=color.new(#111111, 5), textcolor=color.white, size=size.normal, textalign=text.align_left)
 
-f_tc(int c, int r, string txt, color col) =>
-    table.cell(dash, c, r, txt, text_color=col, text_size=size.tiny, bgcolor=color.new(#111111, 35))
-
-if showLog and barstate.islast
-    f_tc(0, 0, "التاريخ", color.gray)
-    f_tc(1, 0, "الفريم", color.gray)
-    f_tc(2, 0, "النتيجة", color.gray)
-    for i = 0 to 9
-        r = 1 + i
-        if i < array.size(histTime)
+if showLog
+    string txt = "آخر 10 صفقات\n+0.67% ناجحة | 0.52% فاشلة\n"
+    if timeframe.in_seconds() != 60
+        txt += "ضع الشارت على 1 دقيقة\n"
+    nHist = array.size(histTime)
+    if nHist == 0
+        txt += "لا توجد صفقات مكتملة بعد"
+    else
+        for i = 0 to math.min(9, nHist - 1)
             res = array.get(histRes, i)
-            f_tc(0, r, str.format_time(array.get(histTime, i), "MM-dd HH:mm"), color.white)
-            f_tc(1, r, array.get(histTag, i), color.silver)
-            f_tc(2, r, res, res == "ناجحة" ? color.lime : color.red)
-        else
-            f_tc(0, r, "—", color.gray)
-            f_tc(1, r, "", color.gray)
-            f_tc(2, r, "", color.gray)
+            mark = res == "ناجحة" ? "ناجحة" : "فاشلة"
+            txt += str.format_time(array.get(histTime, i), "MM-dd HH:mm") + "  " + array.get(histTag, i) + "  " + mark + "\n"
+    label.set_xy(logLbl, bar_index, high)
+    label.set_text(logLbl, txt)
+else
+    label.set_text(logLbl, "")
 
 alertcondition(buyHit,  title="شراء", message="BTC SMI/MACD/Donchian: شراء")
 alertcondition(sellHit, title="بيع",  message="BTC SMI/MACD/Donchian: بيع")
