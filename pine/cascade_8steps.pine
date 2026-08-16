@@ -62,6 +62,57 @@ grpVis = "العرض"
 showBg  = input.bool(true, "تظليل", group=grpVis)
 showLog = input.bool(true, "لوحة كل الفريمات", group=grpVis)
 showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
+showHist = input.bool(true, "مربع آخر 20 صفقة", group=grpVis)
+histWin  = input.float(0.67, "ربح الصفقة %", step=0.01, group=grpVis)
+histLoss = input.float(0.53, "خسارة الصفقة %", step=0.01, group=grpVis)
+
+var array<int>    pTime = array.new_int()
+var array<float>  pPx   = array.new_float()
+var array<int>    pSide = array.new_int()
+var array<string> pTag  = array.new_string()
+var array<int>    hTime = array.new_int()
+var array<string> hTag  = array.new_string()
+var array<int>    hSide = array.new_int()
+var array<int>    hWin  = array.new_int()
+
+f_store(int et, string tag, int side, int win) =>
+    array.push(hTime, et)
+    array.push(hTag, tag)
+    array.push(hSide, side)
+    array.push(hWin, win)
+    if array.size(hTime) > 20
+        array.shift(hTime)
+        array.shift(hTag)
+        array.shift(hSide)
+        array.shift(hWin)
+
+f_resolve_one(int i) =>
+    int et = array.get(pTime, i)
+    float px = array.get(pPx, i)
+    int side = array.get(pSide, i)
+    string tag = array.get(pTag, i)
+    float tp = side == 1 ? px * (1.0 + histWin / 100.0) : px * (1.0 - histWin / 100.0)
+    float sl = side == 1 ? px * (1.0 - histLoss / 100.0) : px * (1.0 + histLoss / 100.0)
+    bool slHit = side == 1 ? low <= sl : high >= sl
+    bool tpHit = side == 1 ? high >= tp : low <= tp
+    int result = slHit ? 0 : tpHit ? 1 : -1
+    if result >= 0
+        f_store(et, tag, side, result)
+        array.remove(pTime, i)
+        array.remove(pPx, i)
+        array.remove(pSide, i)
+        array.remove(pTag, i)
+    result
+
+f_track(bool hit, int side, string tag) =>
+    bool done = false
+    if hit
+        array.push(pTime, time)
+        array.push(pPx, close)
+        array.push(pSide, side)
+        array.push(pTag, tag)
+        done := true
+    done
 
 f_smi() =>
     ll = ta.lowest(low, smiK)
@@ -443,6 +494,38 @@ if hit210S
 if hit240S
     a240S := false
 
+int nPend = array.size(pTime)
+if nPend > 0
+    for i = nPend - 1 to 0
+        int ignRes = f_resolve_one(i)
+
+ok15L = f_track(hit15L, 1, "15/5")
+ok18L = f_track(hit18L, 1, "18/6")
+ok21L = f_track(hit21L, 1, "21/7")
+ok24L = f_track(hit24L, 1, "24/8")
+ok27L = f_track(hit27L, 1, "27/9")
+ok30L = f_track(hit30L, 1, "30/10")
+ok45L = f_track(hit45L, 1, "45/15")
+ok60L = f_track(hit60L, 1, "60/20")
+ok90L = f_track(hit90L, 1, "90/30")
+ok120L = f_track(hit120L, 1, "120/40")
+ok150L = f_track(hit150L, 1, "150/50")
+ok210L = f_track(hit210L, 1, "210/70")
+ok240L = f_track(hit240L, 1, "240/80")
+ok15S = f_track(hit15S, -1, "15/5")
+ok18S = f_track(hit18S, -1, "18/6")
+ok21S = f_track(hit21S, -1, "21/7")
+ok24S = f_track(hit24S, -1, "24/8")
+ok27S = f_track(hit27S, -1, "27/9")
+ok30S = f_track(hit30S, -1, "30/10")
+ok45S = f_track(hit45S, -1, "45/15")
+ok60S = f_track(hit60S, -1, "60/20")
+ok90S = f_track(hit90S, -1, "90/30")
+ok120S = f_track(hit120S, -1, "120/40")
+ok150S = f_track(hit150S, -1, "150/50")
+ok210S = f_track(hit210S, -1, "210/70")
+ok240S = f_track(hit240S, -1, "240/80")
+
 buyHit = hit240L or hit210L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L or hit27L or hit24L or hit21L or hit18L or hit15L
 sellHit = hit240S or hit210S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit27S or hit24S or hit21S or hit18S or hit15S
 buyTag = hit240L ? "240/80" : hit210L ? "210/70" : hit150L ? "150/50" : hit120L ? "120/40" : hit90L ? "90/30" : hit60L ? "60/20" : hit45L ? "45/15" : hit30L ? "30/10" : hit27L ? "27/9" : hit24L ? "24/8" : hit21L ? "21/7" : hit18L ? "18/6" : "15/5"
@@ -567,6 +650,46 @@ if showLog
     label.set_text(logLbl, txt)
 else
     label.set_text(logLbl, "")
+
+var table histBox = table.new(position.top_left, 1, 24, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
+
+if barstate.islast
+    if showHist
+        int wins = 0
+        int losses = 0
+        int nH = array.size(hWin)
+        if nH > 0
+            for wi = 0 to nH - 1
+                if array.get(hWin, wi) == 1
+                    wins += 1
+                else
+                    losses += 1
+        table.cell(histBox, 0, 0, "آخر 20 صفقة", text_color=color.white, bgcolor=color.new(#1b3a5c, 0), text_size=size.normal, text_halign=text.align_center)
+        table.cell(histBox, 0, 1, "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%", text_color=color.silver, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
+        table.cell(histBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), text_color=color.gray, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
+        if nH == 0
+            table.cell(histBox, 0, 3, "ما فيه صفقات محلولة بعد", text_color=color.gray, bgcolor=color.new(#141414, 0), text_size=size.small, text_halign=text.align_center)
+            for er = 4 to 23
+                table.cell(histBox, 0, er, "", bgcolor=color.new(#141414, 100))
+        else
+            for r = 0 to 19
+                int row = r + 3
+                int idx = nH - 1 - r
+                if idx >= 0
+                    int et = array.get(hTime, idx)
+                    string tag = array.get(hTag, idx)
+                    int side = array.get(hSide, idx)
+                    int win = array.get(hWin, idx)
+                    string when = str.format_time(et, "dd/MM HH:mm", syminfo.timezone)
+                    string dir = side == 1 ? "شراء" : "بيع"
+                    string res = win == 1 ? "ناجحة" : "فاشلة"
+                    color fg = win == 1 ? color.lime : color.red
+                    color bg = win == 1 ? color.new(#0c2e18, 0) : color.new(#2e0c0c, 0)
+                    table.cell(histBox, 0, row, when + "   " + tag + "   " + dir + "   " + res, text_color=fg, bgcolor=bg, text_size=size.small, text_halign=text.align_center)
+                else
+                    table.cell(histBox, 0, row, "", bgcolor=color.new(#141414, 100))
+    else
+        table.clear(histBox, 0, 0, 0, 23)
 
 alertcondition(buyHit, title="شراء", message="Cascade شراء")
 alertcondition(sellHit, title="بيع", message="Cascade بيع")
