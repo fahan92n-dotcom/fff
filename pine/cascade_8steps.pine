@@ -1,8 +1,9 @@
 //@version=5
-// Cascade 8 خطوات — كل الأزواج معًا على أي فريم شارت
+// Cascade 8 خطوات — 13 زوجاً معاً. الشارت لازم 20 دقيقة أو أقل حتى تظهر الأسهم التاريخية.
+// زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // MACD بدون حد 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
-strategy("Cascade 8 — كل الفريمات",
+strategy("Cascade 8 — كل الفريمات (شارت 20م)",
      overlay                  = true,
      pyramiding               = 0,
      initial_capital          = 100000,
@@ -634,8 +635,16 @@ plotshape(sellHit, title="بيع", style=shape.triangledown, location=location.a
 
 var label logLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(#111111, 5), textcolor=color.white, size=size.small, textalign=text.align_left)
 
+chartTooHigh = timeframe.in_seconds() > 20 * 60
+var label warnLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.black, size=size.normal, textalign=text.align_left)
+if chartTooHigh
+    label.set_xy(warnLbl, bar_index, high)
+    label.set_text(warnLbl, "حط الشارت على 20 دقيقة أو أقل\nفريم الساعة يضيّع مداخل 20م و5م\nزوج الساعة = 60/180/20 مو شارت 1س")
+else
+    label.set_text(warnLbl, "")
+
 if showLog
-    string txt = "Cascade كل الفريمات | الارقام=خطوات OK\n"
+    string txt = "Cascade | الارقام=خطوات OK | الشارت: 20م أو أقل\n"
     txt += f_row("15 B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += f_row("18 B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
     txt += f_row("21 B", L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8) + " " + f_row("S", S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8) + "\n"
@@ -649,8 +658,8 @@ if showLog
     txt += f_row("150 B", L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8) + " " + f_row("S", S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8) + "\n"
     txt += f_row("210 B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
     txt += f_row("240 B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
-    if timeframe.in_seconds() > 3600
-        txt += "\nللمداخل التاريخية ضع 20م أو أقل"
+    if chartTooHigh
+        txt += "\nحط الشارت على 20م أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
     label.set_text(logLbl, txt)
 else
