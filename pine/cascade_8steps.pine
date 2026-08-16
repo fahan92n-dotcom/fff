@@ -1,6 +1,8 @@
 //@version=5
 // Cascade 8 خطوات — 13 زوجاً معاً. الشارت لازم 20 دقيقة أو أقل حتى تظهر الأسهم التاريخية.
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
+// request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
+// step8 فقط على فريمات الدخول. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD بدون حد 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 strategy("Cascade 8 — كل الفريمات (شارت 20م)",
@@ -15,7 +17,7 @@ strategy("Cascade 8 — كل الفريمات (شارت 20م)",
      process_orders_on_close  = true,
      calc_on_every_tick       = false,
      max_labels_count         = 500,
-     max_bars_back            = 5000)
+     max_bars_back            = 1000)
 
 grpInd = "المؤشرات"
 smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
@@ -130,10 +132,10 @@ f_smi() =>
     avgdiff != 0 ? (avgrel / (avgdiff / 2.0)) * 100.0 : 0.0
 
 f_don() =>
-    float trend = 0.0
+    var float trend = 0.0
     hh = ta.highest(high, dlen)
     ll = ta.lowest(low, dlen)
-    trend := close > hh[1] ? 1.0 : close < ll[1] ? -1.0 : nz(trend[1], 0.0)
+    trend := close > hh[1] ? 1.0 : close < ll[1] ? -1.0 : trend
     trend
 
 f_macd_ok(bool isLong, float smi, float hist, float macd) =>
@@ -250,7 +252,36 @@ f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
                             break
     ok
 
-f_snap() =>
+// security على فريم أدنى من الشارت ترجع آخر شمعة فقط (مو كل na).
+// security_lower_tf تلقط كل الشموع داخل الساعة، لكن تنهار مع 36 فريم (حد 40 طلب) وتفشل إذا الشارت أصغر من المطلوب.
+f_snap_entry() =>
+    smi = f_smi()
+    don = f_don()
+    rsi = ta.rsi(close, rsiLen)
+    rsiMa = ta.sma(rsi, rsiLen)
+    k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
+    [don[1], f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k)]
+
+f_snap_confirm() =>
+    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
+    don = f_don()
+    rsi = ta.rsi(close, rsiLen)
+    hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
+    [don, hist2, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi)]
+
+f_snap_base() =>
+    smi = f_smi()
+    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
+    don = f_don()
+    ema = ta.ema(close, emaLen)
+    hist2 = hist + nz(sigLine) * 0.0
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi)]
+
+f_snap_cancel() =>
+    smi = f_smi()
+    [f_block(true, smi), f_block(false, smi)]
+
+f_snap_base_entry() =>
     smi = f_smi()
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
@@ -259,47 +290,71 @@ f_snap() =>
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi)]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi)]
 
-f_req(simple string tf) =>
-    request.security(syminfo.tickerid, tf, f_snap(), barmerge.gaps_off, barmerge.lookahead_off)
+f_snap_htf() =>
+    smi = f_smi()
+    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
+    don = f_don()
+    ema = ta.ema(close, emaLen)
+    rsi = ta.rsi(close, rsiLen)
+    hist2 = hist + nz(sigLine) * 0.0
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi)]
 
-[smi5, dL5, dC5, h5, mL5, mS5, eL5, eS5, rL5, rS5, s8L5, s8S5, bL5, bS5] = f_req("5")
-[smi6, dL6, dC6, h6, mL6, mS6, eL6, eS6, rL6, rS6, s8L6, s8S6, bL6, bS6] = f_req("6")
-[smi7, dL7, dC7, h7, mL7, mS7, eL7, eS7, rL7, rS7, s8L7, s8S7, bL7, bS7] = f_req("7")
-[smi8, dL8, dC8, h8, mL8, mS8, eL8, eS8, rL8, rS8, s8L8, s8S8, bL8, bS8] = f_req("8")
-[smi9, dL9, dC9, h9, mL9, mS9, eL9, eS9, rL9, rS9, s8L9, s8S9, bL9, bS9] = f_req("9")
-[smi10, dL10, dC10, h10, mL10, mS10, eL10, eS10, rL10, rS10, s8L10, s8S10, bL10, bS10] = f_req("10")
-[smi15, dL15, dC15, h15, mL15, mS15, eL15, eS15, rL15, rS15, s8L15, s8S15, bL15, bS15] = f_req("15")
-[smi18, dL18, dC18, h18, mL18, mS18, eL18, eS18, rL18, rS18, s8L18, s8S18, bL18, bS18] = f_req("18")
-[smi20, dL20, dC20, h20, mL20, mS20, eL20, eS20, rL20, rS20, s8L20, s8S20, bL20, bS20] = f_req("20")
-[smi21, dL21, dC21, h21, mL21, mS21, eL21, eS21, rL21, rS21, s8L21, s8S21, bL21, bS21] = f_req("21")
-[smi24, dL24, dC24, h24, mL24, mS24, eL24, eS24, rL24, rS24, s8L24, s8S24, bL24, bS24] = f_req("24")
-[smi27, dL27, dC27, h27, mL27, mS27, eL27, eS27, rL27, rS27, s8L27, s8S27, bL27, bS27] = f_req("27")
-[smi30, dL30, dC30, h30, mL30, mS30, eL30, eS30, rL30, rS30, s8L30, s8S30, bL30, bS30] = f_req("30")
-[smi40, dL40, dC40, h40, mL40, mS40, eL40, eS40, rL40, rS40, s8L40, s8S40, bL40, bS40] = f_req("40")
-[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, s8L45, s8S45, bL45, bS45] = f_req("45")
-[smi50, dL50, dC50, h50, mL50, mS50, eL50, eS50, rL50, rS50, s8L50, s8S50, bL50, bS50] = f_req("50")
-[smi54, dL54, dC54, h54, mL54, mS54, eL54, eS54, rL54, rS54, s8L54, s8S54, bL54, bS54] = f_req("54")
-[smi60, dL60, dC60, h60, mL60, mS60, eL60, eS60, rL60, rS60, s8L60, s8S60, bL60, bS60] = f_req("60")
-[smi63, dL63, dC63, h63, mL63, mS63, eL63, eS63, rL63, rS63, s8L63, s8S63, bL63, bS63] = f_req("63")
-[smi70, dL70, dC70, h70, mL70, mS70, eL70, eS70, rL70, rS70, s8L70, s8S70, bL70, bS70] = f_req("70")
-[smi72, dL72, dC72, h72, mL72, mS72, eL72, eS72, rL72, rS72, s8L72, s8S72, bL72, bS72] = f_req("72")
-[smi80, dL80, dC80, h80, mL80, mS80, eL80, eS80, rL80, rS80, s8L80, s8S80, bL80, bS80] = f_req("80")
-[smi81, dL81, dC81, h81, mL81, mS81, eL81, eS81, rL81, rS81, s8L81, s8S81, bL81, bS81] = f_req("81")
-[smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, s8L90, s8S90, bL90, bS90] = f_req("90")
-[smi120, dL120, dC120, h120, mL120, mS120, eL120, eS120, rL120, rS120, s8L120, s8S120, bL120, bS120] = f_req("120")
-[smi135, dL135, dC135, h135, mL135, mS135, eL135, eS135, rL135, rS135, s8L135, s8S135, bL135, bS135] = f_req("135")
-[smi150, dL150, dC150, h150, mL150, mS150, eL150, eS150, rL150, rS150, s8L150, s8S150, bL150, bS150] = f_req("150")
-[smi180, dL180, dC180, h180, mL180, mS180, eL180, eS180, rL180, rS180, s8L180, s8S180, bL180, bS180] = f_req("180")
-[smi210, dL210, dC210, h210, mL210, mS210, eL210, eS210, rL210, rS210, s8L210, s8S210, bL210, bS210] = f_req("210")
-[smi240, dL240, dC240, h240, mL240, mS240, eL240, eS240, rL240, rS240, s8L240, s8S240, bL240, bS240] = f_req("240")
-[smi270, dL270, dC270, h270, mL270, mS270, eL270, eS270, rL270, rS270, s8L270, s8S270, bL270, bS270] = f_req("270")
-[smi300, dL300, dC300, h300, mL300, mS300, eL300, eS300, rL300, rS300, s8L300, s8S300, bL300, bS300] = f_req("300")
-[smi360, dL360, dC360, h360, mL360, mS360, eL360, eS360, rL360, rS360, s8L360, s8S360, bL360, bS360] = f_req("360")
-[smi450, dL450, dC450, h450, mL450, mS450, eL450, eS450, rL450, rS450, s8L450, s8S450, bL450, bS450] = f_req("450")
-[smi630, dL630, dC630, h630, mL630, mS630, eL630, eS630, rL630, rS630, s8L630, s8S630, bL630, bS630] = f_req("630")
-[smi720, dL720, dC720, h720, mL720, mS720, eL720, eS720, rL720, rS720, s8L720, s8S720, bL720, bS720] = f_req("720")
+f_req_entry(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_confirm(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_confirm(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_base(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_base(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_cancel(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_cancel(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_base_entry(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_base_entry(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_htf(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_htf(), barmerge.gaps_off, barmerge.lookahead_off)
+
+[dC5, s8L5, s8S5] = f_req_entry("5")
+[dC6, s8L6, s8S6] = f_req_entry("6")
+[dC7, s8L7, s8S7] = f_req_entry("7")
+[dC8, s8L8, s8S8] = f_req_entry("8")
+[dC9, s8L9, s8S9] = f_req_entry("9")
+[dC10, s8L10, s8S10] = f_req_entry("10")
+[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15] = f_req_base_entry("15")
+[smi18, dC18, mL18, mS18, eL18, eS18, bL18, bS18] = f_req_base("18")
+[dC20, s8L20, s8S20] = f_req_entry("20")
+[smi21, dC21, mL21, mS21, eL21, eS21, bL21, bS21] = f_req_base("21")
+[smi24, dC24, mL24, mS24, eL24, eS24, bL24, bS24] = f_req_base("24")
+[smi27, dC27, mL27, mS27, eL27, eS27, bL27, bS27] = f_req_base("27")
+[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30] = f_req_base_entry("30")
+[dC40, s8L40, s8S40] = f_req_entry("40")
+[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45] = f_req_htf("45")
+[dC50, s8L50, s8S50] = f_req_entry("50")
+[dL54, h54, rL54, rS54] = f_req_confirm("54")
+[smi60, dC60, mL60, mS60, eL60, eS60, bL60, bS60] = f_req_base("60")
+[dL63, h63, rL63, rS63] = f_req_confirm("63")
+[dC70, s8L70, s8S70] = f_req_entry("70")
+[dL72, h72, rL72, rS72] = f_req_confirm("72")
+[dC80, s8L80, s8S80] = f_req_entry("80")
+[dL81, h81, rL81, rS81] = f_req_confirm("81")
+[smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, bL90, bS90] = f_req_htf("90")
+[smi120, dC120, mL120, mS120, eL120, eS120, bL120, bS120] = f_req_base("120")
+[dL135, h135, rL135, rS135] = f_req_confirm("135")
+[smi150, dC150, mL150, mS150, eL150, eS150, bL150, bS150] = f_req_base("150")
+[dL180, h180, rL180, rS180] = f_req_confirm("180")
+[smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210] = f_req_base("210")
+[smi240, dC240, mL240, mS240, eL240, eS240, bL240, bS240] = f_req_base("240")
+[dL270, h270, rL270, rS270] = f_req_confirm("270")
+[bL300, bS300] = f_req_cancel("300")
+[dL360, h360, rL360, rS360] = f_req_confirm("360")
+[dL450, h450, rL450, rS450] = f_req_confirm("450")
+[dL630, h630, rL630, rS630] = f_req_confirm("630")
+[dL720, h720, rL720, rS720] = f_req_confirm("720")
 
 f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8) =>
     bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
@@ -636,10 +691,14 @@ plotshape(sellHit, title="بيع", style=shape.triangledown, location=location.a
 var label logLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(#111111, 5), textcolor=color.white, size=size.small, textalign=text.align_left)
 
 chartTooHigh = timeframe.in_seconds() > 20 * 60
+ltfNa = na(dC5) or na(dC20)
 var label warnLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.black, size=size.normal, textalign=text.align_left)
-if chartTooHigh
+if chartTooHigh or ltfNa
     label.set_xy(warnLbl, bar_index, high)
-    label.set_text(warnLbl, "حط الشارت على 20 دقيقة أو أقل\nفريم الساعة يضيّع مداخل 20م و5م\nزوج الساعة = 60/180/20 مو شارت 1س")
+    string wtxt = chartTooHigh ? "حط الشارت على 20 دقيقة أو أقل\nفريم الساعة يضيّع مداخل 20م و5م\nزوج الساعة = 60/180/20 مو شارت 1س" : ""
+    if ltfNa
+        wtxt := (wtxt == "" ? "" : wtxt + "\n") + "فريم الدخول رجع na — صغّر الشارت"
+    label.set_text(warnLbl, wtxt)
 else
     label.set_text(warnLbl, "")
 
