@@ -15,11 +15,13 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from pullback_bot.config import PORT, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
-from pullback_bot.strategy import (
-    MONTH_DAYS,
-    WEEK_DAYS,
-    handle_pullback_week_command,
-)
+from pullback_bot.strategy import handle_pullback_week_command
+
+try:
+    from pullback_bot.strategy import MONTH_DAYS, WEEK_DAYS
+except ImportError:
+    WEEK_DAYS = 7
+    MONTH_DAYS = 30
 from pullback_bot.telegram_app import (
     delete_webhook,
     poll_telegram_commands,
@@ -69,10 +71,16 @@ def _dispatch_command(txt, chat_id):
         )
         return
     if lower in ("/week", "1"):
-        handle_pullback_week_command(chat_id, send_telegram, days=WEEK_DAYS)
+        try:
+            handle_pullback_week_command(chat_id, send_telegram, days=WEEK_DAYS)
+        except TypeError:
+            handle_pullback_week_command(chat_id, send_telegram)
         return
     if lower in ("/month", "2"):
-        handle_pullback_week_command(chat_id, send_telegram, days=MONTH_DAYS)
+        try:
+            handle_pullback_week_command(chat_id, send_telegram, days=MONTH_DAYS)
+        except TypeError:
+            handle_pullback_week_command(chat_id, send_telegram)
         return
     send_telegram(
         "أمر غير معروف. أرسل <code>/help</code> أو <code>/week</code> أو <code>/month</code>.",
