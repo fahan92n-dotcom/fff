@@ -1,6 +1,7 @@
 //@version=5
 // Cascade 8 خطوات — كل الأزواج معًا على أي فريم شارت
 // MACD بدون حد 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
+// تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 strategy("Cascade 8 — كل الفريمات",
      overlay                  = true,
      pyramiding               = 0,
@@ -75,7 +76,7 @@ var array<string> hTag  = array.new_string()
 var array<int>    hSide = array.new_int()
 var array<int>    hWin  = array.new_int()
 
-f_store(int et, string tag, int side, int win) =>
+f_store(int et, string tag, int side, int win, float px) =>
     array.push(hTime, et)
     array.push(hTag, tag)
     array.push(hSide, side)
@@ -85,6 +86,9 @@ f_store(int et, string tag, int side, int win) =>
         array.shift(hTag)
         array.shift(hSide)
         array.shift(hWin)
+    string sideTxt = side == 1 ? "buy" : "sell"
+    string winTxt = win == 1 ? "true" : "false"
+    alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + '}', alert.freq_all)
 
 f_resolve_one(int i) =>
     int et = array.get(pTime, i)
@@ -97,7 +101,7 @@ f_resolve_one(int i) =>
     bool tpHit = side == 1 ? high >= tp : low <= tp
     int result = slHit ? 0 : tpHit ? 1 : -1
     if result >= 0
-        f_store(et, tag, side, result)
+        f_store(et, tag, side, result, px)
         array.remove(pTime, i)
         array.remove(pPx, i)
         array.remove(pSide, i)
@@ -111,6 +115,8 @@ f_track(bool hit, int side, string tag) =>
         array.push(pPx, close)
         array.push(pSide, side)
         array.push(pTag, tag)
+        string sideTxt = side == 1 ? "buy" : "sell"
+        alert('{"src":"cascade","event":"entry","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + '}', alert.freq_all)
         done := true
     done
 

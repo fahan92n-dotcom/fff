@@ -26,6 +26,7 @@ from pullback_bot.telegram_app import (
     send_telegram,
     set_command_handler,
 )
+from tv_webhook import handle_http as handle_tv_webhook
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +36,9 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"ok")
+
+    def do_POST(self):  # noqa: N802
+        handle_tv_webhook(self, send_telegram)
 
     def log_message(self, fmt, *args):
         return
