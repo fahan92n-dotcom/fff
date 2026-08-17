@@ -59,6 +59,7 @@ from telegram_bot import (
     send_telegram,
     set_command_handler,
 )
+from tv_webhook import handle_http as handle_tv_webhook
 
 
 log = logging.getLogger(__name__)
@@ -166,12 +167,15 @@ def trim_memory():
 
 
 class HealthHandler(BaseHTTPRequestHandler):
-    """Minimal Railway health endpoint."""
+    """Health GET plus TradingView POST /tv webhook."""
 
     def do_GET(self):  # pylint: disable=invalid-name
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
+
+    def do_POST(self):  # pylint: disable=invalid-name
+        handle_tv_webhook(self, send_telegram)
 
     def log_message(self, *_):
         return
