@@ -6,9 +6,8 @@
 // MACD بدون حد 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
-// بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%، والعدّاد على الشارت.
-// اختبار الاستراتيجية (اللوحة السفلى) يجمع صفقات الـ13 فريم في تقرير واحد — بدون تبديل فريم الشارت.
-// كل زوج له معرف دخول مستقل. تريدنق فيو لا يدعم شراء وبيع معاً: الاتجاه العكسي ينتظر.
+// بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%.
+// جدول أسفل الشارت يعرض ناجحة/فاشلة/مفتوحة لكل الـ13 فريم. اللوحة الرسمية لاختبار الاستراتيجية لا تقبل صفوف مخصّصة.
 strategy("Cascade 8 — نتائج كل الفريمات",
      overlay                  = true,
      pyramiding               = 13,
@@ -735,8 +734,15 @@ f_row(string nm, bool s1, bool s2, bool s3, bool s4, bool s5, bool s6, bool s7, 
 f_sc(int i) =>
     " " + str.tostring(array.get(tfW, i)) + "✓" + str.tostring(array.get(tfL, i)) + "✗" + str.tostring(array.get(tfO, i)) + "○"
 
-f_sc_ar(string nm, int i) =>
-    nm + "  ناجحة " + str.tostring(array.get(tfW, i)) + "  فاشلة " + str.tostring(array.get(tfL, i)) + "  مفتوحة " + str.tostring(array.get(tfO, i))
+f_cell(table t, int col, int row, string txt, color fg, color bg) =>
+    table.cell(t, col, row, txt, text_color=fg, bgcolor=bg, text_size=size.small, text_halign=text.align_center)
+
+f_tf_row(table t, int row, string nm, int i) =>
+    color bg = row % 2 == 0 ? color.new(#1a1a1a, 0) : color.new(#222222, 0)
+    f_cell(t, 0, row, nm, color.white, bg)
+    f_cell(t, 1, row, str.tostring(array.get(tfW, i)), color.lime, bg)
+    f_cell(t, 2, row, str.tostring(array.get(tfL, i)), color.red, bg)
+    f_cell(t, 3, row, str.tostring(array.get(tfO, i)), color.orange, bg)
 
 if showLbl
     if hit15L
@@ -812,21 +818,22 @@ else
     label.set_text(warnLbl, "")
 
 if showLog
-    string txt = "Cascade | كل الفريمات | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
+    string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | الشارت 5م\n"
-    txt += f_row("15 B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + f_sc(0) + "\n"
-    txt += f_row("18 B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + f_sc(1) + "\n"
-    txt += f_row("21 B", L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8) + " " + f_row("S", S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8) + f_sc(2) + "\n"
-    txt += f_row("24 B", L24_1, L24_2, L24_3, L24_4, L24_5, L24_6, L24_7, L24_8) + " " + f_row("S", S24_1, S24_2, S24_3, S24_4, S24_5, S24_6, S24_7, S24_8) + f_sc(3) + "\n"
-    txt += f_row("27 B", L27_1, L27_2, L27_3, L27_4, L27_5, L27_6, L27_7, L27_8) + " " + f_row("S", S27_1, S27_2, S27_3, S27_4, S27_5, S27_6, S27_7, S27_8) + f_sc(4) + "\n"
-    txt += f_row("30 B", L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8) + " " + f_row("S", S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8) + f_sc(5) + "\n"
-    txt += f_row("45 B", L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8) + " " + f_row("S", S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8) + f_sc(6) + "\n"
-    txt += f_row("60 B", L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8) + " " + f_row("S", S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8) + f_sc(7) + "\n"
-    txt += f_row("90 B", L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8) + " " + f_row("S", S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8) + f_sc(8) + "\n"
-    txt += f_row("120 B", L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8) + " " + f_row("S", S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8) + f_sc(9) + "\n"
-    txt += f_row("150 B", L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8) + " " + f_row("S", S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8) + f_sc(10) + "\n"
-    txt += f_row("210 B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + f_sc(11) + "\n"
-    txt += f_row("240 B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8) + f_sc(12)
+    txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
+    txt += "18" + f_sc(1) + " " + f_row("B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
+    txt += "21" + f_sc(2) + " " + f_row("B", L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8) + " " + f_row("S", S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8) + "\n"
+    txt += "24" + f_sc(3) + " " + f_row("B", L24_1, L24_2, L24_3, L24_4, L24_5, L24_6, L24_7, L24_8) + " " + f_row("S", S24_1, S24_2, S24_3, S24_4, S24_5, S24_6, S24_7, S24_8) + "\n"
+    txt += "27" + f_sc(4) + " " + f_row("B", L27_1, L27_2, L27_3, L27_4, L27_5, L27_6, L27_7, L27_8) + " " + f_row("S", S27_1, S27_2, S27_3, S27_4, S27_5, S27_6, S27_7, S27_8) + "\n"
+    txt += "30" + f_sc(5) + " " + f_row("B", L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8) + " " + f_row("S", S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8) + "\n"
+    txt += "45" + f_sc(6) + " " + f_row("B", L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8) + " " + f_row("S", S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8) + "\n"
+    txt += "60" + f_sc(7) + " " + f_row("B", L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8) + " " + f_row("S", S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8) + "\n"
+    txt += "90" + f_sc(8) + " " + f_row("B", L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8) + " " + f_row("S", S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8) + "\n"
+    txt += "120" + f_sc(9) + " " + f_row("B", L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8) + " " + f_row("S", S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8) + "\n"
+    txt += "150" + f_sc(10) + " " + f_row("B", L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8) + " " + f_row("S", S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8) + "\n"
+    txt += "210" + f_sc(11) + " " + f_row("B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
+    txt += "240" + f_sc(12) + " " + f_row("B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
+    txt += "\nمجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime))
     if chartTooHigh
         txt += "\nحط الشارت على 20م أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
@@ -834,20 +841,43 @@ if showLog
 else
     label.set_text(logLbl, "")
 
-var table scoreBox = table.new(position.top_left, 1, 4, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
+var table scoreBox = table.new(position.top_left, 1, 3, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
+var table tfTab = table.new(position.bottom_center, 4, 15, bgcolor=color.new(#141414, 0), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
 
 if barstate.islast
     if showScore
         int wins = array.get(tally, 0)
         int losses = array.get(tally, 1)
-        color scoreFg = wins > losses ? color.lime : losses > wins ? color.red : color.silver
-        string perTf = f_sc_ar("15", 0) + "\n" + f_sc_ar("18", 1) + "\n" + f_sc_ar("21", 2) + "\n" + f_sc_ar("24", 3) + "\n" + f_sc_ar("27", 4) + "\n" + f_sc_ar("30", 5) + "\n" + f_sc_ar("45", 6) + "\n" + f_sc_ar("60", 7) + "\n" + f_sc_ar("90", 8) + "\n" + f_sc_ar("120", 9) + "\n" + f_sc_ar("150", 10) + "\n" + f_sc_ar("210", 11) + "\n" + f_sc_ar("240", 12)
-        table.cell(scoreBox, 0, 0, "نتائج كل الفريمات", text_color=color.white, bgcolor=color.new(#1b3a5c, 0), text_size=size.normal, text_halign=text.align_center)
-        table.cell(scoreBox, 0, 1, "المجموع  ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), text_color=scoreFg, bgcolor=color.new(#1a1a1a, 0), text_size=size.normal, text_halign=text.align_center)
-        table.cell(scoreBox, 0, 2, perTf, text_color=color.white, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_left)
-        table.cell(scoreBox, 0, 3, "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%", text_color=color.silver, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
+        int nOpen = array.size(pTime)
+        table.cell(scoreBox, 0, 0, "مجموع الـ13 فريم", text_color=color.white, bgcolor=color.new(#1b3a5c, 0), text_size=size.normal, text_halign=text.align_center)
+        table.cell(scoreBox, 0, 1, "ناجحة  " + str.tostring(wins), text_color=color.lime, bgcolor=color.new(#1a1a1a, 0), text_size=size.large, text_halign=text.align_center)
+        table.cell(scoreBox, 0, 2, "فاشلة  " + str.tostring(losses), text_color=color.red, bgcolor=color.new(#1a1a1a, 0), text_size=size.large, text_halign=text.align_center)
+        color hd = color.new(#1b3a5c, 0)
+        f_cell(tfTab, 0, 0, "فريم", color.white, hd)
+        f_cell(tfTab, 1, 0, "ناجحة", color.lime, hd)
+        f_cell(tfTab, 2, 0, "فاشلة", color.red, hd)
+        f_cell(tfTab, 3, 0, "مفتوحة", color.orange, hd)
+        f_tf_row(tfTab, 1, "15", 0)
+        f_tf_row(tfTab, 2, "18", 1)
+        f_tf_row(tfTab, 3, "21", 2)
+        f_tf_row(tfTab, 4, "24", 3)
+        f_tf_row(tfTab, 5, "27", 4)
+        f_tf_row(tfTab, 6, "30", 5)
+        f_tf_row(tfTab, 7, "45", 6)
+        f_tf_row(tfTab, 8, "60", 7)
+        f_tf_row(tfTab, 9, "90", 8)
+        f_tf_row(tfTab, 10, "120", 9)
+        f_tf_row(tfTab, 11, "150", 10)
+        f_tf_row(tfTab, 12, "210", 11)
+        f_tf_row(tfTab, 13, "240", 12)
+        color totBg = color.new(#0b2a4a, 0)
+        table.cell(tfTab, 0, 14, "مجموع الـ13", text_color=color.white, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 1, 14, str.tostring(wins), text_color=color.lime, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 2, 14, str.tostring(losses), text_color=color.red, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 3, 14, str.tostring(nOpen), text_color=color.orange, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
     else
-        table.clear(scoreBox, 0, 0, 0, 3)
+        table.clear(scoreBox, 0, 0, 0, 2)
+        table.clear(tfTab, 0, 0, 3, 14)
 
 alertcondition(buyHit, title="شراء", message="Cascade شراء")
 alertcondition(sellHit, title="بيع", message="Cascade بيع")
