@@ -385,6 +385,17 @@ f_req_base_entry(simple string tf) =>
 f_req_htf(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_htf(), barmerge.gaps_off, barmerge.lookahead_off)
 
+f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8) =>
+    bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
+    bool s2 = mOk
+    bool s3 = isLong ? donB == 1 : donB == -1
+    bool s4 = isLong ? donCf == 1 : donCf == -1
+    bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
+    bool s6 = emaOk and rsiCf
+    bool s7 = isLong ? donT == -1 : donT == 1
+    bool setup = s1 and s2 and s3 and s4 and s5 and s6 and s7
+    bool all8 = setup and s8
+    [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
 
 f_mark(bool v) => v ? "1" : ""
 
@@ -452,18 +463,6 @@ f_pack() =>
     [dL450, h450, rL450, rS450] = f_req_confirm("450")
     [dL630, h630, rL630, rS630] = f_req_confirm("630")
     [dL720, h720, rL720, rS720] = f_req_confirm("720")
-
-    f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8) =>
-        bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
-        bool s2 = mOk
-        bool s3 = isLong ? donB == 1 : donB == -1
-        bool s4 = isLong ? donCf == 1 : donCf == -1
-        bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
-        bool s6 = emaOk and rsiCf
-        bool s7 = isLong ? donT == -1 : donT == 1
-        bool setup = s1 and s2 and s3 and s4 and s5 and s6 and s7
-        bool all8 = setup and s8
-        [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
 
     [L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL18, smi15, mL15, dC15, dL45, h45, eL15, rL45, dC5, s8L5)
     [S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS18, smi15, mS15, dC15, dL45, h45, eS15, rS45, dC5, s8S5)
