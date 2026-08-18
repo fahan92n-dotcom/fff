@@ -32,7 +32,10 @@ python -m pullback_bot.strategy
 
 ## الأوامر (تيليجرام)
 
-- `/week` أو `1` — صفقات BTCUSDT آخر 7 أيام
+- `/week` أو `1` — صفقات BTCUSDT Pullback آخر 7 أيام
+- `/month` أو `2` — صفقات BTCUSDT Pullback آخر 30 يومًا
+- `/شهر` أو `4` — صفقات Cascade الشهر الماضي كاملة (ناجحة/فاشلة، كل الأزواج)
+- `/نتائج` أو `3` — عدّاد TradingView الحي
 - `/help` — المساعدة
 
 ## النشر المنفصل (Railway)

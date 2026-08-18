@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from html import escape as html_escape
 
@@ -776,6 +777,35 @@ def _format_trade_line(trade):
     )
 
 
+def _entry_tf(trade):
+    try:
+        return int(trade.get("triple_frame"))
+    except (TypeError, ValueError):
+        return None
+
+
+def format_entry_tf_summary(wins, losses, opens):
+    """Per-entry-timeframe win/loss/open counts (5d, 6d, 7d, …)."""
+    win_c = Counter(_entry_tf(t) for t in wins)
+    loss_c = Counter(_entry_tf(t) for t in losses)
+    open_c = Counter(_entry_tf(t) for t in opens)
+    frames = sorted(
+        frame
+        for frame in set(win_c) | set(loss_c) | set(open_c)
+        if frame is not None
+    )
+    if not frames:
+        return ""
+    lines = ["حسب فريم الدخول:"]
+    for frame in frames:
+        lines.append(
+            f"• {frame}د: ✅ <b>{win_c[frame]}</b> | "
+            f"❌ <b>{loss_c[frame]}</b> | "
+            f"🔄 <b>{open_c[frame]}</b>"
+        )
+    return "\n".join(lines)
+
+
 def format_week_trades_report(result, *, period="week"):
     """Format scan result into Telegram HTML chunks."""
     copy = _PERIOD_COPY.get(period, _PERIOD_COPY["week"])
@@ -799,6 +829,8 @@ def format_week_trades_report(result, *, period="week"):
     end = result["end"].strftime("%Y-%m-%d %H:%M")
     total = int(result.get("total") or 0)
     levels_note = outcome_levels_note()
+    tf_summary = format_entry_tf_summary(wins, losses, opens)
+    tf_block = f"{tf_summary}\n" if tf_summary else ""
 
     header = (
         f"{copy['title']}\n"
@@ -809,6 +841,7 @@ def format_week_trades_report(result, *, period="week"):
         f"✅ ناجحة: <b>{len(wins)}</b>\n"
         f"❌ فاشلة: <b>{len(losses)}</b>\n"
         f"🔄 مستمرة: <b>{len(opens)}</b>\n"
+        f"{tf_block}"
         f"معايير الخروج:\n{levels_note}\n"
     )
 

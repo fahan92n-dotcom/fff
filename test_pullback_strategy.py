@@ -923,6 +923,7 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertIn("إلغاء", help_text)
         self.assertIn("عكس", help_text)
         self.assertIn("/month", help_text)
+        self.assertIn("/شهر", help_text)
         self.assertIn("/نتائج", help_text)
         self.assertNotIn("RSI", help_text)
 
@@ -967,6 +968,24 @@ class TestStandaloneBot(unittest.TestCase):
         scan.assert_called_once()
         self.assertEqual(scan.call_args.kwargs.get("days"), 30)
         self.assertTrue(any("30" in c for c in calls))
+
+    def test_standalone_dispatch_cascade_month_command(self):
+        calls = []
+
+        def fake_send(msg, chat_id=None):
+            calls.append((msg, chat_id))
+
+        with patch.object(
+            pullback_main,
+            "handle_month_command",
+            side_effect=lambda chat_id, send: send("📅 الشهر الماضي", chat_id),
+        ) as month_cmd, patch.object(
+            pullback_main, "send_telegram", side_effect=fake_send
+        ):
+            pullback_main._dispatch_command("/شهر", "42")
+            pullback_main._dispatch_command("4", "42")
+        self.assertEqual(month_cmd.call_count, 2)
+        self.assertTrue(any("الشهر الماضي" in msg for msg, _chat in calls))
 
     def test_format_report_uses_days_label(self):
         result = {

@@ -282,6 +282,63 @@ class TestFormatWeekReport(unittest.TestCase):
         self.assertIn("0.52%", text)
         self.assertIn("1%", text)
         self.assertIn("0.75%", text)
+        self.assertIn("حسب فريم الدخول", text)
+        self.assertIn("20د:", text)
+        self.assertIn("10د:", text)
+
+    def test_entry_tf_summary_counts_6_7_8(self):
+        now = datetime(2026, 8, 6, tzinfo=timezone.utc)
+        result = {
+            "ready": True,
+            "start": now - timedelta(days=31),
+            "end": now,
+            "symbols_scanned": 3,
+            "total": 3,
+            "wins": [
+                {
+                    "symbol": "BTCUSDT",
+                    "type": "buy",
+                    "base_frame": 18,
+                    "confirm_frame": 54,
+                    "triple_frame": 6,
+                    "time": now,
+                    "price": 100.0,
+                    "outcome": "win",
+                }
+            ],
+            "losses": [
+                {
+                    "symbol": "ETHUSDT",
+                    "type": "sell",
+                    "base_frame": 21,
+                    "confirm_frame": 63,
+                    "triple_frame": 7,
+                    "time": now,
+                    "price": 50.0,
+                    "outcome": "loss",
+                }
+            ],
+            "opens": [
+                {
+                    "symbol": "SOLUSDT",
+                    "type": "buy",
+                    "base_frame": 24,
+                    "confirm_frame": 72,
+                    "triple_frame": 8,
+                    "time": now,
+                    "price": 20.0,
+                    "outcome": "open",
+                }
+            ],
+        }
+        text = "\n".join(
+            week_scan.format_week_trades_report(result, period="month")
+        )
+        self.assertIn("6د:", text)
+        self.assertIn("7د:", text)
+        self.assertIn("8د:", text)
+        self.assertIn("الناجحة", text)
+        self.assertIn("الفاشلة", text)
 
     def test_today_report_labels_open_trades_as_ongoing(self):
         now = datetime(2026, 8, 14, tzinfo=timezone.utc)
