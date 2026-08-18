@@ -3,9 +3,11 @@
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
 // step8 فقط على فريمات الدخول. Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD: شراء خط فوق الهستوجرام الأحمر وتحت 40٪ من أعلى موجة | بيع تحت الأخضر وفوق 40٪ من أدنى موجة
+// MACD بدون حد 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
-// اختبار الاستراتيجية (اللوحة السفلى) يجمع صفقات الـ13 فريم في تقرير واحد.
+// الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
+// بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%، والعدّاد على الشارت.
+// اختبار الاستراتيجية (اللوحة السفلى) يجمع صفقات الـ13 فريم في تقرير واحد — بدون تبديل فريم الشارت.
 // كل زوج له معرف دخول مستقل. تريدنق فيو لا يدعم شراء وبيع معاً: الاتجاه العكسي ينتظر.
 strategy("Cascade 8 — كل الفريمات (شارت 20م)",
      overlay                  = true,
@@ -29,7 +31,6 @@ obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
-macdPct = input.float(40.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
 dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
 emaLen = input.int(50, "EMA", minval=1, group=grpInd)
 rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
@@ -69,6 +70,7 @@ grpVis = "العرض"
 showBg  = input.bool(true, "تظليل", group=grpVis)
 showLog = input.bool(true, "لوحة كل الفريمات", group=grpVis)
 showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
+showScore = input.bool(true, "عدد الناجحة/الفاشلة", group=grpVis)
 histWin  = input.float(0.67, "ربح الصفقة %", step=0.01, group=grpVis)
 histLoss = input.float(0.53, "خسارة الصفقة %", step=0.01, group=grpVis)
 
@@ -80,6 +82,10 @@ var array<int>    hTime = array.new_int()
 var array<string> hTag  = array.new_string()
 var array<int>    hSide = array.new_int()
 var array<int>    hWin  = array.new_int()
+var array<int>    tally = array.new_int(2, 0)
+
+f_score_json() =>
+    '"wins":' + str.tostring(array.get(tally, 0)) + ',"losses":' + str.tostring(array.get(tally, 1)) + ',"open":' + str.tostring(array.size(pTime))
 
 f_store(int et, string tag, int side, int win, float px) =>
     array.push(hTime, et)
@@ -91,9 +97,11 @@ f_store(int et, string tag, int side, int win, float px) =>
         array.shift(hTag)
         array.shift(hSide)
         array.shift(hWin)
+    int tIdx = win == 1 ? 0 : 1
+    array.set(tally, tIdx, array.get(tally, tIdx) + 1)
     string sideTxt = side == 1 ? "buy" : "sell"
     string winTxt = win == 1 ? "true" : "false"
-    alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + '}', alert.freq_all)
+    alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + ',' + f_score_json() + '}', alert.freq_all)
 
 f_resolve_one(int i) =>
     int et = array.get(pTime, i)
@@ -106,11 +114,11 @@ f_resolve_one(int i) =>
     bool tpHit = side == 1 ? high >= tp : low <= tp
     int result = slHit ? 0 : tpHit ? 1 : -1
     if result >= 0
-        f_store(et, tag, side, result, px)
         array.remove(pTime, i)
         array.remove(pPx, i)
         array.remove(pSide, i)
         array.remove(pTag, i)
+        f_store(et, tag, side, result, px)
     result
 
 f_track(bool hit, int side, string tag) =>
@@ -121,7 +129,7 @@ f_track(bool hit, int side, string tag) =>
         array.push(pSide, side)
         array.push(pTag, tag)
         string sideTxt = side == 1 ? "buy" : "sell"
-        alert('{"src":"cascade","event":"entry","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + '}', alert.freq_all)
+        alert('{"src":"cascade","event":"entry","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',' + f_score_json() + '}', alert.freq_all)
         done := true
     done
 
@@ -200,24 +208,7 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
         float h0 = hist[off]
         float m0 = macd[off]
         if not na(h0) and not na(m0)
-            bool sideOk = isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
-            if sideOk
-                int sec = timeframe.in_seconds()
-                int winHours = sec <= 3600 ? 24 : 72
-                int winBars = int(math.max(2, math.round(winHours * 3600.0 / sec)))
-                if winBars > 300
-                    winBars := 300
-                float bound = 0.0
-                int last = off + winBars - 1
-                for j = off to last
-                    float v = macd[j]
-                    if not na(v)
-                        if isLong and v > 0 and v > bound
-                            bound := v
-                        if not isLong and v < 0 and v < bound
-                            bound := v
-                float cap = bound * (macdPct / 100.0)
-                ok := isLong ? m0 <= cap : m0 >= cap
+            ok := isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
     ok
 
 f_ema_ok(bool isLong, float smi, float ema, float cl) =>
@@ -794,7 +785,8 @@ else
     label.set_text(warnLbl, "")
 
 if showLog
-    string txt = "Cascade | الارقام=خطوات OK | الشارت: 20م أو أقل\n"
+    string txt = "Cascade | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
+    txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | الشارت: 20م أو أقل\n"
     txt += f_row("15 B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += f_row("18 B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
     txt += f_row("21 B", L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8) + " " + f_row("S", S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8) + "\n"
@@ -814,6 +806,19 @@ if showLog
     label.set_text(logLbl, txt)
 else
     label.set_text(logLbl, "")
+
+var table scoreBox = table.new(position.top_left, 1, 3, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
+
+if barstate.islast
+    if showScore
+        int wins = array.get(tally, 0)
+        int losses = array.get(tally, 1)
+        color scoreFg = wins > losses ? color.lime : losses > wins ? color.red : color.silver
+        table.cell(scoreBox, 0, 0, "نتائج الصفقات", text_color=color.white, bgcolor=color.new(#1b3a5c, 0), text_size=size.normal, text_halign=text.align_center)
+        table.cell(scoreBox, 0, 1, "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%", text_color=color.silver, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
+        table.cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), text_color=scoreFg, bgcolor=color.new(#1a1a1a, 0), text_size=size.normal, text_halign=text.align_center)
+    else
+        table.clear(scoreBox, 0, 0, 0, 2)
 
 alertcondition(buyHit, title="شراء", message="Cascade شراء")
 alertcondition(sellHit, title="بيع", message="Cascade بيع")
