@@ -26,6 +26,30 @@ from pullback_bot.telegram_app import (
     send_telegram,
     set_command_handler,
 )
+from tv_webhook import (
+    handle_http as handle_tv_webhook,
+    handle_score_command,
+    is_score_command,
+)
+from week_scan import handle_month_command
+
+_CASCADE_MONTH_COMMANDS = {
+    "/شهر",
+    "/شهر_ماضي",
+    "/شهر_كامل",
+    "شهر",
+    "4",
+}
+
+
+def _command_token(txt):
+    text = (txt or "").strip()
+    if not text:
+        return ""
+    command = text.split(maxsplit=1)[0]
+    if "@" in command:
+        command = command.split("@", 1)[0]
+    return command
 
 log = logging.getLogger(__name__)
 
@@ -36,13 +60,17 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"ok")
 
+    def do_POST(self):  # noqa: N802
+        handle_tv_webhook(self, send_telegram)
+
     def log_message(self, fmt, *args):
         return
 
 
 def _dispatch_command(txt, chat_id):
     text = (txt or "").strip()
-    lower = text.lower()
+    command = _command_token(text)
+    lower = command.lower()
     if lower in ("/start", "/help"):
         send_telegram(
             "📋 <b>بوت استراتيجية Pullback (منفصل)</b>\n"
@@ -58,9 +86,13 @@ def _dispatch_command(txt, chat_id):
             "• شراء: دونشيان أخضر + فوق EMA60\n"
             "• بيع: دونشيان أحمر + تحت EMA60\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "1️⃣ <code>1</code> أو <code>/week</code> — آخر 7 أيام\n"
-            "2️⃣ <code>2</code> أو <code>/month</code> — آخر 30 يومًا\n"
-            "معيار النجاح: +1% | الخسارة: ارتداد 0.70%",
+            "1️⃣ <code>1</code> أو <code>/week</code> — Pullback آخر 7 أيام\n"
+            "2️⃣ <code>2</code> أو <code>/month</code> — Pullback آخر 30 يومًا\n"
+            "3️⃣ <code>3</code> أو <code>/نتائج</code> أو <code>/score</code> — "
+            "عدد صفقات Cascade الناجحة والفاشلة من TradingView\n"
+            "4️⃣ <code>4</code> أو <code>/شهر</code> — صفقات Cascade الشهر الماضي "
+            "كاملة (كل الأزواج بما فيها 6د/7د/8د) ناجحة/فاشلة من شموع Binance\n"
+            "معيار نجاح Pullback: +1% | الخسارة: ارتداد 0.70%",
             chat_id,
         )
         return
@@ -70,8 +102,15 @@ def _dispatch_command(txt, chat_id):
     if lower in ("/month", "2"):
         handle_pullback_week_command(chat_id, send_telegram, days=MONTH_DAYS)
         return
+    if command in _CASCADE_MONTH_COMMANDS:
+        handle_month_command(chat_id, send_telegram)
+        return
+    if lower in ("3",) or is_score_command(text):
+        handle_score_command(chat_id, send_telegram)
+        return
     send_telegram(
-        "أمر غير معروف. أرسل <code>/help</code> أو <code>/week</code> أو <code>/month</code>.",
+        "أمر غير معروف. أرسل <code>/help</code> أو <code>/week</code> "
+        "أو <code>/month</code> أو <code>/شهر</code> أو <code>/نتائج</code>.",
         chat_id,
     )
 
@@ -95,7 +134,9 @@ def run():
 
     send_telegram(
         "✅ بوت <b>Pullback</b> اشتغل (منفصل عن Cascade).\n"
-        "أرسل <code>/week</code> لآخر 7 أيام أو <code>/month</code> لآخر 30 يومًا."
+        "أرسل <code>/week</code> لآخر 7 أيام أو <code>/month</code> لآخر 30 يومًا "
+        "أو <code>/شهر</code> لصفقات Cascade الشهر الماضي "
+        "أو <code>/نتائج</code> لعدد صفقات TradingView."
     )
     poll_telegram_commands()
 

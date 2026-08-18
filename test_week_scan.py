@@ -62,6 +62,27 @@ class TestPeriodBounds(unittest.TestCase):
         self.assertEqual(end, now)
         self.assertEqual(start, now - timedelta(days=7))
 
+    def test_month_is_previous_utc_calendar_month(self):
+        now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+        start, end = week_scan.period_bounds("month", now=now)
+        self.assertEqual(start, datetime(2026, 7, 1, tzinfo=timezone.utc))
+        self.assertEqual(end, datetime(2026, 8, 1, tzinfo=timezone.utc))
+
+    def test_month_from_january_uses_previous_year(self):
+        now = datetime(2026, 1, 5, tzinfo=timezone.utc)
+        start, end = week_scan.period_bounds("month", now=now)
+        self.assertEqual(start, datetime(2025, 12, 1, tzinfo=timezone.utc))
+        self.assertEqual(end, datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+    def test_month_1m_target_covers_month_plus_warmup(self):
+        now = datetime(2026, 8, 18, tzinfo=timezone.utc)
+        target = week_scan.month_1m_target(now=now)
+        self.assertGreaterEqual(target, week_scan.MIN_1M_BARS)
+        self.assertLessEqual(target, 120_000)
+        start, _end = week_scan.period_bounds("month", now=now)
+        span = (now - start).total_seconds() / 60.0
+        self.assertGreater(target, span)
+
 
 class TestEvaluateOutcome(unittest.TestCase):
     def setUp(self):
@@ -261,6 +282,63 @@ class TestFormatWeekReport(unittest.TestCase):
         self.assertIn("0.52%", text)
         self.assertIn("1%", text)
         self.assertIn("0.75%", text)
+        self.assertIn("حسب فريم الدخول", text)
+        self.assertIn("20د:", text)
+        self.assertIn("10د:", text)
+
+    def test_entry_tf_summary_counts_6_7_8(self):
+        now = datetime(2026, 8, 6, tzinfo=timezone.utc)
+        result = {
+            "ready": True,
+            "start": now - timedelta(days=31),
+            "end": now,
+            "symbols_scanned": 3,
+            "total": 3,
+            "wins": [
+                {
+                    "symbol": "BTCUSDT",
+                    "type": "buy",
+                    "base_frame": 18,
+                    "confirm_frame": 54,
+                    "triple_frame": 6,
+                    "time": now,
+                    "price": 100.0,
+                    "outcome": "win",
+                }
+            ],
+            "losses": [
+                {
+                    "symbol": "ETHUSDT",
+                    "type": "sell",
+                    "base_frame": 21,
+                    "confirm_frame": 63,
+                    "triple_frame": 7,
+                    "time": now,
+                    "price": 50.0,
+                    "outcome": "loss",
+                }
+            ],
+            "opens": [
+                {
+                    "symbol": "SOLUSDT",
+                    "type": "buy",
+                    "base_frame": 24,
+                    "confirm_frame": 72,
+                    "triple_frame": 8,
+                    "time": now,
+                    "price": 20.0,
+                    "outcome": "open",
+                }
+            ],
+        }
+        text = "\n".join(
+            week_scan.format_week_trades_report(result, period="month")
+        )
+        self.assertIn("6د:", text)
+        self.assertIn("7د:", text)
+        self.assertIn("8د:", text)
+        self.assertIn("الناجحة", text)
+        self.assertIn("الفاشلة", text)
 
     def test_today_report_labels_open_trades_as_ongoing(self):
         now = datetime(2026, 8, 14, tzinfo=timezone.utc)
@@ -346,6 +424,21 @@ class TestDedupeAndCommand(unittest.TestCase):
         with patch.object(bot, "handle_week_command", side_effect=fake_handle):
             bot._dispatch_command("/week", "42")
             bot._dispatch_command("3", "42")
+
+        self.assertEqual(called["chat_id"], "42")
+        self.assertIs(called["send"], bot.send_telegram)
+
+    def test_month_command_routes_to_market_scan(self):
+        called = {}
+
+        def fake_handle(chat_id, send_fn):
+            called["chat_id"] = chat_id
+            called["send"] = send_fn
+
+        with patch.object(bot, "handle_month_command", side_effect=fake_handle):
+            bot._dispatch_command("/شهر", "42")
+            bot._dispatch_command("4", "42")
+            bot._dispatch_command("/month", "42")
 
         self.assertEqual(called["chat_id"], "42")
         self.assertIs(called["send"], bot.send_telegram)
@@ -484,6 +577,62 @@ class TestDedupeAndCommand(unittest.TestCase):
         self.assertIn("SOLUSDT", joined)
         self.assertNotIn("الناجحون", joined)
         self.assertNotIn("مفتوحة", joined)
+
+    def test_handle_month_sends_formatted_report(self):
+        now = datetime(2026, 8, 18, tzinfo=timezone.utc)
+        start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        end = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        fake_result = {
+            "ready": True,
+            "start": start,
+            "end": end,
+            "symbols_scanned": 1,
+            "total": 1,
+            "wins": [
+                {
+                    "symbol": "BTCUSDT",
+                    "type": "buy",
+                    "base_frame": 60,
+                    "confirm_frame": 180,
+                    "triple_frame": 20,
+                    "time": start + timedelta(days=2),
+                    "price": 100.0,
+                    "outcome": "win",
+                }
+            ],
+            "losses": [],
+            "opens": [],
+        }
+        sent = []
+        with (
+            patch.object(week_scan, "fast_prefetch_done") as done,
+            patch.object(
+                week_scan,
+                "scan_week_trades",
+                return_value=fake_result,
+            ) as scan,
+            patch.object(
+                week_scan,
+                "period_bounds",
+                return_value=(start, end),
+            ),
+        ):
+            done.is_set.return_value = True
+            week_scan.handle_month_command(
+                "9",
+                lambda message, chat_id=None: sent.append(message),
+            )
+
+        scan.assert_called_once()
+        kwargs = scan.call_args.kwargs
+        self.assertEqual(kwargs["start"], start)
+        self.assertEqual(kwargs["end"], end)
+        self.assertIn("min_1m", kwargs)
+        self.assertGreaterEqual(kwargs["min_1m"], week_scan.MIN_1M_BARS)
+        joined = "\n".join(sent)
+        self.assertIn("الشهر الماضي", joined)
+        self.assertIn("الناجحة", joined)
+        self.assertIn("BTCUSDT", joined)
 
 
 class TestWaitingBlindWindow(unittest.TestCase):

@@ -5,3 +5,4 @@ __pycache__/
 *.log
 venv/
 .venv/
+tv_score.json

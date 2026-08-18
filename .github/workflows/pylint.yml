@@ -32,7 +32,8 @@ jobs:
           main.py \
           state_manager.py \
           state_store.py \
-          telegram_bot.py
+          telegram_bot.py \
+          tv_webhook.py
     - name: Reject unexplained broad exception handlers
       run: |
         pylint \
@@ -47,4 +48,5 @@ jobs:
           main.py \
           state_manager.py \
           state_store.py \
-          telegram_bot.py
+          telegram_bot.py \
+          tv_webhook.py

@@ -36,6 +36,23 @@ class TestCascadeDiagSellCommand(unittest.TestCase):
         self.assertIn("Stoch&lt;80", message)
         self.assertNotIn("Stoch<80", message)
 
+    def test_score_command_uses_stored_tv_totals(self):
+        sent = []
+
+        def fake_send(message, chat_id=None):
+            sent.append((message, chat_id))
+            return True
+
+        with patch.object(bot, "send_telegram", side_effect=fake_send), patch(
+            "tv_webhook.format_score_message",
+            return_value="📊 نتائج تجريبية",
+        ):
+            bot._dispatch_command("/نتائج", "123")
+
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][1], "123")
+        self.assertIn("نتائج", sent[0][0])
+
     def test_buy_diag_still_works(self):
         sent = []
 
