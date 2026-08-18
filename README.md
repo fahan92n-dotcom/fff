@@ -30,6 +30,12 @@ then in TradingView create an alert on `Cascade 8 — كل الفريمات` wit
 **Any alert() function call** and that webhook URL. The bot stores wins and
 losses silently. In Telegram send `/نتائج` or `/score` whenever you want the
 counts — it does not message you after every trade.
+
+For a **complete previous calendar month**, send `/شهر` in the Cascade
+bot. That replays the 8 steps on Binance 1m candles (not the TradingView
+chart tally), so 5m/6m entries are included. Pine on the chart cannot
+do that month accurately because `request.security` on a lower timeframe
+only sees the last lower-TF bar of each chart bar.
 Locally you can copy `.env.example` → `.env` (gitignored); the Pullback
 bot loads it via python-dotenv. No Telegram credential is stored in git.
 

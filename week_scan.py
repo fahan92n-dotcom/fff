@@ -1,7 +1,8 @@
 """Historical week/today scan: fetch strategy trades from market data (not storage).
 
 `/week` and `/today` replay the cascade on OHLCV, then classify each entry
-by base-frame outcome levels:
+by base-frame outcome levels. `/شهر` does the same for the previous UTC
+calendar month, fetching extra 1m history so HTF warmup stays valid.
   - 15m..30m   → win +0.67% / loss 0.52% against
   - 45m..240m  → win +1.00% / loss 0.75% against
   - open       → neither level hit yet (reported as مستمرة)
@@ -117,7 +118,22 @@ def period_bounds(period, now=None):
     if period == "today":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         return start, now
+    if period == "month":
+        first_this = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        prev_last = first_this - timedelta(days=1)
+        start = prev_last.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start, first_this
     return now - timedelta(days=WEEK_DAYS), now
+
+
+def month_1m_target(now=None):
+    """1m bars needed to replay the previous UTC calendar month with HTF warmup."""
+    now = _utc(now) or datetime.now(timezone.utc)
+    start, _end = period_bounds("month", now=now)
+    warmup_min = 100 * 240
+    span_min = (now - start).total_seconds() / 60.0
+    return int(max(MIN_1M_BARS, min(120_000, span_min + warmup_min + 1440)))
+
 
 _week_scan_lock = threading.Lock()
 _week_scan_running = False
@@ -159,8 +175,9 @@ def _slice_closed(full_df, minutes, asof):
     return sliced.reset_index(drop=True)
 
 
-def _ensure_symbol_raw(symbol):
+def _ensure_symbol_raw(symbol, min_1m=MIN_1M_BARS):
     """Return raw 1m/30m/60m frames, fetching from Binance when cache is short."""
+    min_1m = int(min_1m)
     raw = {
         "1m": get_cached(symbol, "1m"),
         "30m": get_cached(symbol, "30m"),
@@ -171,7 +188,7 @@ def _ensure_symbol_raw(symbol):
     )
     needs_fetch = (
         raw["1m"].empty
-        or len(raw["1m"]) < MIN_1M_BARS
+        or len(raw["1m"]) < min_1m
         or raw["30m"].empty
         or raw["60m"].empty
     )
@@ -179,9 +196,11 @@ def _ensure_symbol_raw(symbol):
         return raw
 
     for tf, target in API_FETCH_CANDLES.items():
+        if tf == "1m":
+            target = max(int(target), min_1m)
         current = raw.get(tf)
         if current is not None and not current.empty and (
-            tf != "1m" or len(current) >= MIN_1M_BARS
+            tf != "1m" or len(current) >= min_1m
         ):
             continue
         df = fetch_fn(symbol, tf, target=target)
@@ -642,6 +661,7 @@ def scan_week_trades(
     variant=None,
     preloaded_raw=None,
     btc_raw_by_tf=None,
+    min_1m=None,
 ):
     """
     Fetch/replay strategy trades for the last ``days`` and classify outcomes.
@@ -657,6 +677,7 @@ def scan_week_trades(
     else:
         start = _utc(start)
     variant = variant or {}
+    min_1m = int(min_1m) if min_1m is not None else MIN_1M_BARS
 
     if symbols is None:
         with symbols_cache_lock:
@@ -680,7 +701,7 @@ def scan_week_trades(
 
     needs_btc = variant.get("btc_corr_min") is not None
     if needs_btc and btc_raw_by_tf is None:
-        btc_raw_by_tf = _ensure_symbol_raw("BTCUSDT")
+        btc_raw_by_tf = _ensure_symbol_raw("BTCUSDT", min_1m=min_1m)
 
     all_signals = []
     total = len(symbols)
@@ -697,7 +718,7 @@ def scan_week_trades(
             if preloaded_raw is not None and symbol in preloaded_raw:
                 raw_by_tf = preloaded_raw[symbol]
             else:
-                raw_by_tf = _ensure_symbol_raw(symbol)
+                raw_by_tf = _ensure_symbol_raw(symbol, min_1m=min_1m)
             raw_1m = raw_by_tf.get("1m", pd.DataFrame())
             if raw_1m.empty:
                 continue
@@ -865,6 +886,23 @@ _PERIOD_COPY = {
         "progress": "⏳ فحص اليوم",
         "failed": "❌ فشل جلب صفقات اليوم: ",
     },
+    "month": {
+        "title": "📅 <b>صفقات الشهر الماضي</b>",
+        "empty": "لا توجد صفقات مطابقة للاستراتيجية في الشهر الماضي.",
+        "busy": "⏳ فحص الشهر الماضي يعمل الآن — انتظر انتهاءه.",
+        "command": "/شهر",
+        "error_generic": "⚠️ تعذر جلب صفقات الشهر الماضي.",
+        "fetching_cold": (
+            "📡 جاري جلب بيانات الشهر الماضي من Binance "
+            "(يحتاج شموع 1م أقدم من الكاش — قد يأخذ عدة دقائق)..."
+        ),
+        "fetching_hot": (
+            "📡 جاري إعادة تشغيل الاستراتيجية على الشهر الماضي (UTC)...\n"
+            "النتائج من شموع Binance الحقيقية، مو من عدّاد الشارت.\n"
+        ),
+        "progress": "⏳ فحص الشهر الماضي",
+        "failed": "❌ فشل جلب صفقات الشهر الماضي: ",
+    },
 }
 
 
@@ -900,11 +938,17 @@ def _handle_scan_command(chat_id, send_telegram, period):
                 )
 
         start, end = period_bounds(period)
+        extra = {}
+        if period == "month":
+            extra["min_1m"] = month_1m_target()
+            extra["now"] = datetime.now(timezone.utc)
+        else:
+            extra["now"] = end
         result = scan_week_trades(
             progress_callback=on_progress,
             start=start,
             end=end,
-            now=end,
+            **extra,
         )
         for chunk in format_week_trades_report(result, period=period):
             send_telegram(chunk, chat_id)
@@ -927,3 +971,8 @@ def handle_week_command(chat_id, send_telegram):
 def handle_today_command(chat_id, send_telegram):
     """Telegram entry: scan UTC today and report ناجحة / فاشلة / مستمرة."""
     _handle_scan_command(chat_id, send_telegram, "today")
+
+
+def handle_month_command(chat_id, send_telegram):
+    """Telegram entry: replay the previous UTC calendar month from market data."""
+    _handle_scan_command(chat_id, send_telegram, "month")

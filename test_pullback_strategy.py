@@ -886,6 +886,7 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertNotIn("Pullback", calls[0])
         self.assertNotIn("week_pullback", calls[0])
         self.assertIn("/نتائج", calls[0])
+        self.assertIn("/شهر", calls[0])
 
     def test_standalone_dispatch_week(self):
         calls = []
