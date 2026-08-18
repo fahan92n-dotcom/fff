@@ -102,6 +102,7 @@ from telegram_bot import (
     send_telegram,
     set_command_handler,
 )
+from tv_webhook import handle_score_command, is_score_command
 from week_scan import handle_today_command, handle_week_command
 from strategy_variants import handle_experiments_command
 
@@ -900,6 +901,9 @@ def _dispatch_command_inner(txt, chat_id):
         # Fetch last-7-days strategy trades from market data (not in-memory storage).
         handle_week_command(chat_id, send_telegram)
 
+    elif is_score_command(txt):
+        handle_score_command(chat_id, send_telegram)
+
     elif txt in ("/experiments", "/experiment", "/تجارب", "/تجربة"):
         handle_experiments_command(chat_id, send_telegram)
 
@@ -996,6 +1000,8 @@ def _dispatch_command_inner(txt, chat_id):
             "2️⃣ <code>2</code> أو <code>/yesterday</code> — إشارات أمس\n"
             "3️⃣ <code>3</code> أو <code>/week</code> — صفقات الاستراتيجية الأساسية آخر 7 أيام "
             "(15–30م: +0.67%/0.52% | 45–240م: +1%/0.75%)\n"
+            "📊 <code>/نتائج</code> أو <code>/score</code> — عدد صفقات TradingView الناجحة والفاشلة "
+            "(اطلبه متى ما تبي، مو بعد كل صفقة)\n"
             "🧪 <code>/experiments</code> أو <code>/تجارب</code> — مقارنة تعديلات الاستراتيجية "
             "واختيار الأفضل على آخر 7 أيام\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"

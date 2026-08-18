@@ -885,6 +885,7 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertTrue(calls)
         self.assertNotIn("Pullback", calls[0])
         self.assertNotIn("week_pullback", calls[0])
+        self.assertIn("/نتائج", calls[0])
 
     def test_standalone_dispatch_week(self):
         calls = []
@@ -921,7 +922,23 @@ class TestStandaloneBot(unittest.TestCase):
         self.assertIn("إلغاء", help_text)
         self.assertIn("عكس", help_text)
         self.assertIn("/month", help_text)
+        self.assertIn("/نتائج", help_text)
         self.assertNotIn("RSI", help_text)
+
+    def test_standalone_dispatch_score_command(self):
+        calls = []
+
+        def fake_send(msg, chat_id=None):
+            calls.append(msg)
+
+        with patch.object(pullback_main, "send_telegram", side_effect=fake_send), patch(
+            "tv_webhook.format_score_message",
+            return_value="📊 نتائج",
+        ):
+            pullback_main._dispatch_command("/نتائج", "1")
+            pullback_main._dispatch_command("3", "1")
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertTrue(all("نتائج" in c for c in calls))
 
     def test_standalone_dispatch_month(self):
         calls = []

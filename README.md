@@ -17,11 +17,19 @@ repo for reference but is not the start command.
 - `binance_data.py` — Binance access and OHLCV caches
 - `indicators.py` — indicator calculations
 - `fahadal92.py` — Cascade entry / Telegram commands (legacy)
+- `tv_webhook.py` — TradingView webhook stores wins/losses; Telegram `/نتائج` asks on demand
+- `pine/cascade_8steps.pine` — TradingView Cascade 8-step strategy
 
 ## Configuration
 
 Set `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` (or `PULLBACK_TELEGRAM_*`), and
 optionally `ALLOWED_CHAT_IDS` / `PORT` before running.
+
+TradingView results: set `TV_WEBHOOK_SECRET`, expose `POST /tv?token=<secret>`,
+then in TradingView create an alert on `Cascade 8 — كل الفريمات` with
+**Any alert() function call** and that webhook URL. The bot stores wins and
+losses silently. In Telegram send `/نتائج` or `/score` whenever you want the
+counts — it does not message you after every trade.
 Locally you can copy `.env.example` → `.env` (gitignored); the Pullback
 bot loads it via python-dotenv. No Telegram credential is stored in git.
 
@@ -42,7 +50,7 @@ python -m unittest discover -v
 pylint \
   binance_data.py cascade_pipeline.py cascade_steps.py config.py \
   fahadal92.py indicators.py main.py state_manager.py state_store.py \
-  telegram_bot.py
+  telegram_bot.py tv_webhook.py
 ```
 
 CI runs both commands and separately rejects unexplained broad exception
