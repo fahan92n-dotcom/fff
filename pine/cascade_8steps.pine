@@ -6,7 +6,7 @@
 // step8 فقط على فريمات الدخول: RSI يلمس 45 للشراء و55 للبيع. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
-// SMI تأكيد (Stoch_MTM 10/3): شراء >=20 وما ينزل تحت 20 | بيع <=-20 وما يطلع فوق -20
+// SMI تأكيد (Stoch_MTM 10/3): آخر شمعة مغلقة فقط. شراء >=20 | بيع <=-20. المفتوحة ما تُحسب.
 // Braid Filter © Robert Hill 2006 — نفس كودك: MA1 close Period1، MA2 open Period2، MA3 close Period3.
 // الفلتر ATR(14)*PipsMinSepPercent/100. أخضر ma01>ma02 وdif>filter | أحمر العكس | رمادي غير كذا.
 // على فريم التأكيد فقط: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
@@ -33,8 +33,8 @@ smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
 smiD   = input.int(3,  "SMI D", minval=1, group=grpInd)
 osLvl  = input.float(-40, "تشبع بيعي SMI", group=grpInd)
 obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
-smiConfBuy  = input.float(20,  "SMI تأكيد شراء >=", group=grpInd)
-smiConfSell = input.float(-20, "SMI تأكيد بيع <=", group=grpInd)
+smiConfBuy  = input.float(20,  "SMI تأكيد شراء >= (آخر مقفلة)", group=grpInd)
+smiConfSell = input.float(-20, "SMI تأكيد بيع <= (آخر مقفلة)", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
@@ -250,8 +250,8 @@ f_ema_ok(bool isLong, float smi, float ema, float cl) =>
 
 f_smi_conf(bool isLong, float smi) =>
     bool ok = false
-    if not na(smi) and not na(smi[1])
-        ok := isLong ? (smi >= smiConfBuy and smi[1] >= smiConfBuy) : (smi <= smiConfSell and smi[1] <= smiConfSell)
+    if not na(smi[1])
+        ok := isLong ? smi[1] >= smiConfBuy : smi[1] <= smiConfSell
     ok
 
 f_rsi_conf(bool isLong, float rsi) =>
@@ -900,7 +900,7 @@ else
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
     txt += "برايدك: Braid Filter Hill 2006 | " + braidMaType + " close/" + str.tostring(braidP1) + " open/" + str.tostring(braidP2) + " close/" + str.tostring(braidP3) + " | ATR*" + str.tostring(braidSep) + "%\n"
-    txt += "تأكيد فقط: [2] و[3] أخضر شراء / أحمر بيع | التلوين على الشارت = نفس مؤشرك على فريم الشارت\n"
+    txt += "تأكيد فقط: برايد [2][3] | SMI آخر مقفلة شراء >=20 وبيع <=-20 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += "18" + f_sc(1) + " " + f_row("B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
