@@ -8,7 +8,7 @@
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
 // Awesome Oscillator على فريم التأكيد (3× الأساسي): آخر مقفلة شراء >0 | بيع <0.
 // Braid على فريم التأكيد: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
-// SMI أساسي: شراء آخر مقفلة تحت 0 | بيع فوق 0. التشبع على الأساسي فقط مع AO شراء >0 وبيع <0 (مو التأكيد).
+// Donchian على الأساسي والدخول فقط. فريم التأكيد بدون Donchian.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
 // بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%.
@@ -479,12 +479,12 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl) and aoOk
     bool s2 = mOk
     bool s3 = isLong ? donB == 1 : donB == -1
-    bool s4 = isLong ? donCf == 1 : donCf == -1
+    bool s4 = true
     bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
     bool s6 = emaOk and rsiCf
     bool s7 = isLong ? donT == -1 : donT == 1
     bool smiDir = isLong ? smiC < 0 : smiC > 0
-    bool setup = s1 and s2 and s3 and s4 and s5 and s6 and s7 and smiDir
+    bool setup = s1 and s2 and s3 and s5 and s6 and s7 and smiDir
     bool all8 = setup and s8
     [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
 
@@ -862,7 +862,7 @@ else
 
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "تأكيد = 3× الأساسي | برايد [2][3] | AO تأكيد شراء >0 وبيع <0\n"
+    txt += "تأكيد = 3× الأساسي | برايد [2][3] | AO تأكيد شراء >0 وبيع <0 | بدون Donchian تأكيد\n"
     txt += "أساسي فقط: تشبع SMI مع AO شراء >0 وبيع <0 | SMI شراء <0 وبيع >0\n"
     txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
