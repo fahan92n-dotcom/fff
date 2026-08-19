@@ -7,6 +7,7 @@
 // MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
 // Awesome Oscillator على فريم التأكيد (3× الأساسي): آخر مقفلة شراء >0 | بيع <0. برايد انشال.
+// SMI أساسي: شراء آخر مقفلة تحت 0 | بيع فوق 0. الصفقة ما تتأكد إلا بالاتجاهين مع بعض.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
 // بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%.
@@ -455,7 +456,8 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
     bool s6 = emaOk and rsiCf
     bool s7 = isLong ? donT == -1 : donT == 1
-    bool setup = s1 and s2 and s3 and s4 and s5 and s6 and s7
+    bool smiDir = isLong ? smiC < 0 : smiC > 0
+    bool setup = s1 and s2 and s3 and s4 and s5 and s6 and s7 and smiDir
     bool all8 = setup and s8
     [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
 
@@ -833,7 +835,7 @@ else
 
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "تأكيد = 3× الأساسي (ساعة→180م) | AO آخر مقفلة شراء >0 وبيع <0 | برايد انشال\n"
+    txt += "تأكيد = 3× الأساسي | AO تأكيد شراء >0 وبيع <0 | SMI أساسي شراء <0 وبيع >0\n"
     txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
