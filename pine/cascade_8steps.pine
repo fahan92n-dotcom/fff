@@ -3,7 +3,7 @@
 // الشارت 5 دقائق حتى تكتمل مداخل 5م. زوج الساعة = 60/180/20 وليس شارت 1س.
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
-// step8 فقط على فريمات الدخول: آخر شمعة مغلقة يلمس RSI 45 للشراء و55 للبيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
+// step8 فقط على فريمات الدخول: أثناء تشبع SMI أي شمعة مقفلة تلمس RSI 45 شراء / 55 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
 // SMI تأكيد (Stoch_MTM 10/3): آخر شمعة مغلقة فقط. شراء >=20 | بيع <=-20. المفتوحة ما تُحسب.
@@ -43,8 +43,8 @@ emaLen = input.int(60, "EMA 60", minval=1, group=grpInd)
 rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
 stKlen = input.int(15, "Stoch K", minval=1, group=grpInd)
 stKsm  = input.int(3,  "Stoch K Smooth", minval=1, group=grpInd)
-rsiOs  = input.float(45, "لمس RSI دخول شراء <= (آخر مقفلة)", group=grpInd)
-rsiOb  = input.float(55, "لمس RSI دخول بيع >= (آخر مقفلة)", group=grpInd)
+rsiOs  = input.float(45, "لمس RSI دخول شراء <= (أي شمعة أثناء التشبع)", group=grpInd)
+rsiOb  = input.float(55, "لمس RSI دخول بيع >= (أي شمعة أثناء التشبع)", group=grpInd)
 rsiConfOs = input.float(30, "RSI تأكيد شراء ممنوع <= / أساسي بيع ممنوع <=", group=grpInd)
 rsiConfOb = input.float(70, "RSI تأكيد بيع ممنوع >= / أساسي شراء ممنوع >=", group=grpInd)
 rsiLook   = input.int(30, "RSI شموع التأكيد والأساسي", minval=1, group=grpInd)
@@ -320,10 +320,15 @@ f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
                     break
                 smiIdx := i
     if smiIdx > 0
-        bool rHit = isLong ? rsi[1] <= rsiTh : rsi[1] >= rsiTh
-        if rHit
+        int rsiIdx = -1
+        for i = smiIdx to 1
+            bool rHit = isLong ? rsi[i] <= rsiTh : rsi[i] >= rsiTh
+            if rHit
+                rsiIdx := i
+                break
+        if rsiIdx > 0
             int crossIdx = -1
-            for i = smiIdx to 1
+            for i = rsiIdx to 1
                 float prevR = rsi[i + 1]
                 float prevM = rsiMa[i + 1]
                 float curR  = rsi[i]
@@ -896,6 +901,7 @@ if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
     txt += "برايدك: Braid Filter Hill 2006 | " + braidMaType + " close/" + str.tostring(braidP1) + " open/" + str.tostring(braidP2) + " close/" + str.tostring(braidP3) + " | ATR*" + str.tostring(braidSep) + "%\n"
     txt += "تأكيد فقط: برايد [2][3] | SMI آخر مقفلة شراء >=20 وبيع <=-20 | المفتوحة ما تُحسب\n"
+    txt += "دخول: أثناء تشبع SMI أي شمعة مقفلة تلمس RSI شراء <=45 وبيع >=55\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += "18" + f_sc(1) + " " + f_row("B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
