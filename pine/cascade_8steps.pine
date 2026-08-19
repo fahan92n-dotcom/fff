@@ -3,7 +3,7 @@
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
 // step8 فقط على فريمات الدخول. Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD فريم الرئيس: شراء خط فوق الهستوجرام الأحمر وتحت 40٪ من أعلى موجة فوق الصفر | بيع تحت الأخضر وفوق 40٪ من أدنى موجة تحت الصفر
+// MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
 // Braid على فريم التأكيد: آخر 5 مقفلة. الشمعة 3 و4 و5 لون الاتجاه (شراء أخضر / بيع أحمر، مو رمادي). 1 و2 أي لون.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
@@ -32,7 +32,6 @@ obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
-macdPct = input.float(40.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
 dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
 emaLen = input.int(60, "EMA 60", minval=1, group=grpInd)
 rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
@@ -237,24 +236,7 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
         float h0 = hist[off]
         float m0 = macd[off]
         if not na(h0) and not na(m0)
-            bool sideOk = isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
-            if sideOk
-                int sec = timeframe.in_seconds()
-                int winHours = sec <= 3600 ? 24 : 72
-                int winBars = int(math.max(2, math.round(winHours * 3600.0 / sec)))
-                if winBars > 300
-                    winBars := 300
-                float bound = 0.0
-                int last = off + winBars - 1
-                for j = off to last
-                    float v = macd[j]
-                    if not na(v)
-                        if isLong and v > 0 and v > bound
-                            bound := v
-                        if not isLong and v < 0 and v < bound
-                            bound := v
-                float cap = bound * (macdPct / 100.0)
-                ok := isLong ? m0 <= cap : m0 >= cap
+            ok := isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
     ok
 
 f_ema_ok(bool isLong, float smi, float ema, float cl) =>
