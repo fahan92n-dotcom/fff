@@ -6,7 +6,6 @@
 // step8 فقط على فريمات الدخول: أثناء تشبع SMI أي شمعة مقفلة تلمس RSI 45 شراء / 55 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
-// SMI تأكيد (Stoch_MTM 10/3): آخر شمعة مغلقة فقط. شراء >=40 | بيع <=-40. المفتوحة ما تُحسب.
 // Braid Filter © Robert Hill 2006 — نفس كودك: MA1 close Period1، MA2 open Period2، MA3 close Period3.
 // الفلتر ATR(14)*PipsMinSepPercent/100. أخضر ma01>ma02 وdif>filter | أحمر العكس | رمادي غير كذا.
 // على فريم التأكيد فقط: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
@@ -33,8 +32,6 @@ smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
 smiD   = input.int(3,  "SMI D", minval=1, group=grpInd)
 osLvl  = input.float(-40, "تشبع بيعي SMI", group=grpInd)
 obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
-smiConfBuy  = input.float(40,  "SMI تأكيد شراء >= (آخر مقفلة)", group=grpInd)
-smiConfSell = input.float(-40, "SMI تأكيد بيع <= (آخر مقفلة)", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
@@ -248,12 +245,6 @@ f_ema_ok(bool isLong, float smi, float ema, float cl) =>
                 break
     found
 
-f_smi_conf(bool isLong, float smi) =>
-    bool ok = false
-    if not na(smi[1])
-        ok := isLong ? smi[1] >= smiConfBuy : smi[1] <= smiConfSell
-    ok
-
 f_rsi_conf(bool isLong, float rsi) =>
     bool bad = false
     for i = 0 to rsiLook - 1
@@ -417,10 +408,9 @@ f_snap_confirm() =>
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     rsi = ta.rsi(close, rsiLen)
-    smi = f_smi()
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
     int bCol = f_braid_col()
-    [don, hist2, f_rsi_conf(true, rsi) and f_braid_ok(true, bCol) and f_smi_conf(true, smi), f_rsi_conf(false, rsi) and f_braid_ok(false, bCol) and f_smi_conf(false, smi)]
+    [don, hist2, f_rsi_conf(true, rsi) and f_braid_ok(true, bCol), f_rsi_conf(false, rsi) and f_braid_ok(false, bCol)]
 
 f_snap_base() =>
     smi = f_smi()
@@ -454,7 +444,7 @@ f_snap_htf() =>
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
     int bCol = f_braid_col()
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_braid_ok(true, bCol) and f_smi_conf(true, smi), f_rsi_conf(false, rsi) and f_braid_ok(false, bCol) and f_smi_conf(false, smi), f_block(true, smi), f_block(false, smi)]
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_braid_ok(true, bCol), f_rsi_conf(false, rsi) and f_braid_ok(false, bCol), f_block(true, smi), f_block(false, smi)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -900,7 +890,7 @@ else
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
     txt += "برايدك: Braid Filter Hill 2006 | " + braidMaType + " close/" + str.tostring(braidP1) + " open/" + str.tostring(braidP2) + " close/" + str.tostring(braidP3) + " | ATR*" + str.tostring(braidSep) + "%\n"
-    txt += "تأكيد فقط: برايد [2][3] | SMI آخر مقفلة شراء >=40 وبيع <=-40 | المفتوحة ما تُحسب\n"
+    txt += "تأكيد فقط: برايد [2][3] أخضر شراء / أحمر بيع | المفتوحة و[1] أي لون\n"
     txt += "دخول: أثناء تشبع SMI أي شمعة مقفلة تلمس RSI شراء <=45 وبيع >=55\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
