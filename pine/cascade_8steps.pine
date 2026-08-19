@@ -4,6 +4,8 @@
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
 // step8 فقط على فريمات الدخول. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD بدون حد 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
+// RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
+// RSI أساسي: شراء ممنوع إذا >=70 خلال 30 شمعة | بيع ممنوع إذا <=30
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
 // بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%.
@@ -37,9 +39,9 @@ stKlen = input.int(15, "Stoch K", minval=1, group=grpInd)
 stKsm  = input.int(3,  "Stoch K Smooth", minval=1, group=grpInd)
 rsiOs  = input.float(35, "لمس RSI شراء", group=grpInd)
 rsiOb  = input.float(65, "لمس RSI بيع", group=grpInd)
-rsiConfOs = input.float(30, "RSI تأكيد ممنوع <=", group=grpInd)
-rsiConfOb = input.float(70, "RSI تأكيد ممنوع >=", group=grpInd)
-rsiLook   = input.int(30, "RSI تأكيد شموع", minval=1, group=grpInd)
+rsiConfOs = input.float(30, "RSI تأكيد شراء ممنوع <= / أساسي بيع ممنوع <=", group=grpInd)
+rsiConfOb = input.float(70, "RSI تأكيد بيع ممنوع >= / أساسي شراء ممنوع >=", group=grpInd)
+rsiLook   = input.int(30, "RSI شموع التأكيد والأساسي", minval=1, group=grpInd)
 stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
 stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
@@ -259,6 +261,18 @@ f_rsi_conf(bool isLong, float rsi) =>
                 break
     not bad
 
+f_rsi_base(bool isLong, float rsi) =>
+    bool bad = false
+    for i = 0 to rsiLook - 1
+        if not na(rsi[i])
+            if isLong and rsi[i] >= rsiConfOb
+                bad := true
+                break
+            if not isLong and rsi[i] <= rsiConfOs
+                bad := true
+                break
+    not bad
+
 f_block(bool isLong, float smi) =>
     bool sat0 = isLong ? smi <= osLvl : smi >= obLvl
     bool blocked = sat0
@@ -351,8 +365,9 @@ f_snap_base() =>
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
+    rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi)]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_block(true, smi), f_block(false, smi)]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -367,7 +382,7 @@ f_snap_base_entry() =>
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi)]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi)]
 
 f_snap_htf() =>
     smi = f_smi()
@@ -376,7 +391,7 @@ f_snap_htf() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi)]
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
