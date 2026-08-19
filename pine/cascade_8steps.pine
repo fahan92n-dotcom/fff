@@ -6,7 +6,8 @@
 // step8 فقط على فريمات الدخول: أثناء تشبع SMI أي إغلاق يلمس RSI 35 شراء / 65 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
-// Awesome Oscillator على فريم التأكيد (3× الأساسي): آخر مقفلة شراء >0 | بيع <0. برايد انشال.
+// Awesome Oscillator على فريم التأكيد (3× الأساسي): آخر مقفلة شراء >0 | بيع <0.
+// Braid على فريم التأكيد: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
 // SMI أساسي: شراء آخر مقفلة تحت 0 | بيع فوق 0. الصفقة ما تتأكد إلا بالاتجاهين مع بعض.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
@@ -49,6 +50,10 @@ stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
 aoFast = input.int(5,  "AO سريع", minval=1, group=grpInd)
 aoSlow = input.int(34, "AO بطيء", minval=1, group=grpInd)
+braidP1  = input.int(3,  "Braid Period 1", minval=1, group=grpInd)
+braidP2  = input.int(7,  "Braid Period 2", minval=1, group=grpInd)
+braidP3  = input.int(14, "Braid Period 3", minval=1, group=grpInd)
+braidSep = input.float(40, "Braid Filter %", minval=0, group=grpInd)
 
 grpRisk = "إغلاق"
 useLong = input.bool(true, "شراء", group=grpRisk)
@@ -341,6 +346,21 @@ f_ao_ok(bool isLong, float ao) =>
         ok := isLong ? ao[1] > 0 : ao[1] < 0
     ok
 
+f_braid_col() =>
+    float ma01 = ta.ema(close, braidP1)
+    float ma02 = ta.ema(open, braidP2)
+    float ma03 = ta.ema(close, braidP3)
+    float mx = math.max(math.max(ma01, ma02), ma03)
+    float mn = math.min(math.min(ma01, ma02), ma03)
+    float dif = mx - mn
+    float filt = ta.atr(14) * braidSep / 100.0
+    ma01 > ma02 and dif > filt ? 1 : ma02 > ma01 and dif > filt ? -1 : 0
+
+f_braid_ok(bool isLong) =>
+    int col = f_braid_col()
+    int need = isLong ? 1 : -1
+    col[2] == need and col[3] == need
+
 // security على فريم أدنى من الشارت ترجع آخر شمعة فقط (مو كل na).
 // security_lower_tf تلقط كل الشموع داخل الساعة، لكن تنهار مع 36 فريم (حد 40 طلب) وتفشل إذا الشارت أصغر من المطلوب.
 f_snap_entry() =>
@@ -357,7 +377,7 @@ f_snap_confirm() =>
     rsi = ta.rsi(close, rsiLen)
     ao = f_ao()
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
-    [don, hist2, f_rsi_conf(true, rsi) and f_ao_ok(true, ao), f_rsi_conf(false, rsi) and f_ao_ok(false, ao)]
+    [don, hist2, f_rsi_conf(true, rsi) and f_ao_ok(true, ao) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_ao_ok(false, ao) and f_braid_ok(false)]
 
 f_snap_base() =>
     smi = f_smi()
@@ -391,7 +411,7 @@ f_snap_htf() =>
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
     ao = f_ao()
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_ao_ok(true, ao), f_rsi_conf(false, rsi) and f_ao_ok(false, ao), f_block(true, smi), f_block(false, smi)]
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_ao_ok(true, ao) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_ao_ok(false, ao) and f_braid_ok(false), f_block(true, smi), f_block(false, smi)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -835,7 +855,7 @@ else
 
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "تأكيد = 3× الأساسي | AO تأكيد شراء >0 وبيع <0 | SMI أساسي شراء <0 وبيع >0\n"
+    txt += "تأكيد = 3× الأساسي | AO شراء >0 وبيع <0 | برايد [2][3] أخضر شراء / أحمر بيع | SMI أساسي شراء <0 وبيع >0\n"
     txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
