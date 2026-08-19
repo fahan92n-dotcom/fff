@@ -6,9 +6,7 @@
 // step8 فقط على فريمات الدخول: أثناء تشبع SMI أي شمعة مقفلة تلمس RSI 45 شراء / 55 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
-// Braid Filter © Robert Hill 2006 — نفس كودك: MA1 close Period1، MA2 open Period2، MA3 close Period3.
-// الفلتر ATR(14)*PipsMinSepPercent/100. أخضر ma01>ma02 وdif>filter | أحمر العكس | رمادي غير كذا.
-// على فريم التأكيد فقط: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
+// Awesome Oscillator على فريم التأكيد (3× الأساسي): آخر مقفلة شراء >0 | بيع <0. برايد انشال.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
 // بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%.
@@ -48,14 +46,8 @@ rsiLook   = input.int(30, "RSI شموع التأكيد والأساسي", minval
 stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
 stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
-
-grpBraid = "Braid Filter © Robert Hill 2006"
-braidMaType = input.string("EMA", "MA Type", options=["EMA", "DEMA", "TEMA", "WMA", "VWMA", "SMA", "SMMA", "HMA", "LSMA", "Kijun", "McGinley", "RMA"], group=grpBraid)
-braidP1  = input.int(3,  "Period 1", minval=1, group=grpBraid)
-braidP2  = input.int(7,  "Period 2", minval=1, group=grpBraid)
-braidP3  = input.int(14, "Period 3", minval=1, group=grpBraid)
-braidSep = input.float(40, "Pips Min Sep Percent", minval=0, group=grpBraid)
-showBraidBg = input.bool(true, "تلوين الخلفية بنفس ألوان مؤشرك", group=grpBraid)
+aoFast = input.int(5,  "AO سريع", minval=1, group=grpInd)
+aoSlow = input.int(34, "AO بطيء", minval=1, group=grpInd)
 
 grpRisk = "إغلاق"
 useLong = input.bool(true, "شراء", group=grpRisk)
@@ -339,60 +331,14 @@ f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
                             break
     ok
 
-// نفس دالة المتوسطات من مؤشر Braid Filter اللي لصقه المستخدم.
-f_braid_ma(string type, float src, int len) =>
-    float result = 0.0
-    if type == "SMA"
-        result := ta.sma(src, len)
-    else if type == "EMA"
-        result := ta.ema(src, len)
-    else if type == "DEMA"
-        float e = ta.ema(src, len)
-        result := 2.0 * e - ta.ema(e, len)
-    else if type == "TEMA"
-        float e = ta.ema(src, len)
-        result := 3.0 * (e - ta.ema(e, len)) + ta.ema(ta.ema(e, len), len)
-    else if type == "WMA"
-        result := ta.wma(src, len)
-    else if type == "VWMA"
-        result := ta.vwma(src, len)
-    else if type == "SMMA"
-        float w = ta.wma(src, len)
-        result := na(w[1]) ? ta.sma(src, len) : (w[1] * (len - 1) + src) / len
-    else if type == "RMA"
-        result := ta.rma(src, len)
-    else if type == "HMA"
-        int half = math.max(1, int(len / 2))
-        int hull = math.max(1, int(math.round(math.sqrt(len))))
-        result := ta.wma(2.0 * ta.wma(src, half) - ta.wma(src, len), hull)
-    else if type == "LSMA"
-        result := ta.linreg(src, len, 0)
-    else if type == "Kijun"
-        result := math.avg(ta.lowest(low, len), ta.highest(high, len))
-    else if type == "McGinley"
-        float mg = 0.0
-        mg := na(mg[1]) ? ta.ema(src, len) : mg[1] + (src - mg[1]) / (len * math.pow(src / mg[1], 4))
-        result := mg
-    else
-        result := ta.ema(src, len)
-    result
+f_ao() =>
+    ta.sma(hl2, aoFast) - ta.sma(hl2, aoSlow)
 
-f_braid_col() =>
-    float ma01 = f_braid_ma(braidMaType, close, braidP1)
-    float ma02 = f_braid_ma(braidMaType, open, braidP2)
-    float ma03 = f_braid_ma(braidMaType, close, braidP3)
-    float mx = math.max(math.max(ma01, ma02), ma03)
-    float mn = math.min(math.min(ma01, ma02), ma03)
-    float dif = mx - mn
-    float filt = ta.atr(14) * braidSep / 100.0
-    ma01 > ma02 and dif > filt ? 1 : ma02 > ma01 and dif > filt ? -1 : 0
-
-f_braid_ok(bool isLong, int col) =>
-    int need = isLong ? 1 : -1
-    col[2] == need and col[3] == need
-
-f_braid_color(int col) =>
-    col == 1 ? color.green : col == -1 ? color.red : color.gray
+f_ao_ok(bool isLong, float ao) =>
+    bool ok = false
+    if not na(ao[1])
+        ok := isLong ? ao[1] > 0 : ao[1] < 0
+    ok
 
 // security على فريم أدنى من الشارت ترجع آخر شمعة فقط (مو كل na).
 // security_lower_tf تلقط كل الشموع داخل الساعة، لكن تنهار مع 36 فريم (حد 40 طلب) وتفشل إذا الشارت أصغر من المطلوب.
@@ -408,9 +354,9 @@ f_snap_confirm() =>
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     rsi = ta.rsi(close, rsiLen)
+    ao = f_ao()
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
-    int bCol = f_braid_col()
-    [don, hist2, f_rsi_conf(true, rsi) and f_braid_ok(true, bCol), f_rsi_conf(false, rsi) and f_braid_ok(false, bCol)]
+    [don, hist2, f_rsi_conf(true, rsi) and f_ao_ok(true, ao), f_rsi_conf(false, rsi) and f_ao_ok(false, ao)]
 
 f_snap_base() =>
     smi = f_smi()
@@ -443,8 +389,8 @@ f_snap_htf() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    int bCol = f_braid_col()
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_braid_ok(true, bCol), f_rsi_conf(false, rsi) and f_braid_ok(false, bCol), f_block(true, smi), f_block(false, smi)]
+    ao = f_ao()
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_ao_ok(true, ao), f_rsi_conf(false, rsi) and f_ao_ok(false, ao), f_block(true, smi), f_block(false, smi)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -867,9 +813,7 @@ if showLbl
         label.new(bar_index, high, "S240", style=label.style_label_down, color=color.maroon, textcolor=color.white, size=size.tiny)
 
 anySetup = set15L or set18L or set21L or set24L or set27L or set30L or set45L or set60L or set90L or set120L or set150L or set210L or set240L or set15S or set18S or set21S or set24S or set27S or set30S or set45S or set60S or set90S or set120S or set150S or set210S or set240S
-int chartBraid = f_braid_col()
-color braidClr = f_braid_color(chartBraid)
-bgcolor(showBraidBg ? color.new(braidClr, 80) : showBg and anySetup ? color.new(color.gray, 92) : na)
+bgcolor(showBg and anySetup ? color.new(color.gray, 92) : na)
 plotshape(buyHit, title="شراء", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny)
 plotshape(sellHit, title="بيع", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
 
@@ -889,8 +833,7 @@ else
 
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "برايدك: Braid Filter Hill 2006 | " + braidMaType + " close/" + str.tostring(braidP1) + " open/" + str.tostring(braidP2) + " close/" + str.tostring(braidP3) + " | ATR*" + str.tostring(braidSep) + "%\n"
-    txt += "تأكيد فقط: برايد [2][3] أخضر شراء / أحمر بيع | المفتوحة و[1] أي لون\n"
+    txt += "تأكيد = 3× الأساسي (ساعة→180م) | AO آخر مقفلة شراء >0 وبيع <0 | برايد انشال\n"
     txt += "دخول: أثناء تشبع SMI أي شمعة مقفلة تلمس RSI شراء <=45 وبيع >=55\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
