@@ -827,12 +827,12 @@ plotshape(sellHit, title="بيع", style=shape.triangledown, location=location.a
 
 var label logLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(#111111, 5), textcolor=color.white, size=size.small, textalign=text.align_left)
 
-chartTooHigh = timeframe.in_seconds() > 20 * 60
+chartTooHigh = timeframe.in_seconds() > 5 * 60
 ltfNa = na(dC5) or na(dC20)
 var label warnLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.black, size=size.normal, textalign=text.align_left)
 if chartTooHigh or ltfNa
     label.set_xy(warnLbl, bar_index, high)
-    string wtxt = chartTooHigh ? "حط الشارت على 20 دقيقة أو أقل\nفريم الساعة يضيّع مداخل 20م و5م\nزوج الساعة = 60/180/20 مو شارت 1س" : ""
+    string wtxt = chartTooHigh ? "حط الشارت على 5 دقائق بالضبط\nأي فريم أعلى يكسر عائلات 15/18/21/24/27\nلأن فريم دخولها (5-9د) أصغر من فريم الشارت" : ""
     if ltfNa
         wtxt := (wtxt == "" ? "" : wtxt + "\n") + "فريم الدخول رجع na — صغّر الشارت"
     label.set_text(warnLbl, wtxt)
@@ -841,7 +841,7 @@ else
 
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | الشارت 5م\n"
+    txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += "18" + f_sc(1) + " " + f_row("B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
     txt += "21" + f_sc(2) + " " + f_row("B", L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8) + " " + f_row("S", S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8) + "\n"
@@ -857,7 +857,7 @@ if showLog
     txt += "240" + f_sc(12) + " " + f_row("B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
     txt += "\nمجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime))
     if chartTooHigh
-        txt += "\nحط الشارت على 20م أو أقل حتى تظهر الأسهم"
+        txt += "\nحط الشارت على 5 دقائق حتى تكتمل كل العائلات"
     label.set_xy(logLbl, bar_index, high)
     label.set_text(logLbl, txt)
 else
