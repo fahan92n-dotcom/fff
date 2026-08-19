@@ -3,7 +3,7 @@
 // الشارت 5 دقائق حتى تكتمل مداخل 5م. زوج الساعة = 60/180/20 وليس شارت 1س.
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
-// step8 فقط على فريمات الدخول. Donchian بـ var حتى يثبت عبر استدعاءات security.
+// step8 فقط على فريمات الدخول: RSI يلمس 45 للشراء و55 للبيع. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
 // Braid Filter © Robert Hill 2006 — نفس كودك: MA1 close Period1، MA2 open Period2، MA3 close Period3.
@@ -40,8 +40,8 @@ emaLen = input.int(60, "EMA 60", minval=1, group=grpInd)
 rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
 stKlen = input.int(15, "Stoch K", minval=1, group=grpInd)
 stKsm  = input.int(3,  "Stoch K Smooth", minval=1, group=grpInd)
-rsiOs  = input.float(35, "لمس RSI شراء", group=grpInd)
-rsiOb  = input.float(65, "لمس RSI بيع", group=grpInd)
+rsiOs  = input.float(45, "لمس RSI شراء <=", group=grpInd)
+rsiOb  = input.float(55, "لمس RSI بيع >=", group=grpInd)
 rsiConfOs = input.float(30, "RSI تأكيد شراء ممنوع <= / أساسي بيع ممنوع <=", group=grpInd)
 rsiConfOb = input.float(70, "RSI تأكيد بيع ممنوع >= / أساسي شراء ممنوع >=", group=grpInd)
 rsiLook   = input.int(30, "RSI شموع التأكيد والأساسي", minval=1, group=grpInd)
