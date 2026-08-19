@@ -5,7 +5,7 @@
 // step8 فقط على فريمات الدخول. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD فريم الرئيس: شراء خط فوق الهستوجرام الأحمر وتحت 40٪ من أعلى موجة فوق الصفر | بيع تحت الأخضر وفوق 40٪ من أدنى موجة تحت الصفر
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
-// RSI أساسي: شراء ممنوع إذا >=70 خلال 30 شمعة | بيع ممنوع إذا <=30
+// Braid على فريم التأكيد (آخر 5 شموع مقفلة): 3 و4 و5 لون الاتجاه، الأحمر/الأخضر المعاكس مسموح فقط على 1 و2. رمادي أو ثالثة معاكس = رفض.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
 // بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%.
@@ -46,6 +46,12 @@ rsiLook   = input.int(30, "RSI شموع التأكيد والأساسي", minval
 stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
 stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
+
+grpBraid = "Braid فريم التأكيد"
+braidP1  = input.int(3,  "Braid Period 1", minval=1, group=grpBraid)
+braidP2  = input.int(7,  "Braid Period 2", minval=1, group=grpBraid)
+braidP3  = input.int(14, "Braid Period 3", minval=1, group=grpBraid)
+braidSep = input.float(40, "Braid Filter %", minval=0, group=grpBraid)
 
 grpP = "الأزواج"
 use15  = input.bool(true, "15 / 45 / 5", group=grpP)
@@ -361,6 +367,24 @@ f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
                             break
     ok
 
+f_braid_col() =>
+    float ma01 = ta.ema(close, braidP1)
+    float ma02 = ta.ema(open, braidP2)
+    float ma03 = ta.ema(close, braidP3)
+    float mx = math.max(math.max(ma01, ma02), ma03)
+    float mn = math.min(math.min(ma01, ma02), ma03)
+    float dif = mx - mn
+    float filt = ta.atr(14) * braidSep / 100.0
+    ma01 > ma02 and dif > filt ? 1 : ma02 > ma01 and dif > filt ? -1 : 0
+
+f_braid_ok(bool isLong) =>
+    int col = f_braid_col()
+    int need = isLong ? 1 : -1
+    int opp = -need
+    bool older = col[3] == need and col[4] == need and col[5] == need
+    bool recent = (col[1] == need or col[1] == opp) and (col[2] == need or col[2] == opp)
+    older and recent
+
 // security على فريم أدنى من الشارت ترجع آخر شمعة فقط (مو كل na).
 // security_lower_tf تلقط كل الشموع داخل الساعة، لكن تنهار مع 36 فريم (حد 40 طلب) وتفشل إذا الشارت أصغر من المطلوب.
 f_snap_entry() =>
@@ -376,7 +400,7 @@ f_snap_confirm() =>
     don = f_don()
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
-    [don, hist2, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi)]
+    [don, hist2, f_rsi_conf(true, rsi) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_braid_ok(false)]
 
 f_snap_base() =>
     smi = f_smi()
@@ -409,7 +433,7 @@ f_snap_htf() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi)]
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_braid_ok(false), f_block(true, smi), f_block(false, smi)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
