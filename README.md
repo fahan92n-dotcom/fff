@@ -17,6 +17,19 @@ repo for reference but is not the start command.
 - `binance_data.py` — Binance access and OHLCV caches
 - `indicators.py` — indicator calculations
 - `fahadal92.py` — Cascade entry / Telegram commands (legacy)
+- `pine/cascade_8steps.pine` — TradingView Cascade 8 strategy (results table on the chart)
+
+## TradingView results table
+
+Copy `pine/cascade_8steps.pine` into the Pine Editor and add it as a **strategy**.
+The Total PnL / Max Drawdown box is a chart **table**, not a row inside the
+Strategy Tester report (that panel cannot show custom rows).
+
+Use a **5-minute** chart. On 20m or 1h, `request.security` for 5m–9m returns
+only the last lower-timeframe candle, so historical arrows disappear. A 90-day
+input does not load extra candles: tables count only bars already on the chart
+(about 5k–20k bars depending on the plan). Deep Backtesting updates the
+tester report, not these tables.
 
 ## Configuration
 
