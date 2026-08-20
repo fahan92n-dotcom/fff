@@ -6,7 +6,7 @@
 // step8 فقط على فريمات الدخول: أثناء تشبع SMI أي إغلاق يلمس RSI 35 شراء / 65 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD على فريم التأكيد فقط: شراء hist >0 | بيع hist <0. الأساسي بدون MACD.
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
-// Awesome Oscillator على فريم التأكيد (3× الأساسي): آخر مقفلة شراء >0 | بيع <0.
+// AO أساسي وتأكيد: آخر مقفلة شراء >0 | بيع <0. المفتوحة ما تُحسب.
 // Braid على فريم التأكيد: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
 // Donchian على الأساسي والدخول فقط. فريم التأكيد بدون Donchian.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
@@ -211,18 +211,13 @@ f_don() =>
     trend := close > hh[1] ? 1.0 : close < ll[1] ? -1.0 : trend
     trend
 
-f_ao_sat(bool isLong, float ao, int i) =>
-    not na(ao[i]) and (isLong ? ao[i] > 0 : ao[i] < 0)
-
-f_ema_ok(bool isLong, float smi, float ema, float cl, float ao) =>
+f_ema_ok(bool isLong, float smi, float ema, float cl) =>
     bool found = false
     bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
-    if satNow and f_ao_sat(isLong, ao, 1)
+    if satNow
         for i = 1 to 50
             bool sat = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
             if not sat
-                break
-            if not f_ao_sat(isLong, ao, i)
                 break
             if isLong and cl[i] < ema[i]
                 found := true
@@ -332,7 +327,7 @@ f_ao() =>
 f_ao_ok(bool isLong, float ao) =>
     bool ok = false
     if not na(ao[1])
-        ok := isLong ? ao[1] > 0 : ao[1] < 0
+        ok := isLong ? ao[1] > 0 : ao[1] < 0  // أساسي وتأكيد: شراء فوق 0 | بيع تحت 0
     ok
 
 f_braid_col() =>
@@ -374,7 +369,7 @@ f_snap_base() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     ao = f_ao()
-    [smi[1], don[1], true, true, f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
+    [smi[1], don[1], true, true, f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -388,7 +383,7 @@ f_snap_base_entry() =>
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     ao = f_ao()
-    [smi[1], don[1], true, true, f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
+    [smi[1], don[1], true, true, f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
 
 f_snap_htf() =>
     smi = f_smi()
@@ -398,7 +393,7 @@ f_snap_htf() =>
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
     ao = f_ao()
-    [smi[1], don, don[1], hist2, true, true, f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_ao_ok(true, ao) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_ao_ok(false, ao) and f_braid_ok(false), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
+    [smi[1], don, don[1], hist2, true, true, f_ema_ok(true, smi, ema, close) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_ao_ok(true, ao) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_ao_ok(false, ao) and f_braid_ok(false), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -843,7 +838,7 @@ else
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
     txt += "تأكيد = 3× الأساسي | برايد [2][3] | AO تأكيد شراء >0 وبيع <0 | MACD تأكيد شراء hist>0 وبيع hist<0 | بدون Donchian تأكيد\n"
-    txt += "أساسي فقط: تشبع SMI مع AO شراء >0 وبيع <0 | SMI شراء <0 وبيع >0 | بدون MACD أساسي\n"
+    txt += "AO أساسي وتأكيد: آخر مقفلة شراء >0 وبيع <0 | SMI شراء <0 وبيع >0 | بدون MACD أساسي\n"
     txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
