@@ -93,8 +93,7 @@ var array<int>    tfL   = array.new_int(13, 0)
 var array<int>    tfO   = array.new_int(13, 0)
 var array<int>    tfMW  = array.new_int(13, 0)
 var array<int>    tfML  = array.new_int(13, 0)
-var int mWin = 0
-var int mLoss = 0
+var array<int>    mTally = array.new_int(2, 0)
 
 f_is_last_month(int ts) =>
     int ny = year(timenow)
@@ -167,10 +166,10 @@ f_store(int et, string tag, int side, int win, float px) =>
         array.set(tfL, ti, array.get(tfL, ti) + 1)
     if f_is_last_month(et)
         if win == 1
-            mWin := mWin + 1
+            array.set(mTally, 0, array.get(mTally, 0) + 1)
             array.set(tfMW, ti, array.get(tfMW, ti) + 1)
         else
-            mLoss := mLoss + 1
+            array.set(mTally, 1, array.get(mTally, 1) + 1)
             array.set(tfML, ti, array.get(tfML, ti) + 1)
     string sideTxt = side == 1 ? "buy" : "sell"
     string winTxt = win == 1 ? "true" : "false"
@@ -927,8 +926,8 @@ if barstate.islast
         color mHd = color.new(#3a1b5c, 0)
         table.cell(monthBox, 0, 0, "الشهر الماضي", text_color=color.white, bgcolor=mHd, text_size=size.normal, text_halign=text.align_center)
         table.cell(monthBox, 0, 1, f_last_month_title(), text_color=color.white, bgcolor=mHd, text_size=size.small, text_halign=text.align_center)
-        table.cell(monthBox, 0, 2, "ناجحة  " + str.tostring(mWin), text_color=color.lime, bgcolor=color.new(#1a1a1a, 0), text_size=size.large, text_halign=text.align_center)
-        table.cell(monthBox, 0, 3, "فاشلة  " + str.tostring(mLoss), text_color=color.red, bgcolor=color.new(#1a1a1a, 0), text_size=size.large, text_halign=text.align_center)
+        table.cell(monthBox, 0, 2, "ناجحة  " + str.tostring(array.get(mTally, 0)), text_color=color.lime, bgcolor=color.new(#1a1a1a, 0), text_size=size.large, text_halign=text.align_center)
+        table.cell(monthBox, 0, 3, "فاشلة  " + str.tostring(array.get(mTally, 1)), text_color=color.red, bgcolor=color.new(#1a1a1a, 0), text_size=size.large, text_halign=text.align_center)
         table.cell(monthBox, 0, 4, "مفتوحة  " + str.tostring(mOpen), text_color=color.orange, bgcolor=color.new(#1a1a1a, 0), text_size=size.normal, text_halign=text.align_center)
         color hd = color.new(#1b3a5c, 0)
         f_cell(tfTab, 0, 0, "فريم " + f_last_month_title(), color.white, hd)
@@ -950,8 +949,8 @@ if barstate.islast
         f_tf_row(tfTab, 13, "240", 12)
         color totBg = color.new(#0b2a4a, 0)
         table.cell(tfTab, 0, 14, "مجموع الشهر", text_color=color.white, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
-        table.cell(tfTab, 1, 14, str.tostring(mWin), text_color=color.lime, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
-        table.cell(tfTab, 2, 14, str.tostring(mLoss), text_color=color.red, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 1, 14, str.tostring(array.get(mTally, 0)), text_color=color.lime, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 2, 14, str.tostring(array.get(mTally, 1)), text_color=color.red, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
         table.cell(tfTab, 3, 14, str.tostring(mOpen), text_color=color.orange, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
     else
         table.clear(scoreBox, 0, 0, 0, 2)
