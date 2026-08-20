@@ -1,10 +1,10 @@
 //@version=5
 // Cascade 8 خطوات — 13 زوجاً معاً.
 // النتائج (Total PnL / Max Drawdown) جدول ثابت على الشاشة، مو ملصق على آخر شمعة.
-// لوحة الفريمات: بجانب الخطوات تاريخ كل صفقة ناجحة (أخضر) وفاشلة (أحمر) لكل زوج.
+// لوحة الفريمات: بجانب الخطوات تاريخ ووقت كل صفقة ناجحة (أخضر) وفاشلة (أحمر) مع شراء/بيع.
 // الشارت لازم 5 دقائق حتى تكتمل الأسهم التاريخية لكل الأزواج (15/5 …).
 // على 20م أو أكبر: request.security لفريم أدنى ترجع آخر شمعة فقط، فالأسهم التاريخية تختفي.
-// فلتر 90 يوم يقص الصفقات المحسوبة — لا يحمّل شموع أقدم. الجداول تُحسب على الشموع المحمّلة فقط (مو Deep Backtesting).
+// فلتر 73 يوم يطابق سقف شارت 5م Premium — لا يحمّل شموع أقدم. الجداول تُحسب على الشموع المحمّلة فقط (مو Deep Backtesting).
 strategy("Cascade 8 — كل الفريمات (شارت 20م)",
      overlay                  = true,
      pyramiding               = 13,
@@ -72,8 +72,8 @@ histLoss = input.float(0.53, "خسارة الصفقة %", step=0.01, group=grpVi
 scorePos = input.string("أعلى اليمين", "مكان جدول النتائج", options=["أعلى اليمين", "منتصف اليمين", "أسفل اليمين"], group=grpVis)
 
 grpDate = "الفترة الزمنية"
-useDateFilter = input.bool(true, "تفعيل فلترة بآخر 3 أشهر فقط", group=grpDate)
-lookbackDays  = input.int(90, "عدد الأيام للخلف (افتراضي 90 = 3 أشهر)", minval=1, group=grpDate)
+useDateFilter = input.bool(true, "تفعيل فلترة بآخر 73 يوم فقط", group=grpDate)
+lookbackDays  = input.int(73, "عدد الأيام للخلف (افتراضي 73 = سقف شارت 5م Premium)", minval=1, group=grpDate)
 
 msDay       = 24 * 60 * 60 * 1000
 startDate   = timenow - lookbackDays * msDay
@@ -99,16 +99,17 @@ var array<string> lossDates = array.new_string(13, "")
 f_tag_idx(string tag) =>
     tag == "15/5" ? 0 : tag == "18/6" ? 1 : tag == "21/7" ? 2 : tag == "24/8" ? 3 : tag == "27/9" ? 4 : tag == "30/10" ? 5 : tag == "45/15" ? 6 : tag == "60/20" ? 7 : tag == "90/30" ? 8 : tag == "120/40" ? 9 : tag == "150/50" ? 10 : tag == "210/70" ? 11 : tag == "240/80" ? 12 : -1
 
-f_append_date(int idx, int win, int et) =>
+f_append_date(int idx, int win, int et, int side) =>
     bool done = false
     if idx >= 0
-        string d = str.format_time(et, "dd/MM")
+        string sideAr = side == 1 ? "شراء" : "بيع"
+        string d = str.format_time(et, "dd/MM HH:mm") + " " + sideAr
         if win == 1
             string wcur = array.get(winDates, idx)
-            array.set(winDates, idx, wcur == "" ? d : wcur + " " + d)
+            array.set(winDates, idx, wcur == "" ? d : wcur + " | " + d)
         else
             string lcur = array.get(lossDates, idx)
-            array.set(lossDates, idx, lcur == "" ? d : lcur + " " + d)
+            array.set(lossDates, idx, lcur == "" ? d : lcur + " | " + d)
         done := true
     done
 
@@ -139,7 +140,7 @@ f_store(int et, string tag, int side, int win, float px) =>
     if inDateRange
         int tIdx = win == 1 ? 0 : 1
         array.set(tally, tIdx, array.get(tally, tIdx) + 1)
-        bool ignDate = f_append_date(f_tag_idx(tag), win, et)
+        bool ignDate = f_append_date(f_tag_idx(tag), win, et, side)
     string sideTxt = side == 1 ? "buy" : "sell"
     string winTxt = win == 1 ? "true" : "false"
     alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + ',' + f_score_json() + '}', alert.freq_all)
