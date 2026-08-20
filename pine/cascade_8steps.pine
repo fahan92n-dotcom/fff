@@ -5,7 +5,7 @@
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
 // step8 فقط على فريمات الدخول: أثناء تشبع SMI أي إغلاق يلمس RSI 35 شراء / 65 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD على فريم التأكيد فقط: شراء hist >0 | بيع hist <0. الأساسي بدون MACD.
-// RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
+// RSI تأكيد: شراء ممنوع إذا >=70 خلال آخر 30 مقفلة | بيع ممنوع إذا <=30. المفتوحة ما تُحسب.
 // AO أساسي وتأكيد: آخر مقفلة شراء >0 | بيع <0. المفتوحة ما تُحسب.
 // Braid على فريم التأكيد: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
 // Donchian على الأساسي والدخول فقط. فريم التأكيد بدون Donchian.
@@ -42,8 +42,8 @@ stKlen = input.int(15, "Stoch K", minval=1, group=grpInd)
 stKsm  = input.int(3,  "Stoch K Smooth", minval=1, group=grpInd)
 rsiOs  = input.float(35, "لمس RSI دخول شراء <= (إغلاق أثناء التشبع)", group=grpInd)
 rsiOb  = input.float(65, "لمس RSI دخول بيع >= (إغلاق أثناء التشبع)", group=grpInd)
-rsiConfOs = input.float(30, "RSI تأكيد شراء ممنوع <= / أساسي بيع ممنوع <=", group=grpInd)
-rsiConfOb = input.float(70, "RSI تأكيد بيع ممنوع >= / أساسي شراء ممنوع >=", group=grpInd)
+rsiConfOs = input.float(30, "RSI تأكيد/أساسي بيع ممنوع <= (آخر 30 مقفلة)", group=grpInd)
+rsiConfOb = input.float(70, "RSI تأكيد/أساسي شراء ممنوع >= (آخر 30 مقفلة)", group=grpInd)
 rsiLook   = input.int(30, "RSI شموع التأكيد والأساسي", minval=1, group=grpInd)
 stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
 stochSell = input.float(80, "Stoch بيع <", group=grpInd)
@@ -229,12 +229,12 @@ f_ema_ok(bool isLong, float smi, float ema, float cl) =>
 
 f_rsi_conf(bool isLong, float rsi) =>
     bool bad = false
-    for i = 0 to rsiLook - 1
+    for i = 1 to rsiLook
         if not na(rsi[i])
-            if isLong and rsi[i] <= rsiConfOs
+            if isLong and rsi[i] >= rsiConfOb
                 bad := true
                 break
-            if not isLong and rsi[i] >= rsiConfOb
+            if not isLong and rsi[i] <= rsiConfOs
                 bad := true
                 break
     not bad
@@ -838,7 +838,7 @@ else
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
     txt += "تأكيد = 3× الأساسي | برايد [2][3] | AO تأكيد شراء >0 وبيع <0 | MACD تأكيد شراء hist>0 وبيع hist<0 | بدون Donchian تأكيد\n"
-    txt += "AO أساسي وتأكيد: آخر مقفلة شراء >0 وبيع <0 | SMI شراء <0 وبيع >0 | بدون MACD أساسي\n"
+    txt += "RSI تأكيد: شراء ممنوع >=70 وبيع ممنوع <=30 خلال آخر 30 مقفلة | AO أساسي وتأكيد شراء >0 وبيع <0 | بدون MACD أساسي\n"
     txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
