@@ -4,7 +4,7 @@
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
 // step8 فقط على فريمات الدخول: أثناء تشبع SMI أي إغلاق يلمس RSI 35 شراء / 65 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD فريم الرئيس بدون سقف 40٪: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر
+// MACD على فريم التأكيد فقط: شراء hist >0 | بيع hist <0. الأساسي بدون MACD.
 // RSI تأكيد: شراء ممنوع إذا <=30 خلال 30 شمعة | بيع ممنوع إذا >=70
 // Awesome Oscillator على فريم التأكيد (3× الأساسي): آخر مقفلة شراء >0 | بيع <0.
 // Braid على فريم التأكيد: المفتوحة و[1] أي لون. [2] و[3] المقفلة: شراء أخضر / بيع أحمر (مو رمادي).
@@ -214,22 +214,6 @@ f_don() =>
 f_ao_sat(bool isLong, float ao, int i) =>
     not na(ao[i]) and (isLong ? ao[i] > 0 : ao[i] < 0)
 
-f_macd_ok(bool isLong, float smi, float hist, float macd, float ao) =>
-    bool ok = false
-    bool sat = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
-    if sat and f_ao_sat(isLong, ao, 1)
-        int off = 1
-        for i = 2 to 50
-            bool still = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
-            if not still or not f_ao_sat(isLong, ao, i)
-                break
-            off := i
-        float h0 = hist[off]
-        float m0 = macd[off]
-        if not na(h0) and not na(m0)
-            ok := isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
-    ok
-
 f_ema_ok(bool isLong, float smi, float ema, float cl, float ao) =>
     bool found = false
     bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
@@ -386,13 +370,11 @@ f_snap_confirm() =>
 
 f_snap_base() =>
     smi = f_smi()
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     ao = f_ao()
-    hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine, ao), f_macd_ok(false, smi, hist2, macdLine, ao), f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
+    [smi[1], don[1], true, true, f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -400,15 +382,13 @@ f_snap_cancel() =>
 
 f_snap_base_entry() =>
     smi = f_smi()
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     ao = f_ao()
-    hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine, ao), f_macd_ok(false, smi, hist2, macdLine, ao), f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
+    [smi[1], don[1], true, true, f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
 
 f_snap_htf() =>
     smi = f_smi()
@@ -416,9 +396,9 @@ f_snap_htf() =>
     don = f_don()
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
-    hist2 = hist + nz(sigLine) * 0.0
+    hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
     ao = f_ao()
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine, ao), f_macd_ok(false, smi, hist2, macdLine, ao), f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_ao_ok(true, ao) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_ao_ok(false, ao) and f_braid_ok(false), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
+    [smi[1], don, don[1], hist2, true, true, f_ema_ok(true, smi, ema, close, ao) and f_rsi_base(true, rsi), f_ema_ok(false, smi, ema, close, ao) and f_rsi_base(false, rsi), f_rsi_conf(true, rsi) and f_ao_ok(true, ao) and f_braid_ok(true), f_rsi_conf(false, rsi) and f_ao_ok(false, ao) and f_braid_ok(false), f_block(true, smi), f_block(false, smi), f_ao_ok(true, ao), f_ao_ok(false, ao)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -477,7 +457,7 @@ f_req_htf(simple string tf) =>
 
 f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8, bool aoOk) =>
     bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl) and aoOk
-    bool s2 = mOk
+    bool s2 = true or mOk
     bool s3 = isLong ? donB == 1 : donB == -1
     bool s4 = true
     bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
@@ -862,8 +842,8 @@ else
 
 if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "تأكيد = 3× الأساسي | برايد [2][3] | AO تأكيد شراء >0 وبيع <0 | بدون Donchian تأكيد\n"
-    txt += "أساسي فقط: تشبع SMI مع AO شراء >0 وبيع <0 | SMI شراء <0 وبيع >0\n"
+    txt += "تأكيد = 3× الأساسي | برايد [2][3] | AO تأكيد شراء >0 وبيع <0 | MACD تأكيد شراء hist>0 وبيع hist<0 | بدون Donchian تأكيد\n"
+    txt += "أساسي فقط: تشبع SMI مع AO شراء >0 وبيع <0 | SMI شراء <0 وبيع >0 | بدون MACD أساسي\n"
     txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
