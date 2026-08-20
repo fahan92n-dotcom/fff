@@ -91,6 +91,8 @@ var array<int>    tally = array.new_int(2, 0)
 var array<int>    tfW   = array.new_int(13, 0)
 var array<int>    tfL   = array.new_int(13, 0)
 var array<int>    tfO   = array.new_int(13, 0)
+var array<int>    tfMW  = array.new_int(13, 0)
+var array<int>    tfML  = array.new_int(13, 0)
 var int mWin = 0
 var int mLoss = 0
 
@@ -111,6 +113,9 @@ f_last_month_title() =>
     int py = nm == 1 ? ny - 1 : ny
     f_month_ar(pm) + " " + str.tostring(py)
 
+f_tag_i(string tag) =>
+    tag == "15/5" ? 0 : tag == "18/6" ? 1 : tag == "21/7" ? 2 : tag == "24/8" ? 3 : tag == "27/9" ? 4 : tag == "30/10" ? 5 : tag == "45/15" ? 6 : tag == "60/20" ? 7 : tag == "90/30" ? 8 : tag == "120/40" ? 9 : tag == "150/50" ? 10 : tag == "210/70" ? 11 : 12
+
 f_month_open() =>
     int n = 0
     int sz = array.size(pTime)
@@ -120,8 +125,14 @@ f_month_open() =>
                 n += 1
     n
 
-f_tag_i(string tag) =>
-    tag == "15/5" ? 0 : tag == "18/6" ? 1 : tag == "21/7" ? 2 : tag == "24/8" ? 3 : tag == "27/9" ? 4 : tag == "30/10" ? 5 : tag == "45/15" ? 6 : tag == "60/20" ? 7 : tag == "90/30" ? 8 : tag == "120/40" ? 9 : tag == "150/50" ? 10 : tag == "210/70" ? 11 : 12
+f_month_tf_open(int idx) =>
+    int n = 0
+    int sz = array.size(pTime)
+    if sz > 0
+        for i = 0 to sz - 1
+            if f_is_last_month(array.get(pTime, i)) and f_tag_i(array.get(pTag, i)) == idx
+                n += 1
+    n
 
 f_tag_open(string tag) =>
     bool found = false
@@ -157,8 +168,10 @@ f_store(int et, string tag, int side, int win, float px) =>
     if f_is_last_month(et)
         if win == 1
             mWin := mWin + 1
+            array.set(tfMW, ti, array.get(tfMW, ti) + 1)
         else
             mLoss := mLoss + 1
+            array.set(tfML, ti, array.get(tfML, ti) + 1)
     string sideTxt = side == 1 ? "buy" : "sell"
     string winTxt = win == 1 ? "true" : "false"
     alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + ',' + f_score_json() + '}', alert.freq_all)
@@ -793,9 +806,9 @@ f_cell(table t, int col, int row, string txt, color fg, color bg) =>
 f_tf_row(table t, int row, string nm, int i) =>
     color bg = row % 2 == 0 ? color.new(#1a1a1a, 0) : color.new(#222222, 0)
     f_cell(t, 0, row, nm, color.white, bg)
-    f_cell(t, 1, row, str.tostring(array.get(tfW, i)), color.lime, bg)
-    f_cell(t, 2, row, str.tostring(array.get(tfL, i)), color.red, bg)
-    f_cell(t, 3, row, str.tostring(array.get(tfO, i)), color.orange, bg)
+    f_cell(t, 1, row, str.tostring(array.get(tfMW, i)), color.lime, bg)
+    f_cell(t, 2, row, str.tostring(array.get(tfML, i)), color.red, bg)
+    f_cell(t, 3, row, str.tostring(f_month_tf_open(i)), color.orange, bg)
 
 if showLbl
     if hit15L
@@ -918,7 +931,7 @@ if barstate.islast
         table.cell(monthBox, 0, 3, "فاشلة  " + str.tostring(mLoss), text_color=color.red, bgcolor=color.new(#1a1a1a, 0), text_size=size.large, text_halign=text.align_center)
         table.cell(monthBox, 0, 4, "مفتوحة  " + str.tostring(mOpen), text_color=color.orange, bgcolor=color.new(#1a1a1a, 0), text_size=size.normal, text_halign=text.align_center)
         color hd = color.new(#1b3a5c, 0)
-        f_cell(tfTab, 0, 0, "فريم", color.white, hd)
+        f_cell(tfTab, 0, 0, "فريم " + f_last_month_title(), color.white, hd)
         f_cell(tfTab, 1, 0, "ناجحة", color.lime, hd)
         f_cell(tfTab, 2, 0, "فاشلة", color.red, hd)
         f_cell(tfTab, 3, 0, "مفتوحة", color.orange, hd)
@@ -936,10 +949,10 @@ if barstate.islast
         f_tf_row(tfTab, 12, "210", 11)
         f_tf_row(tfTab, 13, "240", 12)
         color totBg = color.new(#0b2a4a, 0)
-        table.cell(tfTab, 0, 14, "مجموع الـ13", text_color=color.white, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
-        table.cell(tfTab, 1, 14, str.tostring(wins), text_color=color.lime, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
-        table.cell(tfTab, 2, 14, str.tostring(losses), text_color=color.red, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
-        table.cell(tfTab, 3, 14, str.tostring(nOpen), text_color=color.orange, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 0, 14, "مجموع الشهر", text_color=color.white, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 1, 14, str.tostring(mWin), text_color=color.lime, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 2, 14, str.tostring(mLoss), text_color=color.red, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(tfTab, 3, 14, str.tostring(mOpen), text_color=color.orange, bgcolor=totBg, text_size=size.normal, text_halign=text.align_center)
     else
         table.clear(scoreBox, 0, 0, 0, 2)
         table.clear(monthBox, 0, 0, 0, 4)
