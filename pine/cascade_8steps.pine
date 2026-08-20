@@ -13,6 +13,7 @@
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // الويبهوك صامت. اطلب العدد من تلقرام بأمر /نتائج أو /score متى ما تبي.
 // بعد الدخول تتحل الصفقة بربح histWin% أو خسارة histLoss%.
+// الفريم الأكبر يبتلع الأصغر بتشبع SMI وحده (ما يشترط دخول الكامل). إذا الأصغر مفتوح يُغلق ولا يُحسب ربح/خسارة.
 // جدول أسفل الشارت يعرض ناجحة/فاشلة/مفتوحة لكل الـ13 فريم. اللوحة الرسمية لاختبار الاستراتيجية لا تقبل صفوف مخصّصة.
 strategy("Cascade 8 — 13 زوج دفعة واحدة",
      overlay                  = true,
@@ -94,6 +95,7 @@ var array<int>    tfO   = array.new_int(13, 0)
 var array<int>    tfMW  = array.new_int(13, 0)
 var array<int>    tfML  = array.new_int(13, 0)
 var array<int>    mTally = array.new_int(2, 0)
+var array<int>    casN  = array.new_int(1, 0)
 var array<int>    fTime = array.new_int()
 var array<string> fTag  = array.new_string()
 var array<int>    fSide = array.new_int()
@@ -230,6 +232,30 @@ f_tf_open(string id) =>
                 found := true
                 break
     found
+
+// تشبع الفريم الأكبر يلغي الأصغر المفتوح حتى لو الأكبر ما اكتمل دخوله.
+f_swallow(string tag, int side, bool blk, string id) =>
+    bool did = false
+    if blk
+        int n = array.size(pTag)
+        if n > 0
+            for i = n - 1 to 0 by -1
+                if array.get(pTag, i) == tag and array.get(pSide, i) == side
+                    int ti = f_tag_i(tag)
+                    array.remove(pTime, i)
+                    array.remove(pPx, i)
+                    array.remove(pSide, i)
+                    array.remove(pTag, i)
+                    array.set(tfO, ti, math.max(0, array.get(tfO, ti) - 1))
+                    array.set(casN, 0, array.get(casN, 0) + 1)
+                    string sideTxt = side == 1 ? "buy" : "sell"
+                    alert('{"src":"cascade","event":"swallow","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',' + f_score_json() + '}', alert.freq_all)
+                    did := true
+                    break
+        if f_tf_open(id)
+            strategy.close(id, comment="ابتلاع")
+            did := true
+    did
 
 var array<float> lStop = array.new_float(13, na)
 var array<float> lLim  = array.new_float(13, na)
@@ -716,6 +742,33 @@ if nPend > 0
     for i = nPend - 1 to 0
         int ignRes = f_resolve_one(i)
 
+bool ignSw15L = f_swallow("15/5", 1, bL18, "L15")
+bool ignSw18L = f_swallow("18/6", 1, bL21, "L18")
+bool ignSw21L = f_swallow("21/7", 1, bL24, "L21")
+bool ignSw24L = f_swallow("24/8", 1, bL27, "L24")
+bool ignSw27L = f_swallow("27/9", 1, bL30, "L27")
+bool ignSw30L = f_swallow("30/10", 1, bL45, "L30")
+bool ignSw45L = f_swallow("45/15", 1, bL60, "L45")
+bool ignSw60L = f_swallow("60/20", 1, bL90, "L60")
+bool ignSw90L = f_swallow("90/30", 1, bL120, "L90")
+bool ignSw120L = f_swallow("120/40", 1, bL150, "L120")
+bool ignSw150L = f_swallow("150/50", 1, bL210, "L150")
+bool ignSw210L = f_swallow("210/70", 1, bL240, "L210")
+bool ignSw240L = f_swallow("240/80", 1, bL300, "L240")
+bool ignSw15S = f_swallow("15/5", -1, bS18, "S15")
+bool ignSw18S = f_swallow("18/6", -1, bS21, "S18")
+bool ignSw21S = f_swallow("21/7", -1, bS24, "S21")
+bool ignSw24S = f_swallow("24/8", -1, bS27, "S24")
+bool ignSw27S = f_swallow("27/9", -1, bS30, "S27")
+bool ignSw30S = f_swallow("30/10", -1, bS45, "S30")
+bool ignSw45S = f_swallow("45/15", -1, bS60, "S45")
+bool ignSw60S = f_swallow("60/20", -1, bS90, "S60")
+bool ignSw90S = f_swallow("90/30", -1, bS120, "S90")
+bool ignSw120S = f_swallow("120/40", -1, bS150, "S120")
+bool ignSw150S = f_swallow("150/50", -1, bS210, "S150")
+bool ignSw210S = f_swallow("210/70", -1, bS240, "S210")
+bool ignSw240S = f_swallow("240/80", -1, bS300, "S240")
+
 ok15L = f_track(hit15L, 1, "15/5")
 ok18L = f_track(hit18L, 1, "18/6")
 ok21L = f_track(hit21L, 1, "21/7")
@@ -897,11 +950,12 @@ else
     label.set_text(warnLbl, "")
 
 if showLog
-    string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
+    string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + " | Cascade " + str.tostring(array.get(casN, 0)) + "\n"
     txt += "تأكيد = 3× الأساسي | Donchian تأكيد شراء أخضر وبيع أحمر | MACD تأكيد hist | بدون برايد | بدون AO\n"
     txt += "MACD أساسي: شراء خط فوق الهستوجرام الأحمر | بيع خط تحت الأخضر | RSI تأكيد شراء ممنوع >=70 وبيع ممنوع <=30\n"
     txt += "⑦ دخول Donchian: شراء أحمر | بيع أخضر | ⑧ RSI≤35/≥65 ثم تقاطع ثم Stoch>20/<80 خلال 3 شموع\n"
     txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 ثم ستوك خلال 3 | المفتوحة ما تُحسب\n"
+    txt += "ابتلاع: تشبع الأكبر يلغي الأصغر المفتوح حتى لو الأكبر ما دخل | ما يُحسب ربح ولا خسارة\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += "18" + f_sc(1) + " " + f_row("B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
@@ -916,7 +970,7 @@ if showLog
     txt += "150" + f_sc(10) + " " + f_row("B", L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8) + " " + f_row("S", S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8) + "\n"
     txt += "210" + f_sc(11) + " " + f_row("B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
     txt += "240" + f_sc(12) + " " + f_row("B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
-    txt += "\nمجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime))
+    txt += "\nمجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + " | Cascade " + str.tostring(array.get(casN, 0))
     txt += "\n" + f_fail_txt()
     if chartTooHigh
         txt += "\nحط الشارت على 5 دقائق حتى تكتمل كل العائلات"
