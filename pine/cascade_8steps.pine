@@ -1,5 +1,5 @@
 //@version=5
-// Cascade 8 خطوات — الـ13 زوج يشتغلون معًا دائمًا (ما فيه خيار تعطيل زوج).
+// Cascade 8 خطوات — الـ13 زوج يشتغلون معًا ما لم تعطّل زوج من الإعدادات.
 // الشارت 5 دقائق حتى تكتمل مداخل 5م. زوج الساعة = 60/180/20 وليس شارت 1س.
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
@@ -49,6 +49,21 @@ rsiLook   = input.int(30, "RSI شموع التأكيد والأساسي", minval
 stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
 stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
+
+grpP = "الأزواج — عطّل اللي ما تبيه"
+use15  = input.bool(true, "15 / 45 / 5", group=grpP)
+use18  = input.bool(true, "18 / 54 / 6", group=grpP)
+use21  = input.bool(true, "21 / 63 / 7", group=grpP)
+use24  = input.bool(true, "24 / 72 / 8", group=grpP)
+use27  = input.bool(true, "27 / 81 / 9", group=grpP)
+use30  = input.bool(true, "30 / 90 / 10", group=grpP)
+use45  = input.bool(true, "45 / 135 / 15", group=grpP)
+use60  = input.bool(true, "60 / 180 / 20", group=grpP)
+use90  = input.bool(true, "90 / 270 / 30", group=grpP)
+use120 = input.bool(true, "120 / 360 / 40", group=grpP)
+use150 = input.bool(true, "150 / 450 / 50", group=grpP)
+use210 = input.bool(true, "210 / 630 / 70", group=grpP)
+use240 = input.bool(true, "240 / 720 / 80", group=grpP)
 
 grpRisk = "إغلاق"
 useLong = input.bool(true, "شراء", group=grpRisk)
@@ -557,32 +572,32 @@ if not set240L
 if not set240S
     a240S := true
 
-hit15L = useLong and all15L and a15L
-hit18L = useLong and all18L and a18L
-hit21L = useLong and all21L and a21L
-hit24L = useLong and all24L and a24L
-hit27L = useLong and all27L and a27L
-hit30L = useLong and all30L and a30L
-hit45L = useLong and all45L and a45L
-hit60L = useLong and all60L and a60L
-hit90L = useLong and all90L and a90L
-hit120L = useLong and all120L and a120L
-hit150L = useLong and all150L and a150L
-hit210L = useLong and all210L and a210L
-hit240L = useLong and all240L and a240L
-hit15S = useShrt and all15S and a15S
-hit18S = useShrt and all18S and a18S
-hit21S = useShrt and all21S and a21S
-hit24S = useShrt and all24S and a24S
-hit27S = useShrt and all27S and a27S
-hit30S = useShrt and all30S and a30S
-hit45S = useShrt and all45S and a45S
-hit60S = useShrt and all60S and a60S
-hit90S = useShrt and all90S and a90S
-hit120S = useShrt and all120S and a120S
-hit150S = useShrt and all150S and a150S
-hit210S = useShrt and all210S and a210S
-hit240S = useShrt and all240S and a240S
+hit15L = use15 and useLong and all15L and a15L
+hit18L = use18 and useLong and all18L and a18L
+hit21L = use21 and useLong and all21L and a21L
+hit24L = use24 and useLong and all24L and a24L
+hit27L = use27 and useLong and all27L and a27L
+hit30L = use30 and useLong and all30L and a30L
+hit45L = use45 and useLong and all45L and a45L
+hit60L = use60 and useLong and all60L and a60L
+hit90L = use90 and useLong and all90L and a90L
+hit120L = use120 and useLong and all120L and a120L
+hit150L = use150 and useLong and all150L and a150L
+hit210L = use210 and useLong and all210L and a210L
+hit240L = use240 and useLong and all240L and a240L
+hit15S = use15 and useShrt and all15S and a15S
+hit18S = use18 and useShrt and all18S and a18S
+hit21S = use21 and useShrt and all21S and a21S
+hit24S = use24 and useShrt and all24S and a24S
+hit27S = use27 and useShrt and all27S and a27S
+hit30S = use30 and useShrt and all30S and a30S
+hit45S = use45 and useShrt and all45S and a45S
+hit60S = use60 and useShrt and all60S and a60S
+hit90S = use90 and useShrt and all90S and a90S
+hit120S = use120 and useShrt and all120S and a120S
+hit150S = use150 and useShrt and all150S and a150S
+hit210S = use210 and useShrt and all210S and a210S
+hit240S = use240 and useShrt and all240S and a240S
 
 if hit15L
     a15L := false
