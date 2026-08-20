@@ -94,6 +94,9 @@ var array<int>    tfO   = array.new_int(13, 0)
 var array<int>    tfMW  = array.new_int(13, 0)
 var array<int>    tfML  = array.new_int(13, 0)
 var array<int>    mTally = array.new_int(2, 0)
+var array<int>    fTime = array.new_int()
+var array<string> fTag  = array.new_string()
+var array<int>    fSide = array.new_int()
 
 f_in_window(int ts) =>
     not na(ts) and ts >= timenow - 90 * 24 * 60 * 60 * 1000
@@ -118,6 +121,23 @@ f_month_tf_open(int idx) =>
             if f_in_window(array.get(pTime, i)) and f_tag_i(array.get(pTag, i)) == idx
                 n += 1
     n
+
+f_fail_txt() =>
+    string s = "تواريخ الفاشلة:\n"
+    int n = array.size(fTime)
+    if n <= 0
+        s := s + "لا يوجد"
+    else
+        int shown = math.min(n, 20)
+        for i = 0 to shown - 1
+            int j = n - 1 - i
+            string sd = array.get(fSide, j) == 1 ? "شراء" : "بيع"
+            s := s + str.format_time(array.get(fTime, j), "dd/MM HH:mm") + " " + array.get(fTag, j) + " " + sd
+            if i < shown - 1
+                s := s + "\n"
+        if n > shown
+            s := s + "\n+" + str.tostring(n - shown) + " أقدم"
+    s
 
 f_tag_open(string tag) =>
     bool found = false
@@ -157,6 +177,14 @@ f_store(int et, string tag, int side, int win, float px) =>
         else
             array.set(mTally, 1, array.get(mTally, 1) + 1)
             array.set(tfML, ti, array.get(tfML, ti) + 1)
+    if win != 1
+        array.push(fTime, time)
+        array.push(fTag, tag)
+        array.push(fSide, side)
+        if array.size(fTime) > 40
+            array.shift(fTime)
+            array.shift(fTag)
+            array.shift(fSide)
     string sideTxt = side == 1 ? "buy" : "sell"
     string winTxt = win == 1 ? "true" : "false"
     alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + ',' + f_score_json() + '}', alert.freq_all)
@@ -889,6 +917,7 @@ if showLog
     txt += "210" + f_sc(11) + " " + f_row("B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
     txt += "240" + f_sc(12) + " " + f_row("B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
     txt += "\nمجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime))
+    txt += "\n" + f_fail_txt()
     if chartTooHigh
         txt += "\nحط الشارت على 5 دقائق حتى تكتمل كل العائلات"
     label.set_xy(logLbl, bar_index, high)
