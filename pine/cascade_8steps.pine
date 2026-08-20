@@ -3,7 +3,8 @@
 // الشارت 5 دقائق حتى تكتمل مداخل 5م. زوج الساعة = 60/180/20 وليس شارت 1س.
 // زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
 // request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
-// step8 فقط على فريمات الدخول: أثناء تشبع SMI أي إغلاق يلمس RSI 35 شراء / 65 بيع. المفتوحة ما تُحسب. Donchian بـ var حتى يثبت عبر استدعاءات security.
+// step7 على فريم الدخول (ثلث الأساسي): Donchian أحمر للشراء | أخضر للبيع.
+// step8 على فريم الدخول: تشبع SMI → لمس RSI≤35 / ≥65 → تقاطع RSI مع متوسطه → Stoch>20 / <80 خلال 3 شموع. المفتوحة ما تُحسب.
 // MACD على فريم التأكيد فقط: شراء hist >0 | بيع hist <0. الأساسي بدون MACD.
 // RSI تأكيد: شراء ممنوع إذا >=70 خلال آخر 30 مقفلة | بيع ممنوع إذا <=30. المفتوحة ما تُحسب.
 // AO أساسي وتأكيد: آخر مقفلة شراء >0 | بيع <0. المفتوحة ما تُحسب.
@@ -457,7 +458,7 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     bool s4 = true
     bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
     bool s6 = emaOk and rsiCf
-    bool s7 = isLong ? donT == -1 : donT == 1
+    bool s7 = isLong ? donT == -1 : donT == 1  // دخول: شراء Donchian أحمر | بيع أخضر
     bool smiDir = isLong ? smiC < 0 : smiC > 0
     bool setup = s1 and s2 and s3 and s5 and s6 and s7 and smiDir
     bool all8 = setup and s8
@@ -839,7 +840,8 @@ if showLog
     string txt = "Cascade | مجموع الـ13 | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
     txt += "تأكيد = 3× الأساسي | برايد [2][3] | AO تأكيد شراء >0 وبيع <0 | MACD تأكيد شراء hist>0 وبيع hist<0 | بدون Donchian تأكيد\n"
     txt += "RSI تأكيد: شراء ممنوع >=70 وبيع ممنوع <=30 خلال آخر 30 مقفلة | AO أساسي وتأكيد شراء >0 وبيع <0 | بدون MACD أساسي\n"
-    txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 | المفتوحة ما تُحسب\n"
+    txt += "⑦ دخول Donchian: شراء أحمر | بيع أخضر | ⑧ RSI≤35/≥65 ثم تقاطع ثم Stoch>20/<80 خلال 3 شموع\n"
+    txt += "دخول: أثناء تشبع SMI أي إغلاق يلمس RSI شراء <=35 وبيع >=65 ثم ستوك خلال 3 | المفتوحة ما تُحسب\n"
     txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | شموع الشارت 5م (مو DEEP)\n"
     txt += "15" + f_sc(0) + " " + f_row("B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += "18" + f_sc(1) + " " + f_row("B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
