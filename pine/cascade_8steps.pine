@@ -61,14 +61,16 @@ useLong = input.bool(true, "شراء", group=grpRisk)
 useShrt = input.bool(true, "بيع", group=grpRisk)
 usePct  = input.bool(true, "وقف/هدف %", group=grpRisk)
 exitOpp = input.bool(true, "إغلاق عكسي", group=grpRisk)
+shortWin  = input.float(0.80, "ربح 15–30م %", step=0.01, group=grpRisk)
+shortLoss = input.float(0.67, "وقف 15–30م %", step=0.01, group=grpRisk)
+longWin   = input.float(1.00, "ربح 45–240م %", step=0.01, group=grpRisk)
+longLoss  = input.float(0.78, "تصفية 45–240م %", step=0.01, group=grpRisk)
 
 grpVis = "العرض"
 showBg  = input.bool(true, "تظليل", group=grpVis)
 showLog = input.bool(true, "لوحة كل الفريمات", group=grpVis)
 showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
 showScore = input.bool(true, "عدد الناجحة/الفاشلة", group=grpVis)
-histWin  = input.float(0.67, "ربح الصفقة %", step=0.01, group=grpVis)
-histLoss = input.float(0.53, "خسارة الصفقة %", step=0.01, group=grpVis)
 scorePos = input.string("أعلى اليمين", "مكان جدول النتائج", options=["أعلى اليمين", "منتصف اليمين", "أسفل اليمين"], group=grpVis)
 
 grpDate = "الفترة الزمنية"
@@ -98,6 +100,19 @@ var array<string> lossDates = array.new_string(13, "")
 
 f_tag_idx(string tag) =>
     tag == "15/5" ? 0 : tag == "18/6" ? 1 : tag == "21/7" ? 2 : tag == "24/8" ? 3 : tag == "27/9" ? 4 : tag == "30/10" ? 5 : tag == "45/15" ? 6 : tag == "60/20" ? 7 : tag == "90/30" ? 8 : tag == "120/40" ? 9 : tag == "150/50" ? 10 : tag == "210/70" ? 11 : tag == "240/80" ? 12 : -1
+
+f_short_pair(string tag) =>
+    int idx = f_tag_idx(tag)
+    idx >= 0 and idx <= 5
+
+f_tp_pct(string tag) =>
+    f_short_pair(tag) ? shortWin : longWin
+
+f_sl_pct(string tag) =>
+    f_short_pair(tag) ? shortLoss : longLoss
+
+f_levels_txt() =>
+    "15–30م ربح " + str.tostring(shortWin, "#.##") + "% وقف " + str.tostring(shortLoss, "#.##") + "%  |  45–240م ربح " + str.tostring(longWin, "#.##") + "% تصفية " + str.tostring(longLoss, "#.##") + "%"
 
 f_append_date(int idx, int win, int et, int side) =>
     bool done = false
@@ -150,8 +165,10 @@ f_resolve_one(int i) =>
     float px = array.get(pPx, i)
     int side = array.get(pSide, i)
     string tag = array.get(pTag, i)
-    float tp = side == 1 ? px * (1.0 + histWin / 100.0) : px * (1.0 - histWin / 100.0)
-    float sl = side == 1 ? px * (1.0 - histLoss / 100.0) : px * (1.0 + histLoss / 100.0)
+    float tpPct = f_tp_pct(tag)
+    float slPct = f_sl_pct(tag)
+    float tp = side == 1 ? px * (1.0 + tpPct / 100.0) : px * (1.0 - tpPct / 100.0)
+    float sl = side == 1 ? px * (1.0 - slPct / 100.0) : px * (1.0 + slPct / 100.0)
     bool slHit = side == 1 ? low <= sl : high >= sl
     bool tpHit = side == 1 ? high >= tp : low <= tp
     int result = slHit ? 0 : tpHit ? 1 : -1
@@ -195,8 +212,8 @@ f_tf_long(bool hit, string id, string opp, string tag, int idx, int baseMin, boo
         if exitOpp and f_tf_open(opp)
             strategy.close(opp, comment="عكس")
         if not f_tf_open(id)
-            float tp = baseMin <= 30 ? 0.67 : 1.00
-            float sl = baseMin <= 30 ? 0.52 : 0.75
+            float tp = baseMin <= 30 ? shortWin : longWin
+            float sl = baseMin <= 30 ? shortLoss : longLoss
             strategy.entry(id, strategy.long, comment="شراء " + tag)
             array.set(lStop, idx, close * (1.0 - sl / 100.0))
             array.set(lLim, idx, close * (1.0 + tp / 100.0))
@@ -206,8 +223,8 @@ f_tf_short(bool hit, string id, string opp, string tag, int idx, int baseMin, bo
         if exitOpp and f_tf_open(opp)
             strategy.close(opp, comment="عكس")
         if not f_tf_open(id)
-            float tp = baseMin <= 30 ? 0.67 : 1.00
-            float sl = baseMin <= 30 ? 0.52 : 0.75
+            float tp = baseMin <= 30 ? shortWin : longWin
+            float sl = baseMin <= 30 ? shortLoss : longLoss
             strategy.entry(id, strategy.short, comment="بيع " + tag)
             array.set(sStop, idx, close * (1.0 + sl / 100.0))
             array.set(sLim, idx, close * (1.0 - tp / 100.0))
@@ -861,7 +878,7 @@ if showScore
     color pnlColor    = totalPnL >= 0 ? color.lime : color.red
     string periodTxt  = useDateFilter ? ("آخر " + str.tostring(lookbackDays) + " يوم") : "كل الفترة"
     string loadedTxt  = "شارت محمّل " + str.tostring(loadedDays, "#.#") + " يوم من أصل " + str.tostring(lookbackDays)
-    string tfHint     = chartTooHigh ? "حط الشارت على 5 دقائق — الأسهم التاريخية لا تظهر هنا" : chartNot5 ? "للأسهم الكاملة استخدم 5 دقائق (مو 20م/ساعة)" : ltfNa ? "فريم الدخول رجع na — صغّر الشارت" : "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%"
+    string tfHint     = chartTooHigh ? "حط الشارت على 5 دقائق — الأسهم التاريخية لا تظهر هنا" : chartNot5 ? "للأسهم الكاملة استخدم 5 دقائق (مو 20م/ساعة)" : ltfNa ? "فريم الدخول رجع na — صغّر الشارت" : f_levels_txt()
     color hintFg      = chartTooHigh or ltfNa ? color.black : chartNot5 ? color.orange : color.silver
     color hintBg      = chartTooHigh or ltfNa ? color.new(color.orange, 0) : color.new(#1a1a1a, 0)
 
@@ -872,7 +889,7 @@ if showScore
     table.cell(scoreBox, 0, 4, loadedTxt, text_color=loadedDays + 1 < lookbackDays ? color.orange : color.silver, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
     table.cell(scoreBox, 0, 5, "الجداول والأسهم = شموع الشارت فقط (مو لوحة Strategy Tester)", text_color=color.gray, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
     table.cell(scoreBox, 0, 6, tfHint, text_color=hintFg, bgcolor=hintBg, text_size=size.small, text_halign=text.align_center)
-    table.cell(scoreBox, 0, 7, "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%", text_color=color.silver, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
+    table.cell(scoreBox, 0, 7, f_levels_txt(), text_color=color.silver, bgcolor=color.new(#1a1a1a, 0), text_size=size.small, text_halign=text.align_center)
 else
     table.clear(scoreBox, 0, 0, 0, 7)
 

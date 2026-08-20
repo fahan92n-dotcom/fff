@@ -100,16 +100,16 @@ class TestEvaluateOutcome(unittest.TestCase):
         )
         outcome, exit_price, _ = week_scan.evaluate_outcome("buy", 100.0, future)
         self.assertEqual(outcome, "loss")
-        self.assertAlmostEqual(exit_price, 99.25)
+        self.assertAlmostEqual(exit_price, 99.22)
 
     def test_buy_win_short_frame_levels(self):
-        # Entry 100 → TP 100.67 with short-frame 0.67%.
+        # Entry 100 → TP 100.80 with short-frame 0.80%.
         future = pd.DataFrame(
             [
                 {
                     "ts": self.start + timedelta(minutes=1),
                     "open": 100.0,
-                    "high": 100.8,
+                    "high": 100.95,
                     "low": 99.9,
                     "close": 100.7,
                     "vol": 1,
@@ -121,18 +121,18 @@ class TestEvaluateOutcome(unittest.TestCase):
             "buy", 100.0, future, win_pct=win_pct, loss_pct=loss_pct
         )
         self.assertEqual(outcome, "win")
-        self.assertAlmostEqual(exit_price, 100.67)
+        self.assertAlmostEqual(exit_price, 100.80)
 
     def test_buy_loss_short_frame_levels(self):
-        # Entry 100 → SL 99.48 with short-frame 0.52%.
+        # Entry 100 → SL 99.33 with short-frame 0.67%.
         future = pd.DataFrame(
             [
                 {
                     "ts": self.start + timedelta(minutes=1),
                     "open": 100.0,
                     "high": 100.1,
-                    "low": 99.4,
-                    "close": 99.45,
+                    "low": 99.2,
+                    "close": 99.3,
                     "vol": 1,
                 }
             ]
@@ -142,7 +142,7 @@ class TestEvaluateOutcome(unittest.TestCase):
             "buy", 100.0, future, win_pct=win_pct, loss_pct=loss_pct
         )
         self.assertEqual(outcome, "loss")
-        self.assertAlmostEqual(exit_price, 99.48)
+        self.assertAlmostEqual(exit_price, 99.33)
 
     def test_sell_win_at_one_percent(self):
         future = pd.DataFrame(
@@ -176,7 +176,7 @@ class TestEvaluateOutcome(unittest.TestCase):
         )
         outcome, exit_price, _ = week_scan.evaluate_outcome("sell", 100.0, future)
         self.assertEqual(outcome, "loss")
-        self.assertAlmostEqual(exit_price, 100.75)
+        self.assertAlmostEqual(exit_price, 100.78)
 
     def test_same_bar_both_levels_counts_loss(self):
         future = pd.DataFrame(
@@ -257,10 +257,10 @@ class TestFormatWeekReport(unittest.TestCase):
         self.assertIn("مستمرة", text)
         self.assertIn("BTCUSDT", text)
         self.assertIn("ETHUSDT", text)
+        self.assertIn("0.8%", text)
         self.assertIn("0.67%", text)
-        self.assertIn("0.52%", text)
         self.assertIn("1%", text)
-        self.assertIn("0.75%", text)
+        self.assertIn("0.78%", text)
 
     def test_today_report_labels_open_trades_as_ongoing(self):
         now = datetime(2026, 8, 14, tzinfo=timezone.utc)

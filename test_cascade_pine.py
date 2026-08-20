@@ -44,8 +44,13 @@ class TestCascadePineResultsTable(unittest.TestCase):
         self.assertIn("table.new(position.top_left, 5, 16", self.src)
         self.assertIn('table.cell(logTab, 3, 0, "ناجحة"', self.src)
         self.assertIn('table.cell(logTab, 4, 0, "فاشلة"', self.src)
-        self.assertIn("array.get(winDates, pairIdx)", self.src)
-        self.assertIn("array.get(lossDates, pairIdx)", self.src)
+        self.assertIn("f_levels_txt", self.src)
+        self.assertIn("input.float(0.80,", self.src)
+        self.assertIn("input.float(0.67,", self.src)
+        self.assertIn("input.float(1.00,", self.src)
+        self.assertIn("input.float(0.78,", self.src)
+        self.assertIn("baseMin <= 30 ? shortWin : longWin", self.src)
+        self.assertIn("baseMin <= 30 ? shortLoss : longLoss", self.src)
 
 
 if __name__ == "__main__":
