@@ -31,6 +31,7 @@ from indicators import (
     check_rsi_touched_since,
     check_smi_overbought,
     check_smi_oversold,
+    check_smi_signal_cycle_ended,
     find_saturation_start_index,
     find_smi_touch_index,
 )
@@ -305,6 +306,8 @@ def _step1(candidate, rules):
         reason = "smi_overbought"
     if not saturated:
         return False, reason
+    if check_smi_signal_cycle_ended(candidate["df_base"], rules.signal_type):
+        return False, "smi_signal_ended"
     if _has_higher_tf_saturation(
         candidate,
         rules.signal_type,

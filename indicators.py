@@ -603,6 +603,50 @@ def check_smi_oversold(df, threshold=-40):
     return bool(smi.iloc[-1] <= threshold)
 
 
+def smi_signal_cycle_ended_from_series(smi, signal, direction="long", os_lvl=-40, ob_lvl=40):
+    """True after EMA Signal entered ±40, exited the other side, and crossed K.
+
+    That sequence means saturation is over for this frame until Signal
+    re-enters the zone. ``smi`` is the K line; ``signal`` is EMA Signal.
+    """
+    if smi is None or signal is None or len(smi) < 2 or len(signal) < 2:
+        return False
+    if direction not in ("long", "short"):
+        raise ValueError(f"Unsupported direction: {direction}")
+    been_in = False
+    ended = False
+    prev_sig = None
+    prev_k = None
+    for idx in range(len(smi)):
+        sig = signal.iloc[idx]
+        k_val = smi.iloc[idx]
+        if pd.isna(sig) or pd.isna(k_val):
+            prev_sig, prev_k = sig, k_val
+            continue
+        in_zone = sig <= os_lvl if direction == "long" else sig >= ob_lvl
+        if in_zone:
+            been_in = True
+            ended = False
+        elif been_in and prev_sig is not None and not pd.isna(prev_sig) and not pd.isna(prev_k):
+            prev_diff = float(prev_sig) - float(prev_k)
+            diff = float(sig) - float(k_val)
+            crossed = (prev_diff > 0 and diff <= 0) or (prev_diff < 0 and diff >= 0)
+            if crossed:
+                ended = True
+                been_in = False
+        prev_sig, prev_k = sig, k_val
+    return bool(ended)
+
+
+def check_smi_signal_cycle_ended(df, signal_type="buy"):
+    """Frame should stop: SMI EMA Signal left ±40 and crossed K."""
+    if df is None or getattr(df, "empty", True) or len(df) < WARMUP_SMI:
+        return False
+    smi, ema_signal, _ = calc_smi(df["high"], df["low"], df["close"])
+    direction = "long" if signal_type == "buy" else "short"
+    return smi_signal_cycle_ended_from_series(smi, ema_signal, direction=direction)
+
+
 def find_saturation_start_index(df, threshold=-40, direction="long"):
     """
     أول شمعة مغلقة في نوبة تشبع SMI الحالية (المتصلة بآخر شمعة مغلقة).

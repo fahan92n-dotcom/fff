@@ -27,6 +27,7 @@ from indicators import (
     calc_smi,
     check_donchian_trend_ribbon,
     check_macd_at_saturation_start,
+    check_smi_signal_cycle_ended,
     find_step8_entry_index,
     resample_ohlcv,
 )
@@ -726,7 +727,10 @@ def _filter_base_saturation(signal_type, candidates):
     """Drop waiters when main-TF SMI saturation ends — all stages, not only 5."""
     filtered = []
     for candidate in candidates:
-        if not _base_smi_still_saturated(candidate, signal_type):
+        if not _base_smi_still_saturated(candidate, signal_type) or check_smi_signal_cycle_ended(
+            candidate.get("df_base"),
+            signal_type,
+        ):
             abandon_waiting_candidate(signal_type, candidate)
             log.info(
                 "⛔ %s %s/%s/%s: انتهى تشبع الفريم الرئيسي — أُلغي من الانتظار",
