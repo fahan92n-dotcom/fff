@@ -45,12 +45,13 @@ class TestCascadePineResultsTable(unittest.TestCase):
         self.assertIn('table.cell(logTab, 3, 0, "ناجحة"', self.src)
         self.assertIn('table.cell(logTab, 4, 0, "فاشلة"', self.src)
         self.assertIn("f_levels_txt", self.src)
-        self.assertIn("input.float(0.80,", self.src)
-        self.assertIn("input.float(0.67,", self.src)
         self.assertIn("input.float(1.00,", self.src)
-        self.assertIn("input.float(0.78,", self.src)
-        self.assertIn("baseMin <= 30 ? shortWin : longWin", self.src)
-        self.assertIn("baseMin <= 30 ? shortLoss : longLoss", self.src)
+        self.assertIn("input.float(0.75,", self.src)
+        self.assertIn("float tp = tpPctIn", self.src)
+        self.assertIn("float sl = slPctIn", self.src)
+        self.assertNotIn("input.float(0.80,", self.src)
+        self.assertNotIn("input.float(0.67,", self.src)
+        self.assertNotIn("input.float(0.78,", self.src)
 
     def test_smi_signal_cycle_stops_the_frame(self):
         self.assertIn("f_sat_ended_long", self.src)

@@ -9,14 +9,8 @@ from html import escape as html_escape
 
 from binance_data import CUSTOM_SYMBOLS, fast_prefetch_done, symbols_cache, symbols_cache_lock
 from week_scan import (
-    LONG_LOSS_PCT,
-    LONG_TF_MAX,
-    LONG_TF_MIN,
-    LONG_WIN_PCT,
-    SHORT_LOSS_PCT,
-    SHORT_TF_MAX,
-    SHORT_TF_MIN,
-    SHORT_WIN_PCT,
+    LOSS_PCT,
+    WIN_PCT,
     _ensure_symbol_raw,
     format_week_trades_report,
     outcome_levels,
@@ -258,12 +252,8 @@ def format_experiments_report(bundle):
         "🧪 <b>تجارب الاستراتيجية — آخر 7 أيام</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         f"عملات: <b>{bundle.get('symbols_scanned', 0)}</b>\n"
-        f"معايير الخروج:\n"
-        f"• {SHORT_TF_MIN}–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
-        f"خسارة {SHORT_LOSS_PCT:g}%\n"
-        f"• {LONG_TF_MIN}–{LONG_TF_MAX}م: ربح +{LONG_WIN_PCT:g}% | "
-        f"خسارة {LONG_LOSS_PCT:g}%\n"
-        "الترتيب حسب مجموع نقاط٪ لكل صفقة حسب فريمها\n"
+        f"معايير الخروج: ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%\n"
+        "الترتيب حسب مجموع نقاط٪ لكل صفقة\n"
         "\n"
         f"🏆 <b>الأفضل الآن:</b> {html_escape(win_v.title_ar)}\n"
         f"صفقات مغلقة: <b>{win_s['closed']}</b> | "

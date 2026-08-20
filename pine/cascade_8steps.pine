@@ -63,10 +63,8 @@ useLong = input.bool(true, "شراء", group=grpRisk)
 useShrt = input.bool(true, "بيع", group=grpRisk)
 usePct  = input.bool(true, "وقف/هدف %", group=grpRisk)
 exitOpp = input.bool(true, "إغلاق عكسي", group=grpRisk)
-shortWin  = input.float(0.80, "ربح 15–30م %", step=0.01, group=grpRisk)
-shortLoss = input.float(0.67, "وقف 15–30م %", step=0.01, group=grpRisk)
-longWin   = input.float(1.00, "ربح 45–240م %", step=0.01, group=grpRisk)
-longLoss  = input.float(0.78, "تصفية 45–240م %", step=0.01, group=grpRisk)
+tpPctIn = input.float(1.00, "ربح %", step=0.01, group=grpRisk)
+slPctIn = input.float(0.75, "وقف %", step=0.01, group=grpRisk)
 
 grpVis = "العرض"
 showBg  = input.bool(true, "تظليل", group=grpVis)
@@ -103,18 +101,14 @@ var array<string> lossDates = array.new_string(13, "")
 f_tag_idx(string tag) =>
     tag == "15/5" ? 0 : tag == "18/6" ? 1 : tag == "21/7" ? 2 : tag == "24/8" ? 3 : tag == "27/9" ? 4 : tag == "30/10" ? 5 : tag == "45/15" ? 6 : tag == "60/20" ? 7 : tag == "90/30" ? 8 : tag == "120/40" ? 9 : tag == "150/50" ? 10 : tag == "210/70" ? 11 : tag == "240/80" ? 12 : -1
 
-f_short_pair(string tag) =>
-    int idx = f_tag_idx(tag)
-    idx >= 0 and idx <= 5
-
 f_tp_pct(string tag) =>
-    f_short_pair(tag) ? shortWin : longWin
+    tpPctIn
 
 f_sl_pct(string tag) =>
-    f_short_pair(tag) ? shortLoss : longLoss
+    slPctIn
 
 f_levels_txt() =>
-    "15–30م ربح " + str.tostring(shortWin, "#.##") + "% وقف " + str.tostring(shortLoss, "#.##") + "%  |  45–240م ربح " + str.tostring(longWin, "#.##") + "% تصفية " + str.tostring(longLoss, "#.##") + "%"
+    "ربح " + str.tostring(tpPctIn, "#.##") + "% وقف " + str.tostring(slPctIn, "#.##") + "%"
 
 f_append_date(int idx, int win, int et, int side) =>
     bool done = false
@@ -214,8 +208,8 @@ f_tf_long(bool hit, string id, string opp, string tag, int idx, int baseMin, boo
         if exitOpp and f_tf_open(opp)
             strategy.close(opp, comment="عكس")
         if not f_tf_open(id)
-            float tp = baseMin <= 30 ? shortWin : longWin
-            float sl = baseMin <= 30 ? shortLoss : longLoss
+            float tp = tpPctIn
+            float sl = slPctIn
             strategy.entry(id, strategy.long, comment="شراء " + tag)
             array.set(lStop, idx, close * (1.0 - sl / 100.0))
             array.set(lLim, idx, close * (1.0 + tp / 100.0))
@@ -225,8 +219,8 @@ f_tf_short(bool hit, string id, string opp, string tag, int idx, int baseMin, bo
         if exitOpp and f_tf_open(opp)
             strategy.close(opp, comment="عكس")
         if not f_tf_open(id)
-            float tp = baseMin <= 30 ? shortWin : longWin
-            float sl = baseMin <= 30 ? shortLoss : longLoss
+            float tp = tpPctIn
+            float sl = slPctIn
             strategy.entry(id, strategy.short, comment="بيع " + tag)
             array.set(sStop, idx, close * (1.0 + sl / 100.0))
             array.set(sLim, idx, close * (1.0 - tp / 100.0))

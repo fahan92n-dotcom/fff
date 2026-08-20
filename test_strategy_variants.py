@@ -136,8 +136,8 @@ class TestExperimentRanking(unittest.TestCase):
                 "total": 6,
             }
         )
-        # Empty trades fall back to long-frame levels (1.0 / 0.78).
-        # 2*1 - 2*0.78 = 0.44  vs  5*1 - 1*0.78 = 4.22
+        # Empty trades fall back to unified levels (1.0 / 0.75).
+        # 2*1 - 2*0.75 = 0.50  vs  5*1 - 1*0.75 = 4.25
         self.assertGreater(strong["expectancy"], weak["expectancy"])
         self.assertGreater(
             experiments.rank_key(strong),
