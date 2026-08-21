@@ -96,6 +96,45 @@ class TestEma50ClosedAboveSince(unittest.TestCase):
             self.assertFalse(ind.check_ema50_closed_above_since(df, since_ts))
 
 
+class TestStep6NoLongerRequiresBaseEma50(unittest.TestCase):
+    def test_buy_step6_passes_when_base_stays_above_ema50(self):
+        import cascade_steps as steps
+
+        start = pd.Timestamp("2024-01-01", tz="UTC")
+        closes = [100.0 + i * 0.2 for i in range(220)]
+        df = _make_df(closes, start=str(start.date()))
+        candidate = {
+            "sym": "ETHUSDT",
+            "base_frame": 60,
+            "confirm_frame": 180,
+            "triple_frame": 20,
+            "df_base": df,
+            "df_confirm": df,
+            "ready_since": df["ts"].iloc[100],
+        }
+        ok, reason = steps.step6(candidate)
+        self.assertTrue(ok, msg=reason)
+        self.assertEqual(reason, "passed")
+
+    def test_sell_step6_passes_when_base_stays_below_ema50(self):
+        import cascade_steps as steps
+
+        closes = [200.0 - i * 0.2 for i in range(220)]
+        df = _make_df(closes)
+        candidate = {
+            "sym": "ETHUSDT",
+            "base_frame": 60,
+            "confirm_frame": 180,
+            "triple_frame": 20,
+            "df_base": df,
+            "df_confirm": df,
+            "ready_since": df["ts"].iloc[100],
+        }
+        ok, reason = steps.short_step6(candidate)
+        self.assertTrue(ok, msg=reason)
+        self.assertEqual(reason, "passed")
+
+
 class TestAbandonWhenBaseSaturationEnds(unittest.TestCase):
     def test_waiting_stage6_abandoned_when_smi_leaves_overbought(self):
         import cascade_pipeline as pipeline

@@ -80,9 +80,6 @@ class TestVariantStepOverrides(unittest.TestCase):
         self.assertEqual(reason, "passed")
 
     def test_step6_can_disable_confirm_rsi(self):
-        # Build a frame where base EMA condition fails → still false.
-        # Here we only assert the RSI lookback None path does not crash and
-        # that missing ready_since fails on ema first.
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         closes = [100 + i * 0.1 for i in range(220)]
         df = _ohlcv(start, closes, minutes=60)
@@ -96,10 +93,9 @@ class TestVariantStepOverrides(unittest.TestCase):
             "ready_since": start,
             "variant": {"confirm_rsi_lookback": None},
         }
-        # Without a true saturation+EMA episode this should fail ema, not RSI.
         ok, reason = steps.step6(candidate)
-        self.assertFalse(ok)
-        self.assertEqual(reason, "ema50")
+        self.assertTrue(ok)
+        self.assertEqual(reason, "passed")
 
     def test_baseline_variant_dict_omits_rsi_override(self):
         baseline = experiments.EXPERIMENT_VARIANTS[0]

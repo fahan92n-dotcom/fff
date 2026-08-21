@@ -473,7 +473,7 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     bool s3 = isLong ? donB == 1 : donB == -1
     bool s4 = isLong ? donCf == 1 : donCf == -1
     bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
-    bool s6 = emaOk and rsiCf
+    bool s6 = rsiCf
     bool s7 = isLong ? donT == -1 : donT == 1
     bool setup = s1 and s2 and s3 and s4 and s5 and s6 and s7
     bool all8 = setup and s8
