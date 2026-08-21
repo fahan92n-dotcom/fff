@@ -53,13 +53,11 @@ class TestCascadePineResultsTable(unittest.TestCase):
         self.assertNotIn("input.float(0.67,", self.src)
         self.assertNotIn("input.float(0.78,", self.src)
 
-    def test_smi_signal_cycle_stops_the_frame(self):
-        self.assertIn("f_sat_ended_long", self.src)
-        self.assertIn("f_sat_ended_short", self.src)
-        self.assertIn("ta.ema(smi, smiSig)", self.src)
-        self.assertIn("ta.cross(sig, smiK)", self.src)
-        self.assertIn("not blk and not satEnded", self.src)
-        self.assertIn('input.int(10, "SMI EMA Signal"', self.src)
+    def test_pine_does_not_stop_on_smi_signal_exit(self):
+        self.assertNotIn("f_sat_ended_long", self.src)
+        self.assertNotIn("f_sat_ended_short", self.src)
+        self.assertNotIn("smiSig", self.src)
+        self.assertNotIn("satEnded", self.src)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 //@version=5
 // Cascade 8 خطوات — 13 زوجاً معاً.
-// إذا EMA Signal دخل ±40 ثم خرج من الجهة الأخرى وتقاطع مع خط K، التشبع انتهى والفريم يتوقف.
 // النتائج (Total PnL / Max Drawdown) جدول ثابت على الشاشة، مو ملصق على آخر شمعة.
 // لوحة الفريمات: بجانب الخطوات تاريخ ووقت كل صفقة ناجحة (أخضر) وفاشلة (أحمر) مع شراء/بيع.
 // الشارت لازم 5 دقائق حتى تكتمل الأسهم التاريخية لكل الأزواج (15/5 …).
@@ -23,7 +22,6 @@ strategy("Cascade 8 — كل الفريمات (شارت 20م)",
 grpInd = "المؤشرات"
 smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
 smiD   = input.int(3,  "SMI D", minval=1, group=grpInd)
-smiSig = input.int(10, "SMI EMA Signal", minval=1, group=grpInd)
 osLvl  = input.float(-40, "تشبع بيعي SMI", group=grpInd)
 obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
@@ -310,33 +308,6 @@ f_block(bool isLong, float smi) =>
         blocked := last == 1 or last == 2
     blocked
 
-// انتهى التشبع: EMA Signal دخل ±40 ثم خرج من الجهة الأخرى وتقاطع مع خط K (من فوق أو تحت).
-f_sat_ended_long(float smiK, float sig) =>
-    var bool beenIn = false
-    var bool ended = false
-    bool inZ = not na(sig) and sig <= osLvl
-    bool xk = ta.cross(sig, smiK)
-    if inZ
-        beenIn := true
-        ended := false
-    else if beenIn and xk
-        ended := true
-        beenIn := false
-    ended
-
-f_sat_ended_short(float smiK, float sig) =>
-    var bool beenIn = false
-    var bool ended = false
-    bool inZ = not na(sig) and sig >= obLvl
-    bool xk = ta.cross(sig, smiK)
-    if inZ
-        beenIn := true
-        ended := false
-    else if beenIn and xk
-        ended := true
-        beenIn := false
-    ended
-
 f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
     float smiTh = isLong ? osLvl : obLvl
     float rsiTh = isLong ? rsiOs : rsiOb
@@ -411,12 +382,11 @@ f_snap_confirm() =>
 
 f_snap_base() =>
     smi = f_smi()
-    sig = ta.ema(smi, smiSig)
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi), f_sat_ended_long(smi, sig), f_sat_ended_short(smi, sig)]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi)]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -424,7 +394,6 @@ f_snap_cancel() =>
 
 f_snap_base_entry() =>
     smi = f_smi()
-    sig = ta.ema(smi, smiSig)
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
@@ -432,17 +401,16 @@ f_snap_base_entry() =>
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), f_sat_ended_long(smi, sig), f_sat_ended_short(smi, sig)]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi)]
 
 f_snap_htf() =>
     smi = f_smi()
-    sig = ta.ema(smi, smiSig)
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), f_sat_ended_long(smi, sig), f_sat_ended_short(smi, sig)]
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi)]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -468,30 +436,30 @@ f_req_htf(simple string tf) =>
 [dC8, s8L8, s8S8] = f_req_entry("8")
 [dC9, s8L9, s8S9] = f_req_entry("9")
 [dC10, s8L10, s8S10] = f_req_entry("10")
-[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15, endL15, endS15] = f_req_base_entry("15")
-[smi18, dC18, mL18, mS18, eL18, eS18, bL18, bS18, endL18, endS18] = f_req_base("18")
+[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15] = f_req_base_entry("15")
+[smi18, dC18, mL18, mS18, eL18, eS18, bL18, bS18] = f_req_base("18")
 [dC20, s8L20, s8S20] = f_req_entry("20")
-[smi21, dC21, mL21, mS21, eL21, eS21, bL21, bS21, endL21, endS21] = f_req_base("21")
-[smi24, dC24, mL24, mS24, eL24, eS24, bL24, bS24, endL24, endS24] = f_req_base("24")
-[smi27, dC27, mL27, mS27, eL27, eS27, bL27, bS27, endL27, endS27] = f_req_base("27")
-[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30, endL30, endS30] = f_req_base_entry("30")
+[smi21, dC21, mL21, mS21, eL21, eS21, bL21, bS21] = f_req_base("21")
+[smi24, dC24, mL24, mS24, eL24, eS24, bL24, bS24] = f_req_base("24")
+[smi27, dC27, mL27, mS27, eL27, eS27, bL27, bS27] = f_req_base("27")
+[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30] = f_req_base_entry("30")
 [dC40, s8L40, s8S40] = f_req_entry("40")
-[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45, endL45, endS45] = f_req_htf("45")
+[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45] = f_req_htf("45")
 [dC50, s8L50, s8S50] = f_req_entry("50")
 [dL54, h54, rL54, rS54] = f_req_confirm("54")
-[smi60, dC60, mL60, mS60, eL60, eS60, bL60, bS60, endL60, endS60] = f_req_base("60")
+[smi60, dC60, mL60, mS60, eL60, eS60, bL60, bS60] = f_req_base("60")
 [dL63, h63, rL63, rS63] = f_req_confirm("63")
 [dC70, s8L70, s8S70] = f_req_entry("70")
 [dL72, h72, rL72, rS72] = f_req_confirm("72")
 [dC80, s8L80, s8S80] = f_req_entry("80")
 [dL81, h81, rL81, rS81] = f_req_confirm("81")
-[smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, bL90, bS90, endL90, endS90] = f_req_htf("90")
-[smi120, dC120, mL120, mS120, eL120, eS120, bL120, bS120, endL120, endS120] = f_req_base("120")
+[smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, bL90, bS90] = f_req_htf("90")
+[smi120, dC120, mL120, mS120, eL120, eS120, bL120, bS120] = f_req_base("120")
 [dL135, h135, rL135, rS135] = f_req_confirm("135")
-[smi150, dC150, mL150, mS150, eL150, eS150, bL150, bS150, endL150, endS150] = f_req_base("150")
+[smi150, dC150, mL150, mS150, eL150, eS150, bL150, bS150] = f_req_base("150")
 [dL180, h180, rL180, rS180] = f_req_confirm("180")
-[smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210, endL210, endS210] = f_req_base("210")
-[smi240, dC240, mL240, mS240, eL240, eS240, bL240, bS240, endL240, endS240] = f_req_base("240")
+[smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210] = f_req_base("210")
+[smi240, dC240, mL240, mS240, eL240, eS240, bL240, bS240] = f_req_base("240")
 [dL270, h270, rL270, rS270] = f_req_confirm("270")
 [bL300, bS300] = f_req_cancel("300")
 [dL360, h360, rL360, rS360] = f_req_confirm("360")
@@ -499,8 +467,8 @@ f_req_htf(simple string tf) =>
 [dL630, h630, rL630, rS630] = f_req_confirm("630")
 [dL720, h720, rL720, rS720] = f_req_confirm("720")
 
-f_side(bool isLong, bool blk, bool satEnded, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8) =>
-    bool s1 = not blk and not satEnded and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
+f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8) =>
+    bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
     bool s2 = mOk
     bool s3 = isLong ? donB == 1 : donB == -1
     bool s4 = isLong ? donCf == 1 : donCf == -1
@@ -511,32 +479,32 @@ f_side(bool isLong, bool blk, bool satEnded, float smiC, bool mOk, float donB, f
     bool all8 = setup and s8
     [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
 
-[L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL18, endL15, smi15, mL15, dC15, dL45, h45, eL15, rL45, dC5, s8L5)
-[S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS18, endS15, smi15, mS15, dC15, dL45, h45, eS15, rS45, dC5, s8S5)
-[L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8, set18L, all18L] = f_side(true,  bL21, endL18, smi18, mL18, dC18, dL54, h54, eL18, rL54, dC6, s8L6)
-[S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8, set18S, all18S] = f_side(false, bS21, endS18, smi18, mS18, dC18, dL54, h54, eS18, rS54, dC6, s8S6)
-[L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8, set21L, all21L] = f_side(true,  bL24, endL21, smi21, mL21, dC21, dL63, h63, eL21, rL63, dC7, s8L7)
-[S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8, set21S, all21S] = f_side(false, bS24, endS21, smi21, mS21, dC21, dL63, h63, eS21, rS63, dC7, s8S7)
-[L24_1, L24_2, L24_3, L24_4, L24_5, L24_6, L24_7, L24_8, set24L, all24L] = f_side(true,  bL27, endL24, smi24, mL24, dC24, dL72, h72, eL24, rL72, dC8, s8L8)
-[S24_1, S24_2, S24_3, S24_4, S24_5, S24_6, S24_7, S24_8, set24S, all24S] = f_side(false, bS27, endS24, smi24, mS24, dC24, dL72, h72, eS24, rS72, dC8, s8S8)
-[L27_1, L27_2, L27_3, L27_4, L27_5, L27_6, L27_7, L27_8, set27L, all27L] = f_side(true,  bL30, endL27, smi27, mL27, dC27, dL81, h81, eL27, rL81, dC9, s8L9)
-[S27_1, S27_2, S27_3, S27_4, S27_5, S27_6, S27_7, S27_8, set27S, all27S] = f_side(false, bS30, endS27, smi27, mS27, dC27, dL81, h81, eS27, rS81, dC9, s8S9)
-[L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8, set30L, all30L] = f_side(true,  bL45, endL30, smi30, mL30, dC30, dL90, h90, eL30, rL90, dC10, s8L10)
-[S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8, set30S, all30S] = f_side(false, bS45, endS30, smi30, mS30, dC30, dL90, h90, eS30, rS90, dC10, s8S10)
-[L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8, set45L, all45L] = f_side(true,  bL60, endL45, smi45, mL45, dC45, dL135, h135, eL45, rL135, dC15, s8L15)
-[S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8, set45S, all45S] = f_side(false, bS60, endS45, smi45, mS45, dC45, dL135, h135, eS45, rS135, dC15, s8S15)
-[L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8, set60L, all60L] = f_side(true,  bL90, endL60, smi60, mL60, dC60, dL180, h180, eL60, rL180, dC20, s8L20)
-[S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8, set60S, all60S] = f_side(false, bS90, endS60, smi60, mS60, dC60, dL180, h180, eS60, rS180, dC20, s8L20)
-[L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8, set90L, all90L] = f_side(true,  bL120, endL90, smi90, mL90, dC90, dL270, h270, eL90, rL270, dC30, s8L30)
-[S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8, set90S, all90S] = f_side(false, bS120, endS90, smi90, mS90, dC90, dL270, h270, eS90, rS270, dC30, s8S30)
-[L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8, set120L, all120L] = f_side(true,  bL150, endL120, smi120, mL120, dC120, dL360, h360, eL120, rL360, dC40, s8L40)
-[S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8, set120S, all120S] = f_side(false, bS150, endS120, smi120, mS120, dC120, dL360, h360, eS120, rS360, dC40, s8S40)
-[L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8, set150L, all150L] = f_side(true,  bL210, endL150, smi150, mL150, dC150, dL450, h450, eL150, rL450, dC50, s8L50)
-[S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8, set150S, all150S] = f_side(false, bS210, endS150, smi150, mS150, dC150, dL450, h450, eS150, rS450, dC50, s8S50)
-[L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8, set210L, all210L] = f_side(true,  bL240, endL210, smi210, mL210, dC210, dL630, h630, eL210, rL630, dC70, s8L70)
-[S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8, set210S, all210S] = f_side(false, bS240, endS210, smi210, mS210, dC210, dL630, h630, eS210, rS630, dC70, s8S70)
-[L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, set240L, all240L] = f_side(true,  bL300, endL240, smi240, mL240, dC240, dL720, h720, eL240, rL720, dC80, s8L80)
-[S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, set240S, all240S] = f_side(false, bS300, endS240, smi240, mS240, dC240, dL720, h720, eS240, rS720, dC80, s8S80)
+[L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL18, smi15, mL15, dC15, dL45, h45, eL15, rL45, dC5, s8L5)
+[S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS18, smi15, mS15, dC15, dL45, h45, eS15, rS45, dC5, s8S5)
+[L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8, set18L, all18L] = f_side(true,  bL21, smi18, mL18, dC18, dL54, h54, eL18, rL54, dC6, s8L6)
+[S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8, set18S, all18S] = f_side(false, bS21, smi18, mS18, dC18, dL54, h54, eS18, rS54, dC6, s8S6)
+[L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8, set21L, all21L] = f_side(true,  bL24, smi21, mL21, dC21, dL63, h63, eL21, rL63, dC7, s8L7)
+[S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8, set21S, all21S] = f_side(false, bS24, smi21, mS21, dC21, dL63, h63, eS21, rS63, dC7, s8S7)
+[L24_1, L24_2, L24_3, L24_4, L24_5, L24_6, L24_7, L24_8, set24L, all24L] = f_side(true,  bL27, smi24, mL24, dC24, dL72, h72, eL24, rL72, dC8, s8L8)
+[S24_1, S24_2, S24_3, S24_4, S24_5, S24_6, S24_7, S24_8, set24S, all24S] = f_side(false, bS27, smi24, mS24, dC24, dL72, h72, eS24, rS72, dC8, s8S8)
+[L27_1, L27_2, L27_3, L27_4, L27_5, L27_6, L27_7, L27_8, set27L, all27L] = f_side(true,  bL30, smi27, mL27, dC27, dL81, h81, eL27, rL81, dC9, s8L9)
+[S27_1, S27_2, S27_3, S27_4, S27_5, S27_6, S27_7, S27_8, set27S, all27S] = f_side(false, bS30, smi27, mS27, dC27, dL81, h81, eS27, rS81, dC9, s8S9)
+[L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8, set30L, all30L] = f_side(true,  bL45, smi30, mL30, dC30, dL90, h90, eL30, rL90, dC10, s8L10)
+[S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8, set30S, all30S] = f_side(false, bS45, smi30, mS30, dC30, dL90, h90, eS30, rS90, dC10, s8S10)
+[L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8, set45L, all45L] = f_side(true,  bL60, smi45, mL45, dC45, dL135, h135, eL45, rL135, dC15, s8L15)
+[S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8, set45S, all45S] = f_side(false, bS60, smi45, mS45, dC45, dL135, h135, eS45, rS135, dC15, s8S15)
+[L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8, set60L, all60L] = f_side(true,  bL90, smi60, mL60, dC60, dL180, h180, eL60, rL180, dC20, s8L20)
+[S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8, set60S, all60S] = f_side(false, bS90, smi60, mS60, dC60, dL180, h180, eS60, rS180, dC20, s8L20)
+[L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8, set90L, all90L] = f_side(true,  bL120, smi90, mL90, dC90, dL270, h270, eL90, rL270, dC30, s8L30)
+[S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8, set90S, all90S] = f_side(false, bS120, smi90, mS90, dC90, dL270, h270, eS90, rS270, dC30, s8S30)
+[L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8, set120L, all120L] = f_side(true,  bL150, smi120, mL120, dC120, dL360, h360, eL120, rL360, dC40, s8L40)
+[S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8, set120S, all120S] = f_side(false, bS150, smi120, mS120, dC120, dL360, h360, eS120, rS360, dC40, s8S40)
+[L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8, set150L, all150L] = f_side(true,  bL210, smi150, mL150, dC150, dL450, h450, eL150, rL450, dC50, s8L50)
+[S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8, set150S, all150S] = f_side(false, bS210, smi150, mS150, dC150, dL450, h450, eS150, rS450, dC50, s8S50)
+[L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8, set210L, all210L] = f_side(true,  bL240, smi210, mL210, dC210, dL630, h630, eL210, rL630, dC70, s8L70)
+[S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8, set210S, all210S] = f_side(false, bS240, smi210, mS210, dC210, dL630, h630, eS210, rS630, dC70, s8S70)
+[L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, set240L, all240L] = f_side(true,  bL300, smi240, mL240, dC240, dL720, h720, eL240, rL720, dC80, s8L80)
+[S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, set240S, all240S] = f_side(false, bS300, smi240, mS240, dC240, dL720, h720, eS240, rS720, dC80, s8S80)
 
 var bool a15L = true
 var bool a15S = true
