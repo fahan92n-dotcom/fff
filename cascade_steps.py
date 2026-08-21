@@ -97,7 +97,7 @@ STEP_LABELS = {
     "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
     "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
     "macd_confirm": "⑤ MACD Confirm أخضر (شمعة التأكيد الحالية)",
-    "ema50": "⑥ RSI تأكيد",
+    "ema50": "⑥ تحت EMA60 منذ التشبع + RSI تأكيد",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
     "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع RSI → Stoch>20 خلال 3",
 }
@@ -117,7 +117,7 @@ SHORT_STEP_LABELS = {
     "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
     "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
     "macd_confirm_red": "⑤ MACD Confirm أحمر (شمعة التأكيد الحالية)",
-    "ema50_above": "⑥ RSI تأكيد",
+    "ema50_above": "⑥ فوق EMA60 منذ التشبع + RSI تأكيد",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
     # Use &lt; (not raw <) — Telegram parse_mode=HTML rejects Stoch<80 as a bad tag.
     "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI → Stoch&lt;80 خلال 3",
@@ -431,6 +431,10 @@ def _step5(candidate, rules):
 
 
 def _step6(candidate, rules):
+    since_ts = _ready_since(candidate, rules)
+    if not rules.ema_check(candidate["df_base"], since_ts):
+        return False, rules.ema_reason
+
     variant = _variant(candidate)
 
     # Experiment: at entry, confirm tip vs EMA50 —

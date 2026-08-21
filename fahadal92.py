@@ -219,7 +219,7 @@ def diagnose_signal_failures():
     )
 
     # ─────────────────────────────────────────────
-    # السبب #2: فشل Step 6 (RSI تأكيد)
+    # السبب #2: فشل Step 6 (EMA60)
     # ─────────────────────────────────────────────
     step6_failures = 0
     step6_total = 0
@@ -269,17 +269,17 @@ def diagnose_signal_failures():
             why="الأطر الكبيرة (120m, 150m) تحتاج بيانات أكثر",
         ),
         _diag_reason(
-            reason="⚠️ فشل Step 6 (RSI تأكيد)",
+            reason="⚠️ فشل Step 6 (شرط EMA60)",
             severity="HIGH" if step6_percentage > 50 else "MEDIUM",
             percentage=step6_percentage,
             total_failed=step6_failures,
             total=step6_total,
             description=(
                 f"{step6_failures} مرشح من {step6_total} "
-                "فشلوا في شرط RSI على فريم التأكيد"
+                "فشلوا في شرط السعر مقابل EMA60 منذ تشبع الفريم الأساسي"
             ),
-            solution="راجع RSI التأكيد خلال الشموع المحددة",
-            why="Step 6 يتحقق من RSI التأكيد فقط، بدون EMA50 على الفريم الرئيسي",
+            solution="راجع اتجاه السعر بالنسبة لـ EMA60 بعد تشبع Step 1",
+            why="Step 6 يتحقق من لمس/اختراق EMA60 منذ لحظة التشبع وليس من RSI",
         ),
         _diag_reason(
             reason="⚡ فشل Step 1 (SMI Oversold ≤ -40)",

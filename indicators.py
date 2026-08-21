@@ -517,29 +517,32 @@ def calc_ema(close, span=60):
     return ema_tv(close, int(span))
 
 
+BASE_EMA_LEN = 60
+
+
 def check_ema50_below(df):
-    """آخر شمعة تقفل تحت EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
-    ema = calc_ema(df["close"], span=50)
+    """آخر شمعة تقفل تحت EMA60 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
+    ema = calc_ema(df["close"], span=BASE_EMA_LEN)
     return bool(df["close"].iloc[-1] < ema.iloc[-1])
 
 def check_ema50_above(df):
-    """آخر شمعة تقفل فوق EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
-    ema = calc_ema(df["close"], span=50)
+    """آخر شمعة تقفل فوق EMA60 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
+    ema = calc_ema(df["close"], span=BASE_EMA_LEN)
     return bool(df["close"].iloc[-1] > ema.iloc[-1])
 
 
 def check_ema50_closed_below_since(df, since_ts, smi_threshold=-40):
     """
-    شراء: هل أقفلت أي شمعة تحت EMA50 أثناء تشبع SMI منذ since_ts؟
+    شراء: هل أقفلت أي شمعة تحت EMA60 أثناء تشبع SMI منذ since_ts؟
     يُحسب EMA/SMI على السلسلة كاملة، ويُقبل فقط إغلاق على شمعة متشبعة.
     اللمس بالفتيل لا يكفي — الإغلاق (close) فقط.
     """
-    if df.empty or since_ts is None or len(df) < max(50, WARMUP_SMI):
+    if df.empty or since_ts is None or len(df) < max(BASE_EMA_LEN, WARMUP_SMI):
         return False
     time_mask = df["ts"] >= since_ts
     if not time_mask.any():
         return False
-    ema = calc_ema(df["close"], span=50)
+    ema = calc_ema(df["close"], span=BASE_EMA_LEN)
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     sat_mask = time_mask & (smi <= smi_threshold)
     if not sat_mask.any():
@@ -549,16 +552,16 @@ def check_ema50_closed_below_since(df, since_ts, smi_threshold=-40):
 
 def check_ema50_closed_above_since(df, since_ts, smi_threshold=40):
     """
-    بيع: هل أقفلت أي شمعة فوق EMA50 أثناء تشبع SMI منذ since_ts؟
+    بيع: هل أقفلت أي شمعة فوق EMA60 أثناء تشبع SMI منذ since_ts؟
     يُحسب EMA/SMI على السلسلة كاملة، ويُقبل فقط إغلاق على شمعة متشبعة.
     اللمس بالفتيل لا يكفي — الإغلاق (close) فقط.
     """
-    if df.empty or since_ts is None or len(df) < max(50, WARMUP_SMI):
+    if df.empty or since_ts is None or len(df) < max(BASE_EMA_LEN, WARMUP_SMI):
         return False
     time_mask = df["ts"] >= since_ts
     if not time_mask.any():
         return False
-    ema = calc_ema(df["close"], span=50)
+    ema = calc_ema(df["close"], span=BASE_EMA_LEN)
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
     sat_mask = time_mask & (smi >= smi_threshold)
     if not sat_mask.any():
@@ -715,7 +718,7 @@ def check_ema50_above_since_overbought(df, smi_threshold=40):
     if len(df) < WARMUP_SMI:
         return False
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
-    ema = calc_ema(df["close"], span=50)
+    ema = calc_ema(df["close"], span=BASE_EMA_LEN)
     overbought_mask = smi >= smi_threshold
     if not overbought_mask.any():
         return False

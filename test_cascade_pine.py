@@ -58,8 +58,9 @@ class TestCascadePineResultsTable(unittest.TestCase):
         self.assertNotIn("f_sat_ended_short", self.src)
         self.assertNotIn("smiSig", self.src)
         self.assertNotIn("satEnded", self.src)
-        self.assertIn("bool s6 = rsiCf", self.src)
-        self.assertNotIn("emaOk and rsiCf", self.src)
+        self.assertIn("input.int(60, \"EMA\"", self.src)
+        self.assertIn("bool s6 = emaOk and rsiCf", self.src)
+        self.assertNotIn("bool s6 = rsiCf", self.src)
 
 
 if __name__ == "__main__":

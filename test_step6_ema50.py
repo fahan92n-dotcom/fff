@@ -1,5 +1,5 @@
 """
-اختبارات EMA50 للخطوة 6: إغلاق تحت/فوق الخط أثناء تشبع SMI فقط.
+اختبارات EMA60 للخطوة 6: إغلاق تحت/فوق الخط أثناء تشبع SMI فقط.
 """
 import unittest
 from unittest.mock import patch
@@ -96,8 +96,8 @@ class TestEma50ClosedAboveSince(unittest.TestCase):
             self.assertFalse(ind.check_ema50_closed_above_since(df, since_ts))
 
 
-class TestStep6NoLongerRequiresBaseEma50(unittest.TestCase):
-    def test_buy_step6_passes_when_base_stays_above_ema50(self):
+class TestStep6RequiresBaseEma60(unittest.TestCase):
+    def test_buy_step6_fails_when_base_stays_above_ema60(self):
         import cascade_steps as steps
 
         start = pd.Timestamp("2024-01-01", tz="UTC")
@@ -113,10 +113,10 @@ class TestStep6NoLongerRequiresBaseEma50(unittest.TestCase):
             "ready_since": df["ts"].iloc[100],
         }
         ok, reason = steps.step6(candidate)
-        self.assertTrue(ok, msg=reason)
-        self.assertEqual(reason, "passed")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "ema50")
 
-    def test_sell_step6_passes_when_base_stays_below_ema50(self):
+    def test_sell_step6_fails_when_base_stays_below_ema60(self):
         import cascade_steps as steps
 
         closes = [200.0 - i * 0.2 for i in range(220)]
@@ -131,8 +131,8 @@ class TestStep6NoLongerRequiresBaseEma50(unittest.TestCase):
             "ready_since": df["ts"].iloc[100],
         }
         ok, reason = steps.short_step6(candidate)
-        self.assertTrue(ok, msg=reason)
-        self.assertEqual(reason, "passed")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "ema50_above")
 
 
 class TestAbandonWhenBaseSaturationEnds(unittest.TestCase):

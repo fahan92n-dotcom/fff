@@ -93,9 +93,10 @@ class TestVariantStepOverrides(unittest.TestCase):
             "ready_since": start,
             "variant": {"confirm_rsi_lookback": None},
         }
+        # Without a true saturation+EMA episode this should fail ema, not RSI.
         ok, reason = steps.step6(candidate)
-        self.assertTrue(ok)
-        self.assertEqual(reason, "passed")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "ema50")
 
     def test_baseline_variant_dict_omits_rsi_override(self):
         baseline = experiments.EXPERIMENT_VARIANTS[0]
