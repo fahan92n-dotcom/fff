@@ -469,7 +469,7 @@ f_req_htf(simple string tf) =>
 
 f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8) =>
     bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
-    bool s2 = true  // MACD الفريم الرئيس غير مشروط (أي لون/مكان). شرط اللون على فريم التأكيد في s5.
+    bool s2 = mOk
     bool s3 = isLong ? donB == 1 : donB == -1
     bool s4 = isLong ? donCf == 1 : donCf == -1
     bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
