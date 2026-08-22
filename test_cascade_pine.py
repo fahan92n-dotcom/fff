@@ -66,6 +66,9 @@ class TestCascadePineResultsTable(unittest.TestCase):
         self.assertNotIn("bool s6 = rsiCf", self.src)
         self.assertIn("not na(histCf) and histCf > 0", self.src)
         self.assertIn("not na(histCf) and histCf < 0", self.src)
+        self.assertIn("input.int(5,  \"AO سريع\"", self.src)
+        self.assertIn("input.int(34, \"AO بطيء\"", self.src)
+        self.assertIn("f_ao()", self.src)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,8 @@ obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
+lengthAO1 = input.int(5,  "AO سريع", minval=1, group=grpInd)
+lengthAO2 = input.int(34, "AO بطيء", minval=1, group=grpInd)
 dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
 emaLen = input.int(50, "EMA", minval=1, group=grpInd)
 rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
@@ -250,6 +252,9 @@ f_don() =>
     ll = ta.lowest(low, dlen)
     trend := close > hh[1] ? 1.0 : close < ll[1] ? -1.0 : trend
     trend
+
+f_ao() =>
+    ta.sma((high + low) / 2, lengthAO1) - ta.sma((high + low) / 2, lengthAO2)
 
 f_macd_ok(bool isLong, float smi, float hist, float macd) =>
     bool ok = false
