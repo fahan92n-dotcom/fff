@@ -1,9 +1,8 @@
 """Historical week/today scan: fetch strategy trades from market data (not storage).
 
 `/week` and `/today` replay the cascade on OHLCV, then classify each entry
-by base-frame outcome levels:
-  - 15m..30m   → win +0.67% / loss 0.52% against
-  - 45m..240m  → win +1.00% / loss 0.75% against
+by outcome levels:
+  - win +1.00% / loss 0.75% against
   - open       → neither level hit yet (reported as مستمرة)
 """
 
@@ -52,9 +51,7 @@ from indicators import (
     WARMUP_SMI,
     calc_smi,
     check_donchian_trend_ribbon,
-    check_macd_at_saturation_start,
     find_step8_entry_index,
-    resolve_macd_line_pct,
     resample_ohlcv_closed,
     candle_period_end,
     candle_period_ends,
@@ -63,52 +60,32 @@ from state_manager import ALERT_EXPIRY_HOURS
 
 log = logging.getLogger(__name__)
 
-# Outcome levels by base timeframe (minutes).
+# Outcome levels — same TP/SL on every Cascade base frame.
+WIN_PCT = 1.00
+LOSS_PCT = 0.75
 SHORT_TF_MIN = 15
 SHORT_TF_MAX = 30
-SHORT_WIN_PCT = 0.67
-SHORT_LOSS_PCT = 0.52
+SHORT_WIN_PCT = WIN_PCT
+SHORT_LOSS_PCT = LOSS_PCT
 LONG_TF_MIN = 45
 LONG_TF_MAX = 240
-LONG_WIN_PCT = 1.0
-LONG_LOSS_PCT = 0.75
-
-# Back-compat defaults = long-frame bucket (45m..240m).
-WIN_PCT = LONG_WIN_PCT
-LOSS_PCT = LONG_LOSS_PCT
+LONG_WIN_PCT = WIN_PCT
+LONG_LOSS_PCT = LOSS_PCT
 WEEK_DAYS = 7
 DEDUPE_HOURS = ALERT_EXPIRY_HOURS
 MIN_1M_BARS = 20_000
 
 
 def outcome_levels(base_frame):
-    """Return (win_pct, loss_pct) for a base timeframe in minutes."""
-    if base_frame is None:
-        return LONG_WIN_PCT, LONG_LOSS_PCT
-    try:
-        frame = int(base_frame)
-    except (TypeError, ValueError):
-        return LONG_WIN_PCT, LONG_LOSS_PCT
-    if frame <= SHORT_TF_MAX:
-        return SHORT_WIN_PCT, SHORT_LOSS_PCT
-    return LONG_WIN_PCT, LONG_LOSS_PCT
+    """Return (win_pct, loss_pct); every Cascade frame uses the same levels."""
+    return WIN_PCT, LOSS_PCT
 
 
 def outcome_levels_note(*, html=False):
-    """Human-readable TP/SL buckets used in Telegram reports."""
+    """Human-readable TP/SL used in Telegram reports."""
     if html:
-        return (
-            f"• {SHORT_TF_MIN}–{SHORT_TF_MAX}م: ربح <b>+{SHORT_WIN_PCT:g}%</b> | "
-            f"خسارة <b>{SHORT_LOSS_PCT:g}%</b>\n"
-            f"• {LONG_TF_MIN}–{LONG_TF_MAX}م: ربح <b>+{LONG_WIN_PCT:g}%</b> | "
-            f"خسارة <b>{LONG_LOSS_PCT:g}%</b>"
-        )
-    return (
-        f"• {SHORT_TF_MIN}–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
-        f"خسارة {SHORT_LOSS_PCT:g}%\n"
-        f"• {LONG_TF_MIN}–{LONG_TF_MAX}م: ربح +{LONG_WIN_PCT:g}% | "
-        f"خسارة {LONG_LOSS_PCT:g}%"
-    )
+        return f"ربح <b>+{WIN_PCT:g}%</b> | خسارة <b>{LOSS_PCT:g}%</b>"
+    return f"ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%"
 
 
 def period_bounds(period, now=None):
@@ -244,37 +221,21 @@ def _stage5_still_valid(candidate, signal_type):
 
     smi, _, _ = calc_smi(df_base["high"], df_base["low"], df_base["close"])
     current_smi = float(smi.iloc[-1])
-    macd_pct = resolve_macd_line_pct(candidate.get("variant"))
 
-    # فحص MACD الأساسي مثبّت على أول شمعة إغلاق متشبعة (مطابق للمسار الحي).
     if signal_type == "buy":
         if current_smi > -40:
             return False
-        base_macd_ok = check_macd_at_saturation_start(
-            df_base,
-            candidate["base_frame"],
-            direction="long",
-            pct=macd_pct,
-        )
         ribbon_direction = "green"
         steps_1_5 = _LONG_STEPS_1_5
     else:
         if current_smi < 40:
             return False
-        base_macd_ok = check_macd_at_saturation_start(
-            df_base,
-            candidate["base_frame"],
-            direction="short",
-            pct=macd_pct,
-        )
         ribbon_direction = "red"
         steps_1_5 = _SHORT_STEPS_1_5
 
     # Higher-TF skip via step1 (uses candidate.get_raw + asof resampler).
     ok, _reason = steps_1_5[0](candidate)
     if not ok:
-        return False
-    if not base_macd_ok:
         return False
     if not check_donchian_trend_ribbon(
         df_base, ribbon_direction, cache_key=None

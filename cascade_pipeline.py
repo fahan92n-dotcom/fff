@@ -26,7 +26,7 @@ from indicators import (
     _ribbon_cache_lock,
     calc_smi,
     check_donchian_trend_ribbon,
-    check_macd_at_saturation_start,
+    check_smi_signal_cycle_ended,
     find_step8_entry_index,
     resample_ohlcv,
 )
@@ -611,25 +611,13 @@ def _refresh_and_validate_step5_side(
         df_base["close"],
     )
     current_smi = float(smi.iloc[-1])
-    # فحص MACD الأساسي مثبّت على أول شمعة إغلاق متشبعة (يفحص مرة واحدة)،
-    # فلا يُطرد المنتظرون لاحقًا بسبب تحرك MACD بعد تلك الشمعة.
     if signal_type == "buy":
         if current_smi > -40:
             return None
-        base_macd_ok = check_macd_at_saturation_start(
-            df_base,
-            candidate["base_frame"],
-            direction="long",
-        )
         ribbon_direction = "green"
     elif signal_type == "sell":
         if current_smi < 40:
             return None
-        base_macd_ok = check_macd_at_saturation_start(
-            df_base,
-            candidate["base_frame"],
-            direction="short",
-        )
         ribbon_direction = "red"
     else:
         raise ValueError(f"Unsupported signal type: {signal_type}")
@@ -647,8 +635,6 @@ def _refresh_and_validate_step5_side(
         signal_type,
         get_resampled,
     ):
-        return None
-    if not base_macd_ok:
         return None
 
     base_key = (
@@ -726,7 +712,10 @@ def _filter_base_saturation(signal_type, candidates):
     """Drop waiters when main-TF SMI saturation ends — all stages, not only 5."""
     filtered = []
     for candidate in candidates:
-        if not _base_smi_still_saturated(candidate, signal_type):
+        if not _base_smi_still_saturated(candidate, signal_type) or check_smi_signal_cycle_ended(
+            candidate.get("df_base"),
+            signal_type,
+        ):
             abandon_waiting_candidate(signal_type, candidate)
             log.info(
                 "⛔ %s %s/%s/%s: انتهى تشبع الفريم الرئيسي — أُلغي من الانتظار",

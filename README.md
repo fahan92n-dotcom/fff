@@ -17,6 +17,7 @@ repo for reference but is not the start command.
 - `binance_data.py` — Binance access and OHLCV caches
 - `indicators.py` — indicator calculations
 - `fahadal92.py` — Cascade entry / Telegram commands (legacy)
+- `pine/cascade_8steps.pine` — TradingView Cascade 8 strategy (5-minute chart)
 
 ## Configuration
 
