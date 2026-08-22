@@ -1,9 +1,8 @@
 """Historical week/today scan: fetch strategy trades from market data (not storage).
 
 `/week` and `/today` replay the cascade on OHLCV, then classify each entry
-by base-frame outcome levels:
-  - 15m..30m   → win +0.67% / loss 0.52% against
-  - 45m..240m  → win +1.00% / loss 0.75% against
+by outcome levels:
+  - win +1.00% / loss 0.75% against
   - open       → neither level hit yet (reported as مستمرة)
 """
 
@@ -30,6 +29,8 @@ from binance_data import (
 )
 from cascade_steps import (
     TRIPLING_PAIRS,
+    ao_setup,
+    short_ao_setup,
     short_step1,
     short_step2,
     short_step3,
@@ -63,52 +64,32 @@ from state_manager import ALERT_EXPIRY_HOURS
 
 log = logging.getLogger(__name__)
 
-# Outcome levels by base timeframe (minutes).
+# Outcome levels — same TP/SL on every Cascade base frame.
+WIN_PCT = 1.00
+LOSS_PCT = 0.75
 SHORT_TF_MIN = 15
 SHORT_TF_MAX = 30
-SHORT_WIN_PCT = 0.67
-SHORT_LOSS_PCT = 0.52
+SHORT_WIN_PCT = WIN_PCT
+SHORT_LOSS_PCT = LOSS_PCT
 LONG_TF_MIN = 45
 LONG_TF_MAX = 240
-LONG_WIN_PCT = 1.0
-LONG_LOSS_PCT = 0.75
-
-# Back-compat defaults = long-frame bucket (45m..240m).
-WIN_PCT = LONG_WIN_PCT
-LOSS_PCT = LONG_LOSS_PCT
+LONG_WIN_PCT = WIN_PCT
+LONG_LOSS_PCT = LOSS_PCT
 WEEK_DAYS = 7
 DEDUPE_HOURS = ALERT_EXPIRY_HOURS
 MIN_1M_BARS = 20_000
 
 
 def outcome_levels(base_frame):
-    """Return (win_pct, loss_pct) for a base timeframe in minutes."""
-    if base_frame is None:
-        return LONG_WIN_PCT, LONG_LOSS_PCT
-    try:
-        frame = int(base_frame)
-    except (TypeError, ValueError):
-        return LONG_WIN_PCT, LONG_LOSS_PCT
-    if frame <= SHORT_TF_MAX:
-        return SHORT_WIN_PCT, SHORT_LOSS_PCT
-    return LONG_WIN_PCT, LONG_LOSS_PCT
+    """Return (win_pct, loss_pct); every Cascade frame uses the same levels."""
+    return WIN_PCT, LOSS_PCT
 
 
 def outcome_levels_note(*, html=False):
-    """Human-readable TP/SL buckets used in Telegram reports."""
+    """Human-readable TP/SL used in Telegram reports."""
     if html:
-        return (
-            f"• {SHORT_TF_MIN}–{SHORT_TF_MAX}م: ربح <b>+{SHORT_WIN_PCT:g}%</b> | "
-            f"خسارة <b>{SHORT_LOSS_PCT:g}%</b>\n"
-            f"• {LONG_TF_MIN}–{LONG_TF_MAX}م: ربح <b>+{LONG_WIN_PCT:g}%</b> | "
-            f"خسارة <b>{LONG_LOSS_PCT:g}%</b>"
-        )
-    return (
-        f"• {SHORT_TF_MIN}–{SHORT_TF_MAX}م: ربح +{SHORT_WIN_PCT:g}% | "
-        f"خسارة {SHORT_LOSS_PCT:g}%\n"
-        f"• {LONG_TF_MIN}–{LONG_TF_MAX}م: ربح +{LONG_WIN_PCT:g}% | "
-        f"خسارة {LONG_LOSS_PCT:g}%"
-    )
+        return f"ربح <b>+{WIN_PCT:g}%</b> | خسارة <b>{LOSS_PCT:g}%</b>"
+    return f"ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%"
 
 
 def period_bounds(period, now=None):
@@ -286,6 +267,10 @@ def _stage5_still_valid(candidate, signal_type):
     ok_confirm_macd, _reason = steps_1_5[4](candidate)
     if not ok_confirm_macd:
         return False
+    ao_fn = ao_setup if signal_type == "buy" else short_ao_setup
+    ok_ao, _reason = ao_fn(candidate)
+    if not ok_ao:
+        return False
     return True
 
 
@@ -295,6 +280,10 @@ def _passes_steps_1_5(candidate, signal_type):
         ok, _reason = step_fn(candidate)
         if not ok:
             return False
+    ao_fn = ao_setup if signal_type == "buy" else short_ao_setup
+    ok_ao, _reason = ao_fn(candidate)
+    if not ok_ao:
+        return False
     return True
 
 

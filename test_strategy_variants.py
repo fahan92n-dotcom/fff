@@ -80,9 +80,6 @@ class TestVariantStepOverrides(unittest.TestCase):
         self.assertEqual(reason, "passed")
 
     def test_step6_can_disable_confirm_rsi(self):
-        # Build a frame where base EMA condition fails → still false.
-        # Here we only assert the RSI lookback None path does not crash and
-        # that missing ready_since fails on ema first.
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         closes = [100 + i * 0.1 for i in range(220)]
         df = _ohlcv(start, closes, minutes=60)
@@ -136,8 +133,8 @@ class TestExperimentRanking(unittest.TestCase):
                 "total": 6,
             }
         )
-        # Empty trades fall back to long-frame levels (1.0 / 0.75).
-        # 2*1 - 2*0.75 = 0.5  vs  5*1 - 1*0.75 = 4.25
+        # Empty trades fall back to unified levels (1.0 / 0.75).
+        # 2*1 - 2*0.75 = 0.50  vs  5*1 - 1*0.75 = 4.25
         self.assertGreater(strong["expectancy"], weak["expectancy"])
         self.assertGreater(
             experiments.rank_key(strong),

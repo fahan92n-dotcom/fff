@@ -18,6 +18,7 @@ from indicators import (
     check_donchian_trend_ribbon,
     check_ema50_above,
     check_ema50_below,
+    check_ao_setup,
     check_ema50_closed_above_since,
     check_ema50_closed_below_since,
     check_macd_green,
@@ -31,6 +32,7 @@ from indicators import (
     check_rsi_touched_since,
     check_smi_overbought,
     check_smi_oversold,
+    check_smi_signal_cycle_ended,
     find_saturation_start_index,
     find_smi_touch_index,
 )
@@ -305,6 +307,8 @@ def _step1(candidate, rules):
         reason = "smi_overbought"
     if not saturated:
         return False, reason
+    if check_smi_signal_cycle_ended(candidate["df_base"], rules.signal_type):
+        return False, "smi_signal_ended"
     if _has_higher_tf_saturation(
         candidate,
         rules.signal_type,
@@ -319,6 +323,9 @@ def _step2(candidate, rules):
     فحص MACD مرة واحدة فقط: يُقيَّم على أول شمعة إغلاق متشبعة في نوبة
     التشبع الحالية (لا على آخر شمعة في كل دورة)، فلا يتغيّر قراره
     مع الشموع اللاحقة ما دامت النوبة مستمرة.
+
+    شراء: هيستوغرام أحمر والخط لا ينزل تحته.
+    بيع: هيستوغرام أخضر والخط لا يرتفع فوقه.
     """
     df_base = candidate["df_base"]
     if len(df_base) < WARMUP_MACD:
@@ -427,6 +434,25 @@ def _step5(candidate, rules):
     return True, "passed"
 
 
+def _ao_ok(candidate, rules):
+    direction = "long" if rules.signal_type == "buy" else "short"
+    if not check_ao_setup(
+        candidate["df_base"],
+        _confirm_live_frame(candidate),
+        direction=direction,
+    ):
+        return False, "ao_setup"
+    return True, "passed"
+
+
+def ao_setup(candidate):
+    return _ao_ok(candidate, LONG_RULES)
+
+
+def short_ao_setup(candidate):
+    return _ao_ok(candidate, SHORT_RULES)
+
+
 def _step6(candidate, rules):
     since_ts = _ready_since(candidate, rules)
     if not rules.ema_check(candidate["df_base"], since_ts):
@@ -470,6 +496,9 @@ def _step6(candidate, rules):
         ):
             return False, "btc_corr"
 
+    ok_ao, reason = _ao_ok(candidate, rules)
+    if not ok_ao:
+        return False, reason
     return True, "passed"
 
 

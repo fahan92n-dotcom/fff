@@ -27,6 +27,7 @@ from indicators import (
     calc_smi,
     check_donchian_trend_ribbon,
     check_macd_at_saturation_start,
+    check_smi_signal_cycle_ended,
     find_step8_entry_index,
     resample_ohlcv,
 )
@@ -40,6 +41,8 @@ from cascade_steps import (
     TIMEFRAME_CHAIN,
     TRIPLING_PAIRS,
     _has_higher_tf_saturation,
+    ao_setup,
+    short_ao_setup,
     short_step1,
     short_step2,
     short_step3,
@@ -671,6 +674,10 @@ def _refresh_and_validate_step5_side(
     ok_confirm_macd, _reason = step5_fn(candidate)
     if not ok_confirm_macd:
         return None
+    ao_fn = ao_setup if signal_type == "buy" else short_ao_setup
+    ok_ao, _reason = ao_fn(candidate)
+    if not ok_ao:
+        return None
     return candidate
 
 
@@ -726,7 +733,10 @@ def _filter_base_saturation(signal_type, candidates):
     """Drop waiters when main-TF SMI saturation ends — all stages, not only 5."""
     filtered = []
     for candidate in candidates:
-        if not _base_smi_still_saturated(candidate, signal_type):
+        if not _base_smi_still_saturated(candidate, signal_type) or check_smi_signal_cycle_ended(
+            candidate.get("df_base"),
+            signal_type,
+        ):
             abandon_waiting_candidate(signal_type, candidate)
             log.info(
                 "⛔ %s %s/%s/%s: انتهى تشبع الفريم الرئيسي — أُلغي من الانتظار",

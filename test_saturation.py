@@ -759,5 +759,42 @@ class TestQuickCheckWatcherInterval(unittest.TestCase):
         mock_sleep.assert_called_once_with(bot.QUICK_CHECK_INTERVAL_SECONDS)
 
 
+class TestSmiSignalCycleEnded(unittest.TestCase):
+    def test_long_ends_after_signal_leaves_minus_40_and_crosses_k(self):
+        smi = pd.Series([-20.0, -45.0, -30.0, -10.0, 5.0])
+        signal = pd.Series([-15.0, -42.0, -38.0, -5.0, 8.0])
+        self.assertTrue(
+            ind.smi_signal_cycle_ended_from_series(smi, signal, direction="long")
+        )
+
+    def test_long_stays_open_while_signal_still_in_zone(self):
+        smi = pd.Series([-20.0, -45.0, -44.0, -43.0])
+        signal = pd.Series([-15.0, -42.0, -41.0, -41.5])
+        self.assertFalse(
+            ind.smi_signal_cycle_ended_from_series(smi, signal, direction="long")
+        )
+
+    def test_short_ends_after_signal_leaves_plus_40_and_crosses_k(self):
+        smi = pd.Series([20.0, 45.0, 30.0, 10.0, -5.0])
+        signal = pd.Series([15.0, 42.0, 38.0, 5.0, -8.0])
+        self.assertTrue(
+            ind.smi_signal_cycle_ended_from_series(smi, signal, direction="short")
+        )
+
+    def test_long_stays_open_if_signal_leaves_without_crossing_k(self):
+        smi = pd.Series([-20.0, -50.0, -48.0, -46.0])
+        signal = pd.Series([-15.0, -42.0, -38.0, -37.0])
+        self.assertFalse(
+            ind.smi_signal_cycle_ended_from_series(smi, signal, direction="long")
+        )
+
+    def test_new_zone_entry_clears_ended_state(self):
+        smi = pd.Series([-45.0, -10.0, 5.0, -42.0, -41.0])
+        signal = pd.Series([-42.0, -5.0, 8.0, -41.0, -41.5])
+        self.assertFalse(
+            ind.smi_signal_cycle_ended_from_series(smi, signal, direction="long")
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
