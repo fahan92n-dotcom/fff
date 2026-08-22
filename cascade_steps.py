@@ -9,7 +9,6 @@ from typing import Callable
 
 from binance_data import get_cached
 from indicators import (
-    WARMUP_MACD,
     WARMUP_SMI,
     calc_smi,
     check_btc_correlation,
@@ -25,14 +24,12 @@ from indicators import (
     check_macd_line_short,
     check_macd_red,
     confirm_macd_frame,
-    resolve_macd_line_pct,
     check_rsi_stoch,
     check_rsi_stoch_short,
     check_rsi_touched_since,
     check_smi_overbought,
     check_smi_oversold,
     check_smi_signal_cycle_ended,
-    find_saturation_start_index,
     find_smi_touch_index,
 )
 from state_manager import get_step1_ready_since
@@ -93,11 +90,11 @@ STEP_NAMES = [
 ]
 STEP_LABELS = {
     "smi_oversold": "① تشبع بيعي SMI",
-    "macd_red": "② MACD أحمر (عند أول إغلاق تشبع)",
+    "macd_red": "② MACD الفريم الأساسي غير مشروط",
     "donchian_base": "③ Donchian Ribbon (الفريم الأساسي) أخضر",
     "donchian_confirm": "④ Donchian Ribbon (فريم التأكيد) أخضر",
     "macd_confirm": "⑤ MACD Confirm أخضر (شمعة التأكيد الحالية)",
-    "ema50": "⑥ تحت EMA60 منذ التشبع + RSI تأكيد",
+    "ema50": "⑥ تحت EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple": "⑦ Donchian Ribbon (فريم التثليث) أحمر",
     "rsi_stoch": "⑧ SMI → لمس RSI≤35 → تقاطع RSI → Stoch>20 خلال 3",
 }
@@ -113,11 +110,11 @@ SHORT_STEP_NAMES = [
 ]
 SHORT_STEP_LABELS = {
     "smi_overbought": "① تشبع شرائي SMI ≥ +40",
-    "macd_green": "② MACD أخضر (عند أول إغلاق تشبع)",
+    "macd_green": "② MACD الفريم الأساسي غير مشروط",
     "donchian_base_red": "③ Donchian Ribbon (الفريم الأساسي) أحمر",
     "donchian_confirm_red": "④ Donchian Ribbon (فريم التأكيد) أحمر",
     "macd_confirm_red": "⑤ MACD Confirm أحمر (شمعة التأكيد الحالية)",
-    "ema50_above": "⑥ فوق EMA60 منذ التشبع + RSI تأكيد",
+    "ema50_above": "⑥ فوق EMA50 منذ التشبع + RSI تأكيد",
     "donchian_triple_green": "⑦ Donchian Ribbon (فريم التثليث) أخضر",
     # Use &lt; (not raw <) — Telegram parse_mode=HTML rejects Stoch<80 as a bad tag.
     "rsi_stoch_short": "⑧ SMI → لمس RSI≥65 → تقاطع RSI → Stoch&lt;80 خلال 3",
@@ -318,33 +315,7 @@ def _step1(candidate, rules):
 
 
 def _step2(candidate, rules):
-    """
-    فحص MACD مرة واحدة فقط: يُقيَّم على أول شمعة إغلاق متشبعة في نوبة
-    التشبع الحالية (لا على آخر شمعة في كل دورة)، فلا يتغيّر قراره
-    مع الشموع اللاحقة ما دامت النوبة مستمرة.
-    """
-    df_base = candidate["df_base"]
-    if len(df_base) < WARMUP_MACD:
-        return False, "warmup"
-    start_index = find_saturation_start_index(
-        df_base,
-        threshold=-40 if rules.signal_type == "buy" else 40,
-        direction="long" if rules.signal_type == "buy" else "short",
-    )
-    if start_index is None:
-        return False, "smi_not_saturated"
-    df_eval = df_base.iloc[: start_index + 1]
-    if len(df_eval) < WARMUP_MACD:
-        return False, "warmup"
-    if not rules.base_histogram_check(df_eval):
-        suffix = "red" if rules.signal_type == "buy" else "green"
-        return False, f"macd_histogram_not_{suffix}"
-    if not rules.macd_line_check(
-        df_eval,
-        pct=resolve_macd_line_pct(_variant(candidate)),
-        base_frame=candidate["base_frame"],
-    ):
-        return False, "macd_line_band"
+    """MACD الفريم الأساسي غير مشروط (أي لون وأي مكان). الخطوة تبقى للعدّ فقط."""
     return True, "passed"
 
 

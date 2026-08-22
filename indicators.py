@@ -517,23 +517,23 @@ def calc_ema(close, span=60):
     return ema_tv(close, int(span))
 
 
-BASE_EMA_LEN = 60
+BASE_EMA_LEN = 50
 
 
 def check_ema50_below(df):
-    """آخر شمعة تقفل تحت EMA60 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
+    """آخر شمعة تقفل تحت EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
     ema = calc_ema(df["close"], span=BASE_EMA_LEN)
     return bool(df["close"].iloc[-1] < ema.iloc[-1])
 
 def check_ema50_above(df):
-    """آخر شمعة تقفل فوق EMA60 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
+    """آخر شمعة تقفل فوق EMA50 (للتوافق؛ الخطوة 6 تستخدم النسخة since)."""
     ema = calc_ema(df["close"], span=BASE_EMA_LEN)
     return bool(df["close"].iloc[-1] > ema.iloc[-1])
 
 
 def check_ema50_closed_below_since(df, since_ts, smi_threshold=-40):
     """
-    شراء: هل أقفلت أي شمعة تحت EMA60 أثناء تشبع SMI منذ since_ts؟
+    شراء: هل أقفلت أي شمعة تحت EMA50 أثناء تشبع SMI منذ since_ts؟
     يُحسب EMA/SMI على السلسلة كاملة، ويُقبل فقط إغلاق على شمعة متشبعة.
     اللمس بالفتيل لا يكفي — الإغلاق (close) فقط.
     """
@@ -552,7 +552,7 @@ def check_ema50_closed_below_since(df, since_ts, smi_threshold=-40):
 
 def check_ema50_closed_above_since(df, since_ts, smi_threshold=40):
     """
-    بيع: هل أقفلت أي شمعة فوق EMA60 أثناء تشبع SMI منذ since_ts؟
+    بيع: هل أقفلت أي شمعة فوق EMA50 أثناء تشبع SMI منذ since_ts؟
     يُحسب EMA/SMI على السلسلة كاملة، ويُقبل فقط إغلاق على شمعة متشبعة.
     اللمس بالفتيل لا يكفي — الإغلاق (close) فقط.
     """
