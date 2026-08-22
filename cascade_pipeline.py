@@ -41,6 +41,8 @@ from cascade_steps import (
     TIMEFRAME_CHAIN,
     TRIPLING_PAIRS,
     _has_higher_tf_saturation,
+    ao_setup,
+    short_ao_setup,
     short_step1,
     short_step2,
     short_step3,
@@ -671,6 +673,10 @@ def _refresh_and_validate_step5_side(
     step5_fn = step5 if signal_type == "buy" else short_step5
     ok_confirm_macd, _reason = step5_fn(candidate)
     if not ok_confirm_macd:
+        return None
+    ao_fn = ao_setup if signal_type == "buy" else short_ao_setup
+    ok_ao, _reason = ao_fn(candidate)
+    if not ok_ao:
         return None
     return candidate
 

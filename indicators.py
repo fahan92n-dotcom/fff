@@ -19,6 +19,9 @@ WARMUP_SMI = 100
 WARMUP_RSI = 200
 WARMUP_STOCH = 100
 WARMUP_DON = 50
+WARMUP_AO = 34
+AO_FAST = 5
+AO_SLOW = 34
 MIN_CANDLES = 300
 
 # ------------------------------------------
@@ -311,6 +314,35 @@ def check_macd_green(df):
     if len(df) < WARMUP_MACD:
         return False
     return bool(_calc_macd_hist(df["close"]).iloc[-1] > 0)
+
+
+def calc_ao(high, low, fast=AO_FAST, slow=AO_SLOW):
+    """Awesome Oscillator: SMA(mid, 5) − SMA(mid, 34)."""
+    mid = (pd.to_numeric(high, errors="coerce") + pd.to_numeric(low, errors="coerce")) / 2.0
+    fast_sma = mid.rolling(int(fast), min_periods=int(fast)).mean()
+    slow_sma = mid.rolling(int(slow), min_periods=int(slow)).mean()
+    return fast_sma - slow_sma
+
+
+def check_ao_setup(df_base, df_confirm, direction="long"):
+    """
+    شراء: AO الفريم الرئيس تحت 0 وAO التأكيد فوق 0.
+    بيع: AO الفريم الرئيس فوق 0 وAO التأكيد تحت 0.
+    مثال: رئيس 60م / تأكيد 180م / دخول 20م.
+    """
+    if df_base is None or df_confirm is None:
+        return False
+    if len(df_base) < WARMUP_AO or len(df_confirm) < WARMUP_AO:
+        return False
+    ao_base = calc_ao(df_base["high"], df_base["low"])
+    ao_confirm = calc_ao(df_confirm["high"], df_confirm["low"])
+    base_val = float(ao_base.iloc[-1])
+    confirm_val = float(ao_confirm.iloc[-1])
+    if not np.isfinite(base_val) or not np.isfinite(confirm_val):
+        return False
+    if direction == "long":
+        return base_val < 0 and confirm_val > 0
+    return base_val > 0 and confirm_val < 0
 
 def _get_macd_window_hours(base_frame_minutes):
     """نافذة قياس الـ 40٪ بمقياس يومي حسب حجم الفريم:

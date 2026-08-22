@@ -29,6 +29,8 @@ from binance_data import (
 )
 from cascade_steps import (
     TRIPLING_PAIRS,
+    ao_setup,
+    short_ao_setup,
     short_step1,
     short_step2,
     short_step3,
@@ -265,6 +267,10 @@ def _stage5_still_valid(candidate, signal_type):
     ok_confirm_macd, _reason = steps_1_5[4](candidate)
     if not ok_confirm_macd:
         return False
+    ao_fn = ao_setup if signal_type == "buy" else short_ao_setup
+    ok_ao, _reason = ao_fn(candidate)
+    if not ok_ao:
+        return False
     return True
 
 
@@ -274,6 +280,10 @@ def _passes_steps_1_5(candidate, signal_type):
         ok, _reason = step_fn(candidate)
         if not ok:
             return False
+    ao_fn = ao_setup if signal_type == "buy" else short_ao_setup
+    ok_ao, _reason = ao_fn(candidate)
+    if not ok_ao:
+        return False
     return True
 
 

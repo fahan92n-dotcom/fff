@@ -18,6 +18,7 @@ from indicators import (
     check_donchian_trend_ribbon,
     check_ema50_above,
     check_ema50_below,
+    check_ao_setup,
     check_ema50_closed_above_since,
     check_ema50_closed_below_since,
     check_macd_green,
@@ -433,6 +434,25 @@ def _step5(candidate, rules):
     return True, "passed"
 
 
+def _ao_ok(candidate, rules):
+    direction = "long" if rules.signal_type == "buy" else "short"
+    if not check_ao_setup(
+        candidate["df_base"],
+        _confirm_live_frame(candidate),
+        direction=direction,
+    ):
+        return False, "ao_setup"
+    return True, "passed"
+
+
+def ao_setup(candidate):
+    return _ao_ok(candidate, LONG_RULES)
+
+
+def short_ao_setup(candidate):
+    return _ao_ok(candidate, SHORT_RULES)
+
+
 def _step6(candidate, rules):
     since_ts = _ready_since(candidate, rules)
     if not rules.ema_check(candidate["df_base"], since_ts):
@@ -476,6 +496,9 @@ def _step6(candidate, rules):
         ):
             return False, "btc_corr"
 
+    ok_ao, reason = _ao_ok(candidate, rules)
+    if not ok_ao:
+        return False, reason
     return True, "passed"
 
 
