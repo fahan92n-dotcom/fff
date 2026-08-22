@@ -326,8 +326,8 @@ def calc_ao(high, low, fast=AO_FAST, slow=AO_SLOW):
 
 def check_ao_setup(df_base, df_confirm, direction="long"):
     """
-    شراء: AO الفريم الرئيس تحت 0 وAO التأكيد فوق 0.
-    بيع: AO الفريم الرئيس فوق 0 وAO التأكيد تحت 0.
+    شراء: AO الفريم الرئيس فوق 0 وAO التأكيد فوق 0.
+    بيع: AO الفريم الرئيس تحت 0 وAO التأكيد تحت 0.
     مثال: رئيس 60م / تأكيد 180م / دخول 20م.
     """
     if df_base is None or df_confirm is None:
@@ -341,8 +341,8 @@ def check_ao_setup(df_base, df_confirm, direction="long"):
     if not np.isfinite(base_val) or not np.isfinite(confirm_val):
         return False
     if direction == "long":
-        return base_val < 0 and confirm_val > 0
-    return base_val > 0 and confirm_val < 0
+        return base_val > 0 and confirm_val > 0
+    return base_val < 0 and confirm_val < 0
 
 def _get_macd_window_hours(base_frame_minutes):
     """نافذة قياس الـ 40٪ بمقياس يومي حسب حجم الفريم:

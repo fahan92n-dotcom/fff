@@ -35,21 +35,20 @@ class TestCalcAo(unittest.TestCase):
 
 
 class TestAoSetup(unittest.TestCase):
-    def test_buy_needs_base_below_zero_and_confirm_above(self):
-        base = _df_from_mid([100.0] * 40 + list(np.linspace(100, 40, 20)))
-        confirm = _df_from_mid([40.0] * 40 + list(np.linspace(40, 100, 20)))
-        self.assertTrue(ind.check_ao_setup(base, confirm, direction="long"))
-        self.assertFalse(ind.check_ao_setup(base, confirm, direction="short"))
+    def test_buy_needs_base_and_confirm_above_zero(self):
+        rising = _df_from_mid([40.0] * 40 + list(np.linspace(40, 100, 20)))
+        self.assertTrue(ind.check_ao_setup(rising, rising, direction="long"))
+        self.assertFalse(ind.check_ao_setup(rising, rising, direction="short"))
 
-    def test_sell_needs_base_above_zero_and_confirm_below(self):
-        base = _df_from_mid([40.0] * 40 + list(np.linspace(40, 100, 20)))
-        confirm = _df_from_mid([100.0] * 40 + list(np.linspace(100, 40, 20)))
-        self.assertTrue(ind.check_ao_setup(base, confirm, direction="short"))
-        self.assertFalse(ind.check_ao_setup(base, confirm, direction="long"))
-
-    def test_buy_fails_when_confirm_also_below_zero(self):
+    def test_sell_needs_base_and_confirm_below_zero(self):
         falling = _df_from_mid([100.0] * 40 + list(np.linspace(100, 40, 20)))
+        self.assertTrue(ind.check_ao_setup(falling, falling, direction="short"))
         self.assertFalse(ind.check_ao_setup(falling, falling, direction="long"))
+
+    def test_buy_fails_when_confirm_is_below_zero(self):
+        rising = _df_from_mid([40.0] * 40 + list(np.linspace(40, 100, 20)))
+        falling = _df_from_mid([100.0] * 40 + list(np.linspace(100, 40, 20)))
+        self.assertFalse(ind.check_ao_setup(rising, falling, direction="long"))
 
     def test_step6_uses_ao_gate(self):
         falling = _df_from_mid([100.0] * 40 + list(np.linspace(100, 40, 20)))

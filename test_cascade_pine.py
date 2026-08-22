@@ -69,6 +69,8 @@ class TestCascadePineResultsTable(unittest.TestCase):
         self.assertIn("input.int(5,  \"AO سريع\"", self.src)
         self.assertIn("input.int(34, \"AO بطيء\"", self.src)
         self.assertIn("f_ao()", self.src)
+        self.assertIn("aoB > 0 and not na(aoCf) and aoCf > 0", self.src)
+        self.assertIn("aoB < 0 and not na(aoCf) and aoCf < 0", self.src)
         self.assertIn("bool aoOk = isLong", self.src)
         self.assertIn("s1 and s2 and s3 and s4 and s5 and s6 and s7 and aoOk", self.src)
         self.assertIn("ao60, ao180", self.src)
