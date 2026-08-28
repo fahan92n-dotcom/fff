@@ -152,8 +152,8 @@ def _all_needed_frames():
     return sorted(frames)
 
 
-def fetch_btc_1m_vision(target=MIN_1M_BARS):
-    """Fetch BTCUSDT 1m spot OHLCV via Binance Vision (geo-friendly mirror)."""
+def fetch_1m_vision(symbol=SYMBOL, target=MIN_1M_BARS):
+    """Fetch 1m spot OHLCV via Binance Vision (geo-friendly mirror)."""
     tf_ms = 60_000
     bin_max = 1000
     all_dfs = []
@@ -167,7 +167,7 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
             resp = _SESSION.get(
                 VISION_KLINES,
                 params={
-                    "symbol": SYMBOL,
+                    "symbol": symbol,
                     "interval": "1m",
                     "startTime": start_ms,
                     "endTime": end_ms,
@@ -228,6 +228,11 @@ def fetch_btc_1m_vision(target=MIN_1M_BARS):
     )
 
 
+def fetch_btc_1m_vision(target=MIN_1M_BARS):
+    """Fetch BTCUSDT 1m spot OHLCV via Binance Vision."""
+    return fetch_1m_vision(SYMBOL, target=target)
+
+
 def _sat_episode_formation_valid(sat, formation_ok):
     """True on sat bars only if the episode's formation candle passed EMA60.
 
@@ -254,14 +259,15 @@ def _sat_episode_formation_valid(sat, formation_ok):
     return out
 
 
-def _frame_features(df_1m, minutes):
-    """Resample and compute SMI/EMA60 for main and confirm frames."""
+def _frame_features(df_1m, minutes, ema_span=EMA_SPAN):
+    """Resample and compute SMI/EMA for main and confirm frames."""
+    ema_span = int(ema_span)
     df = resample_ohlcv_closed(df_1m, minutes)
-    if df.empty or len(df) < max(WARMUP_SMI, EMA_SPAN + 5, DONCHIAN_DLEN + 2):
+    if df.empty or len(df) < max(WARMUP_SMI, ema_span + 5, DONCHIAN_DLEN + 2):
         return None
 
     smi, _, _ = calc_smi(df["high"], df["low"], df["close"])
-    ema = calc_ema(df["close"], span=EMA_SPAN)
+    ema = calc_ema(df["close"], span=ema_span)
     above_ema = df["close"] > ema
     below_ema = df["close"] < ema
     sell_sat = (smi <= SMI_SELL).to_numpy()
@@ -282,6 +288,8 @@ def _frame_features(df_1m, minutes):
             "ema": ema.to_numpy(),
             "sell_main": sell_main,
             "buy_main": buy_main,
+            "above_ema": above,
+            "below_ema": below,
             # Hierarchy cancel + confirm/counter: SMI only.
             "sell_sat": sell_sat,
             "buy_sat": buy_sat,
@@ -290,11 +298,12 @@ def _frame_features(df_1m, minutes):
     return out
 
 
-def _entry_features(df_1m, minutes):
+def _entry_features(df_1m, minutes, ema_span=EMA_SPAN):
+    ema_span = int(ema_span)
     df = resample_ohlcv_closed(df_1m, minutes)
-    if df.empty or len(df) < max(EMA_SPAN + 5, DONCHIAN_DLEN + 2, WARMUP_SMI):
+    if df.empty or len(df) < max(ema_span + 5, DONCHIAN_DLEN + 2, WARMUP_SMI):
         return None
-    ema = calc_ema(df["close"], span=EMA_SPAN)
+    ema = calc_ema(df["close"], span=ema_span)
     don = calc_donchian_trend_series(
         df["close"].to_numpy(),
         df["high"].to_numpy(),
@@ -345,46 +354,71 @@ def _precompute_stepped(frame_data, grid):
         stepped[minutes] = {
             "sell_main": _bool_step(ends, feat["sell_main"].to_numpy(), grid),
             "buy_main": _bool_step(ends, feat["buy_main"].to_numpy(), grid),
+            "above_ema": _bool_step(ends, feat["above_ema"].to_numpy(), grid),
+            "below_ema": _bool_step(ends, feat["below_ema"].to_numpy(), grid),
             "sell_sat": _bool_step(ends, feat["sell_sat"].to_numpy(), grid),
             "buy_sat": _bool_step(ends, feat["buy_sat"].to_numpy(), grid),
         }
     return stepped
 
 
-def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
+def _scan_side(
+    side,
+    stepped,
+    entry_data,
+    grid,
+    start,
+    end,
+    raw_1m,
+    symbol=SYMBOL,
+    use_donchian=True,
+    main_ema_only=False,
+):
     """Replay one side (sell/buy) across the hierarchy; return signal dicts.
 
-    Ownership / cancel uses SMI sat alone. Entry needs a main episode
-    whose *formation* candle had correct EMA60 side; live EMA after
-    that is not re-checked.
+    Default: ownership / cancel uses SMI sat alone. Entry needs a main
+    episode whose *formation* candle had correct EMA60 side; live EMA
+    after that is not re-checked. Donchian on the entry TF is optional.
+
+    ``main_ema_only``: main side is live close vs EMA only (above=buy,
+    below=sell). No SMI sat, formation gate, 7h halt, or hierarchy.
+    Reverse-sat confirm/stop and entry wait-clear-then-hold stay.
     """
     is_sell = side == "sell"
     main_key = "sell_main" if is_sell else "buy_main"
+    ema_key = "below_ema" if is_sell else "above_ema"
     # Hierarchy cancel key: SMI-only (larger sat cancels smaller).
     sat_key = "sell_sat" if is_sell else "buy_sat"
     confirm_key = "buy_sat" if is_sell else "sell_sat"
 
     active = np.full(len(grid), -1, dtype=int)
-    halt = stepped.get(HALT_MAIN_MINUTES)
-    halt_sat = halt[sat_key] if halt is not None else np.zeros(len(grid), dtype=bool)
-
-    main_masks = []
-    for main, _cmin, _cstop, _entry in LEVELS:
-        feat = stepped.get(main)
-        main_masks.append(
-            feat[sat_key] if feat is not None else np.zeros(len(grid), dtype=bool)
+    if not main_ema_only:
+        halt = stepped.get(HALT_MAIN_MINUTES)
+        halt_sat = (
+            halt[sat_key] if halt is not None else np.zeros(len(grid), dtype=bool)
         )
 
-    stacked = np.vstack(main_masks) if main_masks else np.zeros((0, len(grid)), dtype=bool)
-    for i in range(len(grid)):
-        if halt_sat[i]:
-            active[i] = -2
-            continue
-        chosen = -1
-        for idx in range(len(LEVELS)):
-            if stacked[idx, i]:
-                chosen = idx
-        active[i] = chosen
+        main_masks = []
+        for main, _cmin, _cstop, _entry in LEVELS:
+            feat = stepped.get(main)
+            main_masks.append(
+                feat[sat_key] if feat is not None else np.zeros(len(grid), dtype=bool)
+            )
+
+        stacked = (
+            np.vstack(main_masks)
+            if main_masks
+            else np.zeros((0, len(grid)), dtype=bool)
+        )
+        for i in range(len(grid)):
+            if halt_sat[i]:
+                active[i] = -2
+                continue
+            chosen = -1
+            for idx in range(len(LEVELS)):
+                if stacked[idx, i]:
+                    chosen = idx
+            active[i] = chosen
 
     signals = []
     start_ts = pd.Timestamp(start)
@@ -395,9 +429,13 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             continue
 
         main_feat = stepped.get(main)
+        if main_ema_only:
+            ready_key = ema_key
+        else:
+            ready_key = main_key
         main_ready = (
-            main_feat[main_key]
-            if main_feat is not None
+            main_feat[ready_key]
+            if main_feat is not None and ready_key in main_feat
             else np.zeros(len(grid), dtype=bool)
         )
 
@@ -414,12 +452,16 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
             if stop_feat is not None
             else np.zeros(len(grid), dtype=bool)
         )
-        # Owned by this main via SMI sat, with a formation-valid episode
-        # (EMA60 only checked on the first sat close).
+        # Default: owned by this main via SMI sat, with a formation-valid
+        # episode (EMA60 only checked on the first sat close).
+        # main_ema_only: owned while close is on the EMA side; no hierarchy.
         # Reverse-sat confirm window: then counter sat closed + not stop.
         # After the first confirmed reverse-sat close we keep watching (even if
         # counter clears) until main dies, confirm-stop hits, or we enter.
-        owned = (active == level_idx) & main_ready & ~confirm_stop_mask
+        if main_ema_only:
+            owned = main_ready & ~confirm_stop_mask
+        else:
+            owned = (active == level_idx) & main_ready & ~confirm_stop_mask
         confirm_window = owned & confirm_any
         hold_window = owned
 
@@ -448,11 +490,19 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
 
             counter_now = bool(confirm_window[pos])
             if is_sell:
-                both_hold = red and below
-                both_clear = (not red) and (not below)
+                if use_donchian:
+                    both_hold = red and below
+                    both_clear = (not red) and (not below)
+                else:
+                    both_hold = below
+                    both_clear = not below
             else:
-                both_hold = green and above
-                both_clear = (not green) and (not above)
+                if use_donchian:
+                    both_hold = green and above
+                    both_clear = (not green) and (not above)
+                else:
+                    both_hold = above
+                    both_clear = not above
 
             if state == IDLE and counter_now:
                 # Counting starts at reverse-sat formation.
@@ -475,7 +525,7 @@ def _scan_side(side, stepped, entry_data, grid, start, end, raw_1m):
                 )
                 signals.append(
                     {
-                        "symbol": SYMBOL,
+                        "symbol": symbol,
                         "type": "sell" if is_sell else "buy",
                         "time": _utc(candle_end),
                         "price": price,
@@ -515,16 +565,23 @@ def scan_pullback_week(
     days=WEEK_DAYS,
     now=None,
     raw_1m=None,
+    symbol=SYMBOL,
+    use_donchian=True,
+    ema_span=EMA_SPAN,
+    main_ema_only=False,
 ):
-    """Scan BTCUSDT pullback strategy over the last ``days``."""
+    """Scan pullback strategy over the last ``days`` for one symbol."""
     now = _utc(now) or datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     end = now
+    ema_span = int(ema_span)
 
     if raw_1m is None:
         # Extra bars for indicator warmup above the scan window.
         target = max(MIN_1M_BARS, int(days) * 1440 + 45_000)
-        raw_1m = fetch_btc_1m_vision(target=target)
+        log.info("Fetching %s 1m bars for %s...", target, symbol)
+        raw_1m = fetch_1m_vision(symbol, target=target)
+        log.info("%s bars: %s", symbol, 0 if raw_1m is None else len(raw_1m))
     if raw_1m is None or raw_1m.empty:
         return {
             "ready": False,
@@ -537,7 +594,10 @@ def scan_pullback_week(
             "opens": [],
             "total": 0,
             "market": "spot-vision",
-            "symbol": SYMBOL,
+            "symbol": symbol,
+            "use_donchian": use_donchian,
+            "ema_span": ema_span,
+            "main_ema_only": main_ema_only,
         }
 
     raw_1m = raw_1m.sort_values("ts").reset_index(drop=True)
@@ -557,8 +617,11 @@ def scan_pullback_week(
             "opens": [],
             "total": 0,
             "market": "spot-vision",
-            "symbol": SYMBOL,
+            "symbol": symbol,
             "symbols_scanned": 1,
+            "use_donchian": use_donchian,
+            "ema_span": ema_span,
+            "main_ema_only": main_ema_only,
         }
 
     needed = _all_needed_frames()
@@ -567,16 +630,38 @@ def scan_pullback_week(
     entry_data = {}
     for minutes in needed:
         if minutes in entry_frames:
-            entry_data[minutes] = _entry_features(raw_1m, minutes)
-        frame_data[minutes] = _frame_features(raw_1m, minutes)
+            entry_data[minutes] = _entry_features(raw_1m, minutes, ema_span=ema_span)
+        frame_data[minutes] = _frame_features(raw_1m, minutes, ema_span=ema_span)
 
     stepped = _precompute_stepped(frame_data, grid)
     all_signals = []
     all_signals.extend(
-        _scan_side("sell", stepped, entry_data, grid, start, end, raw_1m)
+        _scan_side(
+            "sell",
+            stepped,
+            entry_data,
+            grid,
+            start,
+            end,
+            raw_1m,
+            symbol,
+            use_donchian=use_donchian,
+            main_ema_only=main_ema_only,
+        )
     )
     all_signals.extend(
-        _scan_side("buy", stepped, entry_data, grid, start, end, raw_1m)
+        _scan_side(
+            "buy",
+            stepped,
+            entry_data,
+            grid,
+            start,
+            end,
+            raw_1m,
+            symbol,
+            use_donchian=use_donchian,
+            main_ema_only=main_ema_only,
+        )
     )
 
     deduped = _dedupe_signals(all_signals)
@@ -597,8 +682,74 @@ def scan_pullback_week(
         "opens": opens,
         "total": len(deduped),
         "market": "spot-vision",
-        "symbol": SYMBOL,
+        "symbol": symbol,
         "symbols_scanned": 1,
+        "use_donchian": use_donchian,
+        "ema_span": ema_span,
+        "main_ema_only": main_ema_only,
+    }
+
+
+def scan_pullback_symbols(
+    symbols=("BTCUSDT", "ETHUSDT", "XRPUSDT"),
+    *,
+    days=MONTH_DAYS,
+    now=None,
+    raw_by_symbol=None,
+    use_donchian=True,
+    ema_span=EMA_SPAN,
+    main_ema_only=False,
+):
+    """Scan the original pullback strategy on several symbols and merge."""
+    now = _utc(now) or datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+    end = now
+    raw_by_symbol = raw_by_symbol or {}
+    merged = []
+    per_symbol = {}
+    failed = []
+    for symbol in symbols:
+        result = scan_pullback_week(
+            days=days,
+            now=now,
+            raw_1m=raw_by_symbol.get(symbol),
+            symbol=symbol,
+            use_donchian=use_donchian,
+            ema_span=ema_span,
+            main_ema_only=main_ema_only,
+        )
+        per_symbol[symbol] = result
+        if not result.get("ready"):
+            failed.append(symbol)
+            continue
+        merged.extend(result["wins"])
+        merged.extend(result["losses"])
+        merged.extend(result["opens"])
+
+    deduped = _dedupe_signals(merged)
+    wins = [s for s in deduped if s["outcome"] == "win"]
+    losses = [s for s in deduped if s["outcome"] == "loss"]
+    opens = [s for s in deduped if s["outcome"] == "open"]
+    wins.sort(key=lambda item: item["time"])
+    losses.sort(key=lambda item: item["time"])
+    opens.sort(key=lambda item: item["time"])
+    return {
+        "ready": True,
+        "start": start,
+        "end": end,
+        "days": int(days),
+        "wins": wins,
+        "losses": losses,
+        "opens": opens,
+        "total": len(deduped),
+        "market": "spot-vision",
+        "symbols": list(symbols),
+        "per_symbol": per_symbol,
+        "failed": failed,
+        "symbols_scanned": len(symbols) - len(failed),
+        "use_donchian": use_donchian,
+        "ema_span": int(ema_span),
+        "main_ema_only": bool(main_ema_only),
     }
 
 
@@ -683,6 +834,142 @@ def format_pullback_week_report(result):
     return packed
 
 
+def _summarize_trades(trades):
+    wins = [t for t in trades if t["outcome"] == "win"]
+    losses = [t for t in trades if t["outcome"] == "loss"]
+    opens = [t for t in trades if t["outcome"] == "open"]
+    closed = len(wins) + len(losses)
+    pnl = WIN_PCT * len(wins) - LOSS_PCT * len(losses)
+    win_rate = (100.0 * len(wins) / closed) if closed else 0.0
+    return {
+        "wins": wins,
+        "losses": losses,
+        "opens": opens,
+        "total": len(trades),
+        "win_rate": win_rate,
+        "pnl": pnl,
+    }
+
+
+def format_pullback_multi_report(result):
+    """Plain-friendly HTML report for a multi-symbol original-strategy scan."""
+    if not result.get("ready"):
+        return ["⚠️ تعذر فحص استراتيجية الـ Pullback."]
+
+    wins = result.get("wins") or []
+    losses = result.get("losses") or []
+    opens = result.get("opens") or []
+    all_trades = list(wins) + list(losses) + list(opens)
+    all_trades.sort(key=lambda item: item["time"])
+    start = result["start"].strftime("%Y-%m-%d %H:%M")
+    end = result["end"].strftime("%Y-%m-%d %H:%M")
+    days = int(result.get("days") or MONTH_DAYS)
+    symbols = ", ".join(result.get("symbols") or [SYMBOL])
+    failed = result.get("failed") or []
+    summary = _summarize_trades(all_trades)
+    ema_span = int(result.get("ema_span") or EMA_SPAN)
+    ema_label = f"EMA{ema_span}"
+    main_ema_only = bool(result.get("main_ema_only"))
+
+    if main_ema_only:
+        main_line = (
+            f"الرئيسي: إغلاق فوق {ema_label} شراء / تحته بيع فقط "
+            "(بدون تشبع SMI وبدون RSI).\n"
+        )
+        title_extra = f"{ema_label} فقط + عكس + دخول بدون Donchian"
+    else:
+        main_line = (
+            f"الرئيسي: تشبع SMI، والإغلاق فوق {ema_label} شراء / تحته بيع "
+            "(عند تكوّن التشبع).\n"
+        )
+        title_extra = (
+            f"SMI + {ema_label} + عكس + دخول"
+            f"{'' if result.get('use_donchian', True) else ' بدون Donchian'}"
+        )
+
+    header = (
+        f"🗓️ <b>Pullback ({title_extra}) — آخر {days} يومًا</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"العملات: <code>{html_escape(symbols)}</code>\n"
+        f"الفترة: <code>{start}</code> → <code>{end}</code> UTC\n"
+        + main_line
+        + "العكس: تشبع معاكس حتى رقم التوقف. "
+        + (
+            f"الدخول: Donchian + {ema_label} بعد العكس.\n"
+            if result.get("use_donchian", True)
+            else f"الدخول: {ema_label} فقط بعد العكس (بدون Donchian وبدون RSI).\n"
+        )
+        + f"ربح +{WIN_PCT:g}% | خسارة {LOSS_PCT:g}%\n"
+    )
+    if failed:
+        header += f"⚠️ بلا بيانات: <code>{html_escape(', '.join(failed))}</code>\n"
+    header += (
+        f"الإجمالي: صفقات <b>{summary['total']}</b> | "
+        f"✅ {len(summary['wins'])} | ❌ {len(summary['losses'])} | "
+        f"⏳ {len(summary['opens'])} | "
+        f"نجاح {summary['win_rate']:.0f}% | "
+        f"صافي {summary['pnl']:+.2f}%\n"
+    )
+
+    chunks = [header]
+    symbol_lines = ["💱 <b>حسب العملة</b>"]
+    for symbol in result.get("symbols") or []:
+        sub = _summarize_trades([t for t in all_trades if t["symbol"] == symbol])
+        symbol_lines.append(
+            f"<code>{html_escape(symbol)}</code>: صفقات <b>{sub['total']}</b> | "
+            f"✅ {len(sub['wins'])} | ❌ {len(sub['losses'])} | "
+            f"نجاح {sub['win_rate']:.0f}% | صافي {sub['pnl']:+.2f}%"
+        )
+    chunks.append("\n".join(symbol_lines))
+
+    level_lines = ["📊 <b>حسب المستوى</b>"]
+    for main, cmin, cstop, entry in LEVELS:
+        sub = _summarize_trades(
+            [
+                t
+                for t in all_trades
+                if t["base_frame"] == main and t["triple_frame"] == entry
+            ]
+        )
+        if sub["total"] == 0:
+            continue
+        level_lines.append(
+            f"{main}م | عكس {cmin}–{cstop - 1} يتوقف {cstop} | دخول {entry}م: "
+            f"صفقات <b>{sub['total']}</b> | ✅ {len(sub['wins'])} | "
+            f"❌ {len(sub['losses'])} | نجاح {sub['win_rate']:.0f}% | "
+            f"صافي {sub['pnl']:+.2f}%"
+        )
+    if len(level_lines) == 1:
+        level_lines.append("— لا توجد صفقات")
+    chunks.append("\n".join(level_lines))
+
+    if all_trades:
+        trade_lines = ["📋 <b>الصفقات</b>"]
+        for trade in all_trades:
+            mark = {"win": "✅", "loss": "❌", "open": "⏳"}.get(
+                trade["outcome"], trade["outcome"]
+            )
+            trade_lines.append(f"{mark} {_format_trade_line(trade)}")
+        chunks.append("\n".join(trade_lines))
+    else:
+        chunks.append("لا توجد صفقات مطابقة خلال الفترة.")
+
+    packed = []
+    current = ""
+    for block in chunks:
+        if not current:
+            current = block
+            continue
+        if len(current) + 2 + len(block) > 3500:
+            packed.append(current)
+            current = block
+        else:
+            current = current + "\n\n" + block
+    if current:
+        packed.append(current)
+    return packed
+
+
 def handle_pullback_week_command(chat_id, send_telegram, *, days=WEEK_DAYS):
     """Telegram entry for pullback strategy scan (BTC only)."""
     global _scan_running
@@ -736,5 +1023,54 @@ def main():
         print()
 
 
+def main_multi(
+    days=MONTH_DAYS,
+    use_donchian=True,
+    ema_span=EMA_SPAN,
+    main_ema_only=False,
+):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    symbols = ("BTCUSDT", "ETHUSDT", "XRPUSDT")
+    log.info(
+        "Scanning pullback on %s for %s days (donchian=%s, ema=%s, main_ema_only=%s)...",
+        ",".join(symbols),
+        days,
+        use_donchian,
+        ema_span,
+        main_ema_only,
+    )
+    result = scan_pullback_symbols(
+        symbols,
+        days=days,
+        use_donchian=use_donchian,
+        ema_span=ema_span,
+        main_ema_only=main_ema_only,
+    )
+    for chunk in format_pullback_multi_report(result):
+        text = (
+            chunk.replace("<b>", "")
+            .replace("</b>", "")
+            .replace("<code>", "")
+            .replace("</code>", "")
+        )
+        print(text)
+        print()
+
+
+def _cli_int(flag, default):
+    if flag in sys.argv:
+        idx = sys.argv.index(flag)
+        if idx + 1 < len(sys.argv):
+            return int(sys.argv[idx + 1])
+    return default
+
+
 if __name__ == "__main__":
-    main()
+    if "--multi" in sys.argv:
+        main_multi(
+            use_donchian="--no-donchian" not in sys.argv,
+            ema_span=_cli_int("--ema-span", EMA_SPAN),
+            main_ema_only="--main-ema-only" in sys.argv,
+        )
+    else:
+        main()
