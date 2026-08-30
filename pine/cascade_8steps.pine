@@ -1,5 +1,6 @@
 //@version=5
-// Cascade 8 خطوات — 13 زوجاً. الشارت 5م أو أقل (الدقيقة أفضل) حتى تظهر مداخل 5م.
+// Cascade 8 خطوات — زوج 15د ملغى. الشارت 5م أو أقل (الدقيقة أفضل) حتى تظهر مداخل 5م.
+// وقف/هدف: أقل من 2س = 2٪/2٪ | من 2س إلى اليوم = وقف 3٪ هدف 4٪.
 // الإلغاء: كل رئيس يلغي الأصغر منه من 15م إلى 4س. 4س يلغيه 5س. 1ي←2ي←3ي←4ي.
 // الحظر يرتفع فور خروج SMI الأب من ±40 (بدون سماحية 1–2 شمعة).
 // request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
@@ -58,7 +59,7 @@ stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
 
 grpP = "الأزواج"
-use15  = input.bool(true, "15د / 45د / 5د", group=grpP)
+use15  = input.bool(false, "15د / 45د / 5د — ملغى", group=grpP)
 use30  = input.bool(true, "30د / 90د / 10د", group=grpP)
 use45  = input.bool(true, "45د / 135د / 15د", group=grpP)
 use60  = input.bool(true, "1س / 3س / 20د", group=grpP)
@@ -84,8 +85,10 @@ showLog = input.bool(true, "لوحة كل الفريمات", group=grpVis)
 showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
 showScore = input.bool(true, "نتائج الصفقات + RSI", group=grpVis)
 scorePage = input.int(1, "صفحة النتائج", minval=1, group=grpVis)
-histWin  = input.float(2.00, "ربح الصفقة %", step=0.01, group=grpVis)
-histLoss = input.float(2.00, "خسارة الصفقة %", step=0.01, group=grpVis)
+histWin  = input.float(2.00, "ربح أقل من 2س %", step=0.01, group=grpVis)
+histLoss = input.float(2.00, "خسارة أقل من 2س %", step=0.01, group=grpVis)
+htfWin   = input.float(4.00, "ربح 2س–يوم %", step=0.01, group=grpVis)
+htfLoss  = input.float(3.00, "خسارة 2س–يوم %", step=0.01, group=grpVis)
 histKeep = 100
 pageSize = 20
 
@@ -97,6 +100,8 @@ var array<float>  pRsiM = array.new_float()
 var array<float>  pRsiC = array.new_float()
 var array<float>  pClM  = array.new_float()
 var array<float>  pClC  = array.new_float()
+var array<float>  pTpPct = array.new_float()
+var array<float>  pSlPct = array.new_float()
 var array<int>    hTime = array.new_int()
 var array<string> hTag  = array.new_string()
 var array<int>    hSide = array.new_int()
@@ -116,6 +121,13 @@ f_px_txt(float v) =>
 
 f_pair_txt(float rsi, float cl) =>
     "RSI " + f_rsi_txt(rsi) + "\nإغلاق " + f_px_txt(cl)
+
+// 2س / 150د / 3س / 210د / 4س / 1ي / 2ي / 3ي → ربح 4٪ وقف 3٪
+f_wide_tf(string tag) =>
+    tag == "2س/40" or tag == "150/50" or tag == "3س/1س" or tag == "210/70" or tag == "4س/80" or tag == "1ي/2س" or tag == "2ي/4س" or tag == "3ي/1ي"
+
+f_tp_pct(string tag) => f_wide_tf(tag) ? htfWin : histWin
+f_sl_pct(string tag) => f_wide_tf(tag) ? htfLoss : histLoss
 
 f_score_json() =>
     '"wins":' + str.tostring(array.get(tally, 0)) + ',"losses":' + str.tostring(array.get(tally, 1)) + ',"open":' + str.tostring(array.size(pTime))
@@ -153,8 +165,10 @@ f_resolve_one(int i) =>
     float rsiC = array.get(pRsiC, i)
     float clM = array.get(pClM, i)
     float clC = array.get(pClC, i)
-    float tp = side == 1 ? px * (1.0 + histWin / 100.0) : px * (1.0 - histWin / 100.0)
-    float sl = side == 1 ? px * (1.0 - histLoss / 100.0) : px * (1.0 + histLoss / 100.0)
+    float tpPct = array.get(pTpPct, i)
+    float slPct = array.get(pSlPct, i)
+    float tp = side == 1 ? px * (1.0 + tpPct / 100.0) : px * (1.0 - tpPct / 100.0)
+    float sl = side == 1 ? px * (1.0 - slPct / 100.0) : px * (1.0 + slPct / 100.0)
     bool slHit = side == 1 ? low <= sl : high >= sl
     bool tpHit = side == 1 ? high >= tp : low <= tp
     int result = slHit ? 0 : tpHit ? 1 : -1
@@ -168,6 +182,8 @@ f_resolve_one(int i) =>
         array.remove(pRsiC, i)
         array.remove(pClM, i)
         array.remove(pClC, i)
+        array.remove(pTpPct, i)
+        array.remove(pSlPct, i)
     result
 
 f_track(bool hit, int side, string tag, float rsiM, float rsiC, float clM, float clC) =>
@@ -181,6 +197,8 @@ f_track(bool hit, int side, string tag, float rsiM, float rsiC, float clM, float
         array.push(pRsiC, rsiC)
         array.push(pClM, clM)
         array.push(pClC, clC)
+        array.push(pTpPct, f_tp_pct(tag))
+        array.push(pSlPct, f_sl_pct(tag))
         string sideTxt = side == 1 ? "buy" : "sell"
         alert('{"src":"cascade","event":"entry","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"rsi_main":' + str.tostring(rsiM) + ',"rsi_confirm":' + str.tostring(rsiC) + ',"close_main":' + str.tostring(clM) + ',"close_confirm":' + str.tostring(clC) + '}', alert.freq_all)
         done := true
@@ -685,14 +703,14 @@ okD1S = f_track(hitD1S, -1, "1ي/2س", rsiD1, rsiD3, clD1, clD3)
 okD2S = f_track(hitD2S, -1, "2ي/4س", rsiD2, rsi6D, clD2, cl6D)
 okD3S = f_track(hitD3S, -1, "3ي/1ي", rsiD3, rsi9D, clD3, cl9D)
 
-buyHit = hitD3L or hitD2L or hitD1L or hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L or hit15L
-sellHit = hitD3S or hitD2S or hitD1S or hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit15S
-buyTag = hitD3L ? "3ي/1ي" : hitD2L ? "2ي/4س" : hitD1L ? "1ي/2س" : hit240L ? "4س/80" : hit210L ? "210/70" : hit180L ? "3س/1س" : hit150L ? "150/50" : hit120L ? "2س/40" : hit90L ? "90/30" : hit60L ? "1س/20" : hit45L ? "45/15" : hit30L ? "30/10" : "15/5"
-sellTag = hitD3S ? "3ي/1ي" : hitD2S ? "2ي/4س" : hitD1S ? "1ي/2س" : hit240S ? "4س/80" : hit210S ? "210/70" : hit180S ? "3س/1س" : hit150S ? "150/50" : hit120S ? "2س/40" : hit90S ? "90/30" : hit60S ? "1س/20" : hit45S ? "45/15" : hit30S ? "30/10" : "15/5"
-tpBuy = histWin
-slBuy = histLoss
-tpSel = histWin
-slSel = histLoss
+buyHit = hitD3L or hitD2L or hitD1L or hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L
+sellHit = hitD3S or hitD2S or hitD1S or hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S
+buyTag = hitD3L ? "3ي/1ي" : hitD2L ? "2ي/4س" : hitD1L ? "1ي/2س" : hit240L ? "4س/80" : hit210L ? "210/70" : hit180L ? "3س/1س" : hit150L ? "150/50" : hit120L ? "2س/40" : hit90L ? "90/30" : hit60L ? "1س/20" : hit45L ? "45/15" : "30/10"
+sellTag = hitD3S ? "3ي/1ي" : hitD2S ? "2ي/4س" : hitD1S ? "1ي/2س" : hit240S ? "4س/80" : hit210S ? "210/70" : hit180S ? "3س/1س" : hit150S ? "150/50" : hit120S ? "2س/40" : hit90S ? "90/30" : hit60S ? "1س/20" : hit45S ? "45/15" : "30/10"
+tpBuy = f_tp_pct(buyTag)
+slBuy = f_sl_pct(buyTag)
+tpSel = f_tp_pct(sellTag)
+slSel = f_sl_pct(sellTag)
 
 var float longStop = na
 var float longLim = na
@@ -801,8 +819,7 @@ else
 
 if showLog
     string txt = "Cascade | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | الشارت: 5د أو أقل\n"
-    txt += f_row("15 B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
+    txt += "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "% | 2س–يوم ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "% | الشارت: 5د أو أقل\n"
     txt += f_row("30 B", L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8) + " " + f_row("S", S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8) + "\n"
     txt += f_row("45 B", L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8) + " " + f_row("S", S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8) + "\n"
     txt += f_row("1س B", L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8) + " " + f_row("S", S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8) + "\n"
@@ -850,7 +867,7 @@ if barstate.islast
         string loadTxt = loadedDays >= 1.0 ? ("تم تحميل " + str.tostring(loadedDays, "#.#") + " يوم") : ("تم تحميل " + str.tostring(loadedDays * 24.0, "#.#") + " ساعة")
         loadTxt += "  (" + str.tostring(nBars) + " شمعة)"
         f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages) + "   |   " + loadTxt, color.white, hd)
-        f_cell(scoreBox, 0, 1, "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%   |   غيّر الصفحة من الإعدادات", color.silver, bg)
+        f_cell(scoreBox, 0, 1, "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "%  |  2س–يوم ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "%", color.silver, bg)
         f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), scoreFg, bg)
         f_cell(scoreBox, 0, 3, "الصفقة", color.white, hd)
         f_cell(scoreBox, 1, 3, "النتيجة", color.white, hd)
