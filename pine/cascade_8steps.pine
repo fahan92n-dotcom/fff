@@ -1,13 +1,13 @@
 //@version=5
-// Cascade 8 خطوات — 13 زوجاً معاً. الشارت لازم 20 دقيقة أو أقل حتى تظهر الأسهم التاريخية.
-// زوج الساعة = 60/180/20 (تشبع على 60م، تأكيد 180م، دخول 20م) وليس «حط الشارت على ساعة».
-// request.security على فريم أدنى ترجع آخر شمعة فقط (مو كل na). security_lower_tf لا تُستخدم: حد 40 طلب + تفشل إذا الشارت أصغر.
+// Cascade 8 خطوات — 13 زوجاً. الشارت 5م أو أقل (الدقيقة أفضل) حتى تظهر مداخل 5م.
+// الإلغاء: كل رئيس يلغي الأصغر منه من 15م إلى 4س. 4س يلغيه 5س. 1ي←2ي←3ي←4ي.
+// request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
 // step8 فقط على فريمات الدخول. Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD: شراء خط فوق الهستوجرام الأحمر وتحت 20٪ من أعلى موجة | بيع تحت الأخضر وفوق 20٪ من أدنى موجة
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI الفريم الرئيسي والتأكيد لكل صفقة عند الدخول.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
-strategy("Cascade 8 — كل الفريمات (شارت 20م)",
+strategy("Cascade 8 — فريمات د/س/ي",
      overlay                  = true,
      pyramiding               = 0,
      initial_capital          = 100000,
@@ -45,19 +45,19 @@ stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
 
 grpP = "الأزواج"
-use15  = input.bool(true, "15 / 45 / 5", group=grpP)
-use18  = input.bool(true, "18 / 54 / 6", group=grpP)
-use21  = input.bool(true, "21 / 63 / 7", group=grpP)
-use24  = input.bool(true, "24 / 72 / 8", group=grpP)
-use27  = input.bool(true, "27 / 81 / 9", group=grpP)
-use30  = input.bool(true, "30 / 90 / 10", group=grpP)
-use45  = input.bool(true, "45 / 135 / 15", group=grpP)
-use60  = input.bool(true, "60 / 180 / 20", group=grpP)
-use90  = input.bool(true, "90 / 270 / 30", group=grpP)
-use120 = input.bool(true, "120 / 360 / 40", group=grpP)
-use150 = input.bool(true, "150 / 450 / 50", group=grpP)
-use210 = input.bool(true, "210 / 630 / 70", group=grpP)
-use240 = input.bool(true, "240 / 720 / 80", group=grpP)
+use15  = input.bool(true, "15د / 45د / 5د", group=grpP)
+use30  = input.bool(true, "30د / 90د / 10د", group=grpP)
+use45  = input.bool(true, "45د / 135د / 15د", group=grpP)
+use60  = input.bool(true, "1س / 3س / 20د", group=grpP)
+use90  = input.bool(true, "90د / 270د / 30د", group=grpP)
+use120 = input.bool(true, "2س / 6س / 40د", group=grpP)
+use150 = input.bool(true, "150د / 450د / 50د", group=grpP)
+use180 = input.bool(true, "3س / 9س / 1س", group=grpP)
+use210 = input.bool(true, "210د / 630د / 70د", group=grpP)
+use240 = input.bool(true, "4س / 12س / 80د", group=grpP)
+useD1  = input.bool(true, "1ي / 3ي / 2س", group=grpP)
+useD2  = input.bool(true, "2ي / 6ي / 4س", group=grpP)
+useD3  = input.bool(true, "3ي / 9ي / 1ي", group=grpP)
 
 grpRisk = "إغلاق"
 useLong = input.bool(true, "شراء", group=grpRisk)
@@ -369,41 +369,36 @@ f_req_htf(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_htf(), barmerge.gaps_off, barmerge.lookahead_off)
 
 [dC5, s8L5, s8S5] = f_req_entry("5")
-[dC6, s8L6, s8S6] = f_req_entry("6")
-[dC7, s8L7, s8S7] = f_req_entry("7")
-[dC8, s8L8, s8S8] = f_req_entry("8")
-[dC9, s8L9, s8S9] = f_req_entry("9")
 [dC10, s8L10, s8S10] = f_req_entry("10")
-[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15, rsi15] = f_req_base_entry("15")
-[smi18, dC18, mL18, mS18, eL18, eS18, bL18, bS18, rsi18] = f_req_base("18")
 [dC20, s8L20, s8S20] = f_req_entry("20")
-[smi21, dC21, mL21, mS21, eL21, eS21, bL21, bS21, rsi21] = f_req_base("21")
-[smi24, dC24, mL24, mS24, eL24, eS24, bL24, bS24, rsi24] = f_req_base("24")
-[smi27, dC27, mL27, mS27, eL27, eS27, bL27, bS27, rsi27] = f_req_base("27")
-[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30, rsi30] = f_req_base_entry("30")
 [dC40, s8L40, s8S40] = f_req_entry("40")
-[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45, rsi45] = f_req_htf("45")
 [dC50, s8L50, s8S50] = f_req_entry("50")
-[dL54, h54, rL54, rS54, rsi54] = f_req_confirm("54")
-[smi60, dC60, mL60, mS60, eL60, eS60, bL60, bS60, rsi60] = f_req_base("60")
-[dL63, h63, rL63, rS63, rsi63] = f_req_confirm("63")
 [dC70, s8L70, s8S70] = f_req_entry("70")
-[dL72, h72, rL72, rS72, rsi72] = f_req_confirm("72")
 [dC80, s8L80, s8S80] = f_req_entry("80")
-[dL81, h81, rL81, rS81, rsi81] = f_req_confirm("81")
+[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15, rsi15] = f_req_base_entry("15")
+[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30, rsi30] = f_req_base_entry("30")
+[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45, rsi45] = f_req_htf("45")
+[smi60, dC60, mL60, mS60, eL60, eS60, s8L60, s8S60, bL60, bS60, rsi60] = f_req_base_entry("60")
 [smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, bL90, bS90, rsi90] = f_req_htf("90")
-[smi120, dC120, mL120, mS120, eL120, eS120, bL120, bS120, rsi120] = f_req_base("120")
-[dL135, h135, rL135, rS135, rsi135] = f_req_confirm("135")
+[smi120, dC120, mL120, mS120, eL120, eS120, s8L120, s8S120, bL120, bS120, rsi120] = f_req_base_entry("120")
 [smi150, dC150, mL150, mS150, eL150, eS150, bL150, bS150, rsi150] = f_req_base("150")
-[dL180, h180, rL180, rS180, rsi180] = f_req_confirm("180")
+[smi180, dL180, dC180, h180, mL180, mS180, eL180, eS180, rL180, rS180, bL180, bS180, rsi180] = f_req_htf("180")
 [smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210, rsi210] = f_req_base("210")
-[smi240, dC240, mL240, mS240, eL240, eS240, bL240, bS240, rsi240] = f_req_base("240")
+[smi240, dC240, mL240, mS240, eL240, eS240, s8L240, s8S240, bL240, bS240, rsi240] = f_req_base_entry("240")
+[smiD1, dCD1, mLD1, mSD1, eLD1, eSD1, s8LD1, s8SD1, bLD1, bSD1, rsiD1] = f_req_base_entry("D")
+[smiD2, dCD2, mLD2, mSD2, eLD2, eSD2, bLD2, bSD2, rsiD2] = f_req_base("2D")
+[smiD3, dLD3, dCD3, hD3, mLD3, mSD3, eLD3, eSD3, rLD3, rSD3, bLD3, bSD3, rsiD3] = f_req_htf("3D")
+[dL135, h135, rL135, rS135, rsi135] = f_req_confirm("135")
 [dL270, h270, rL270, rS270, rsi270] = f_req_confirm("270")
-[bL300, bS300] = f_req_cancel("300")
 [dL360, h360, rL360, rS360, rsi360] = f_req_confirm("360")
 [dL450, h450, rL450, rS450, rsi450] = f_req_confirm("450")
+[dL540, h540, rL540, rS540, rsi540] = f_req_confirm("540")
 [dL630, h630, rL630, rS630, rsi630] = f_req_confirm("630")
 [dL720, h720, rL720, rS720, rsi720] = f_req_confirm("720")
+[dL6D, h6D, rL6D, rS6D, rsi6D] = f_req_confirm("6D")
+[dL9D, h9D, rL9D, rS9D, rsi9D] = f_req_confirm("9D")
+[bL300, bS300] = f_req_cancel("300")
+[bL4D, bS4D] = f_req_cancel("4D")
 
 f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float donT, bool s8) =>
     bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
@@ -417,16 +412,8 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     bool all8 = setup and s8
     [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
 
-[L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL18, smi15, mL15, dC15, dL45, h45, eL15, rL45, dC5, s8L5)
-[S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS18, smi15, mS15, dC15, dL45, h45, eS15, rS45, dC5, s8S5)
-[L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8, set18L, all18L] = f_side(true,  bL21, smi18, mL18, dC18, dL54, h54, eL18, rL54, dC6, s8L6)
-[S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8, set18S, all18S] = f_side(false, bS21, smi18, mS18, dC18, dL54, h54, eS18, rS54, dC6, s8S6)
-[L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8, set21L, all21L] = f_side(true,  bL24, smi21, mL21, dC21, dL63, h63, eL21, rL63, dC7, s8L7)
-[S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8, set21S, all21S] = f_side(false, bS24, smi21, mS21, dC21, dL63, h63, eS21, rS63, dC7, s8S7)
-[L24_1, L24_2, L24_3, L24_4, L24_5, L24_6, L24_7, L24_8, set24L, all24L] = f_side(true,  bL27, smi24, mL24, dC24, dL72, h72, eL24, rL72, dC8, s8L8)
-[S24_1, S24_2, S24_3, S24_4, S24_5, S24_6, S24_7, S24_8, set24S, all24S] = f_side(false, bS27, smi24, mS24, dC24, dL72, h72, eS24, rS72, dC8, s8S8)
-[L27_1, L27_2, L27_3, L27_4, L27_5, L27_6, L27_7, L27_8, set27L, all27L] = f_side(true,  bL30, smi27, mL27, dC27, dL81, h81, eL27, rL81, dC9, s8L9)
-[S27_1, S27_2, S27_3, S27_4, S27_5, S27_6, S27_7, S27_8, set27S, all27S] = f_side(false, bS30, smi27, mS27, dC27, dL81, h81, eS27, rS81, dC9, s8S9)
+[L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL30, smi15, mL15, dC15, dL45, h45, eL15, rL45, dC5, s8L5)
+[S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS30, smi15, mS15, dC15, dL45, h45, eS15, rS45, dC5, s8S5)
 [L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8, set30L, all30L] = f_side(true,  bL45, smi30, mL30, dC30, dL90, h90, eL30, rL90, dC10, s8L10)
 [S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8, set30S, all30S] = f_side(false, bS45, smi30, mS30, dC30, dL90, h90, eS30, rS90, dC10, s8S10)
 [L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8, set45L, all45L] = f_side(true,  bL60, smi45, mL45, dC45, dL135, h135, eL45, rL135, dC15, s8L15)
@@ -437,23 +424,23 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
 [S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8, set90S, all90S] = f_side(false, bS120, smi90, mS90, dC90, dL270, h270, eS90, rS270, dC30, s8S30)
 [L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8, set120L, all120L] = f_side(true,  bL150, smi120, mL120, dC120, dL360, h360, eL120, rL360, dC40, s8L40)
 [S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8, set120S, all120S] = f_side(false, bS150, smi120, mS120, dC120, dL360, h360, eS120, rS360, dC40, s8S40)
-[L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8, set150L, all150L] = f_side(true,  bL210, smi150, mL150, dC150, dL450, h450, eL150, rL450, dC50, s8L50)
-[S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8, set150S, all150S] = f_side(false, bS210, smi150, mS150, dC150, dL450, h450, eS150, rS450, dC50, s8S50)
+[L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8, set150L, all150L] = f_side(true,  bL180, smi150, mL150, dC150, dL450, h450, eL150, rL450, dC50, s8L50)
+[S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8, set150S, all150S] = f_side(false, bS180, smi150, mS150, dC150, dL450, h450, eS150, rS450, dC50, s8S50)
+[L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8, set180L, all180L] = f_side(true,  bL210, smi180, mL180, dC180, dL540, h540, eL180, rL540, dC60, s8L60)
+[S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8, set180S, all180S] = f_side(false, bS210, smi180, mS180, dC180, dL540, h540, eS180, rS540, dC60, s8S60)
 [L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8, set210L, all210L] = f_side(true,  bL240, smi210, mL210, dC210, dL630, h630, eL210, rL630, dC70, s8L70)
 [S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8, set210S, all210S] = f_side(false, bS240, smi210, mS210, dC210, dL630, h630, eS210, rS630, dC70, s8S70)
 [L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, set240L, all240L] = f_side(true,  bL300, smi240, mL240, dC240, dL720, h720, eL240, rL720, dC80, s8L80)
 [S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, set240S, all240S] = f_side(false, bS300, smi240, mS240, dC240, dL720, h720, eS240, rS720, dC80, s8S80)
+[LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8, setD1L, allD1L] = f_side(true,  bLD2, smiD1, mLD1, dCD1, dLD3, hD3, eLD1, rLD3, dC120, s8L120)
+[SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8, setD1S, allD1S] = f_side(false, bSD2, smiD1, mSD1, dCD1, dLD3, hD3, eSD1, rSD3, dC120, s8S120)
+[LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8, setD2L, allD2L] = f_side(true,  bLD3, smiD2, mLD2, dCD2, dL6D, h6D, eLD2, rL6D, dC240, s8L240)
+[SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8, setD2S, allD2S] = f_side(false, bSD3, smiD2, mSD2, dCD2, dL6D, h6D, eSD2, rS6D, dC240, s8S240)
+[LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8, setD3L, allD3L] = f_side(true,  bL4D, smiD3, mLD3, dCD3, dL9D, h9D, eLD3, rL9D, dCD1, s8LD1)
+[SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8, setD3S, allD3S] = f_side(false, bS4D, smiD3, mSD3, dCD3, dL9D, h9D, eSD3, rS9D, dCD1, s8SD1)
 
 var bool a15L = true
 var bool a15S = true
-var bool a18L = true
-var bool a18S = true
-var bool a21L = true
-var bool a21S = true
-var bool a24L = true
-var bool a24S = true
-var bool a27L = true
-var bool a27S = true
 var bool a30L = true
 var bool a30S = true
 var bool a45L = true
@@ -466,31 +453,23 @@ var bool a120L = true
 var bool a120S = true
 var bool a150L = true
 var bool a150S = true
+var bool a180L = true
+var bool a180S = true
 var bool a210L = true
 var bool a210S = true
 var bool a240L = true
 var bool a240S = true
+var bool aD1L = true
+var bool aD1S = true
+var bool aD2L = true
+var bool aD2S = true
+var bool aD3L = true
+var bool aD3S = true
 
 if not set15L
     a15L := true
 if not set15S
     a15S := true
-if not set18L
-    a18L := true
-if not set18S
-    a18S := true
-if not set21L
-    a21L := true
-if not set21S
-    a21S := true
-if not set24L
-    a24L := true
-if not set24S
-    a24S := true
-if not set27L
-    a27L := true
-if not set27S
-    a27S := true
 if not set30L
     a30L := true
 if not set30S
@@ -515,6 +494,10 @@ if not set150L
     a150L := true
 if not set150S
     a150S := true
+if not set180L
+    a180L := true
+if not set180S
+    a180S := true
 if not set210L
     a210L := true
 if not set210S
@@ -523,44 +506,48 @@ if not set240L
     a240L := true
 if not set240S
     a240S := true
+if not setD1L
+    aD1L := true
+if not setD1S
+    aD1S := true
+if not setD2L
+    aD2L := true
+if not setD2S
+    aD2S := true
+if not setD3L
+    aD3L := true
+if not setD3S
+    aD3S := true
 
 hit15L = use15 and useLong and all15L and a15L
-hit18L = use18 and useLong and all18L and a18L
-hit21L = use21 and useLong and all21L and a21L
-hit24L = use24 and useLong and all24L and a24L
-hit27L = use27 and useLong and all27L and a27L
 hit30L = use30 and useLong and all30L and a30L
 hit45L = use45 and useLong and all45L and a45L
 hit60L = use60 and useLong and all60L and a60L
 hit90L = use90 and useLong and all90L and a90L
 hit120L = use120 and useLong and all120L and a120L
 hit150L = use150 and useLong and all150L and a150L
+hit180L = use180 and useLong and all180L and a180L
 hit210L = use210 and useLong and all210L and a210L
 hit240L = use240 and useLong and all240L and a240L
+hitD1L = useD1 and useLong and allD1L and aD1L
+hitD2L = useD2 and useLong and allD2L and aD2L
+hitD3L = useD3 and useLong and allD3L and aD3L
 hit15S = use15 and useShrt and all15S and a15S
-hit18S = use18 and useShrt and all18S and a18S
-hit21S = use21 and useShrt and all21S and a21S
-hit24S = use24 and useShrt and all24S and a24S
-hit27S = use27 and useShrt and all27S and a27S
 hit30S = use30 and useShrt and all30S and a30S
 hit45S = use45 and useShrt and all45S and a45S
 hit60S = use60 and useShrt and all60S and a60S
 hit90S = use90 and useShrt and all90S and a90S
 hit120S = use120 and useShrt and all120S and a120S
 hit150S = use150 and useShrt and all150S and a150S
+hit180S = use180 and useShrt and all180S and a180S
 hit210S = use210 and useShrt and all210S and a210S
 hit240S = use240 and useShrt and all240S and a240S
+hitD1S = useD1 and useShrt and allD1S and aD1S
+hitD2S = useD2 and useShrt and allD2S and aD2S
+hitD3S = useD3 and useShrt and allD3S and aD3S
 
 if hit15L
     a15L := false
-if hit18L
-    a18L := false
-if hit21L
-    a21L := false
-if hit24L
-    a24L := false
-if hit27L
-    a27L := false
 if hit30L
     a30L := false
 if hit45L
@@ -573,20 +560,20 @@ if hit120L
     a120L := false
 if hit150L
     a150L := false
+if hit180L
+    a180L := false
 if hit210L
     a210L := false
 if hit240L
     a240L := false
+if hitD1L
+    aD1L := false
+if hitD2L
+    aD2L := false
+if hitD3L
+    aD3L := false
 if hit15S
     a15S := false
-if hit18S
-    a18S := false
-if hit21S
-    a21S := false
-if hit24S
-    a24S := false
-if hit27S
-    a27S := false
 if hit30S
     a30S := false
 if hit45S
@@ -599,10 +586,18 @@ if hit120S
     a120S := false
 if hit150S
     a150S := false
+if hit180S
+    a180S := false
 if hit210S
     a210S := false
 if hit240S
     a240S := false
+if hitD1S
+    aD1S := false
+if hitD2S
+    aD2S := false
+if hitD3S
+    aD3S := false
 
 int nPend = array.size(pTime)
 if nPend > 0
@@ -610,38 +605,38 @@ if nPend > 0
         int ignRes = f_resolve_one(i)
 
 ok15L = f_track(hit15L, 1, "15/5", rsi15, rsi45)
-ok18L = f_track(hit18L, 1, "18/6", rsi18, rsi54)
-ok21L = f_track(hit21L, 1, "21/7", rsi21, rsi63)
-ok24L = f_track(hit24L, 1, "24/8", rsi24, rsi72)
-ok27L = f_track(hit27L, 1, "27/9", rsi27, rsi81)
 ok30L = f_track(hit30L, 1, "30/10", rsi30, rsi90)
 ok45L = f_track(hit45L, 1, "45/15", rsi45, rsi135)
-ok60L = f_track(hit60L, 1, "60/20", rsi60, rsi180)
+ok60L = f_track(hit60L, 1, "1س/20", rsi60, rsi180)
 ok90L = f_track(hit90L, 1, "90/30", rsi90, rsi270)
-ok120L = f_track(hit120L, 1, "120/40", rsi120, rsi360)
+ok120L = f_track(hit120L, 1, "2س/40", rsi120, rsi360)
 ok150L = f_track(hit150L, 1, "150/50", rsi150, rsi450)
+ok180L = f_track(hit180L, 1, "3س/1س", rsi180, rsi540)
 ok210L = f_track(hit210L, 1, "210/70", rsi210, rsi630)
-ok240L = f_track(hit240L, 1, "240/80", rsi240, rsi720)
+ok240L = f_track(hit240L, 1, "4س/80", rsi240, rsi720)
+okD1L = f_track(hitD1L, 1, "1ي/2س", rsiD1, rsiD3)
+okD2L = f_track(hitD2L, 1, "2ي/4س", rsiD2, rsi6D)
+okD3L = f_track(hitD3L, 1, "3ي/1ي", rsiD3, rsi9D)
 ok15S = f_track(hit15S, -1, "15/5", rsi15, rsi45)
-ok18S = f_track(hit18S, -1, "18/6", rsi18, rsi54)
-ok21S = f_track(hit21S, -1, "21/7", rsi21, rsi63)
-ok24S = f_track(hit24S, -1, "24/8", rsi24, rsi72)
-ok27S = f_track(hit27S, -1, "27/9", rsi27, rsi81)
 ok30S = f_track(hit30S, -1, "30/10", rsi30, rsi90)
 ok45S = f_track(hit45S, -1, "45/15", rsi45, rsi135)
-ok60S = f_track(hit60S, -1, "60/20", rsi60, rsi180)
+ok60S = f_track(hit60S, -1, "1س/20", rsi60, rsi180)
 ok90S = f_track(hit90S, -1, "90/30", rsi90, rsi270)
-ok120S = f_track(hit120S, -1, "120/40", rsi120, rsi360)
+ok120S = f_track(hit120S, -1, "2س/40", rsi120, rsi360)
 ok150S = f_track(hit150S, -1, "150/50", rsi150, rsi450)
+ok180S = f_track(hit180S, -1, "3س/1س", rsi180, rsi540)
 ok210S = f_track(hit210S, -1, "210/70", rsi210, rsi630)
-ok240S = f_track(hit240S, -1, "240/80", rsi240, rsi720)
+ok240S = f_track(hit240S, -1, "4س/80", rsi240, rsi720)
+okD1S = f_track(hitD1S, -1, "1ي/2س", rsiD1, rsiD3)
+okD2S = f_track(hitD2S, -1, "2ي/4س", rsiD2, rsi6D)
+okD3S = f_track(hitD3S, -1, "3ي/1ي", rsiD3, rsi9D)
 
-buyHit = hit240L or hit210L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L or hit27L or hit24L or hit21L or hit18L or hit15L
-sellHit = hit240S or hit210S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit27S or hit24S or hit21S or hit18S or hit15S
-buyTag = hit240L ? "240/80" : hit210L ? "210/70" : hit150L ? "150/50" : hit120L ? "120/40" : hit90L ? "90/30" : hit60L ? "60/20" : hit45L ? "45/15" : hit30L ? "30/10" : hit27L ? "27/9" : hit24L ? "24/8" : hit21L ? "21/7" : hit18L ? "18/6" : "15/5"
-sellTag = hit240S ? "240/80" : hit210S ? "210/70" : hit150S ? "150/50" : hit120S ? "120/40" : hit90S ? "90/30" : hit60S ? "60/20" : hit45S ? "45/15" : hit30S ? "30/10" : hit27S ? "27/9" : hit24S ? "24/8" : hit21S ? "21/7" : hit18S ? "18/6" : "15/5"
-buyMin = hit240L ? 240 : hit210L ? 210 : hit150L ? 150 : hit120L ? 120 : hit90L ? 90 : hit60L ? 60 : hit45L ? 45 : hit30L ? 30 : hit27L ? 27 : hit24L ? 24 : hit21L ? 21 : hit18L ? 18 : 15
-sellMin = hit240S ? 240 : hit210S ? 210 : hit150S ? 150 : hit120S ? 120 : hit90S ? 90 : hit60S ? 60 : hit45S ? 45 : hit30S ? 30 : hit27S ? 27 : hit24S ? 24 : hit21S ? 21 : hit18S ? 18 : 15
+buyHit = hitD3L or hitD2L or hitD1L or hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L or hit15L
+sellHit = hitD3S or hitD2S or hitD1S or hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit15S
+buyTag = hitD3L ? "3ي/1ي" : hitD2L ? "2ي/4س" : hitD1L ? "1ي/2س" : hit240L ? "4س/80" : hit210L ? "210/70" : hit180L ? "3س/1س" : hit150L ? "150/50" : hit120L ? "2س/40" : hit90L ? "90/30" : hit60L ? "1س/20" : hit45L ? "45/15" : hit30L ? "30/10" : "15/5"
+sellTag = hitD3S ? "3ي/1ي" : hitD2S ? "2ي/4س" : hitD1S ? "1ي/2س" : hit240S ? "4س/80" : hit210S ? "210/70" : hit180S ? "3س/1س" : hit150S ? "150/50" : hit120S ? "2س/40" : hit90S ? "90/30" : hit60S ? "1س/20" : hit45S ? "45/15" : hit30S ? "30/10" : "15/5"
+buyMin = hitD3L ? 4320 : hitD2L ? 2880 : hitD1L ? 1440 : hit240L ? 240 : hit210L ? 210 : hit180L ? 180 : hit150L ? 150 : hit120L ? 120 : hit90L ? 90 : hit60L ? 60 : hit45L ? 45 : hit30L ? 30 : 15
+sellMin = hitD3S ? 4320 : hitD2S ? 2880 : hitD1S ? 1440 : hit240S ? 240 : hit210S ? 210 : hit180S ? 180 : hit150S ? 150 : hit120S ? 120 : hit90S ? 90 : hit60S ? 60 : hit45S ? 45 : hit30S ? 30 : 15
 tpBuy = buyMin <= 30 ? 0.67 : 1.00
 slBuy = buyMin <= 30 ? 0.52 : 0.75
 tpSel = sellMin <= 30 ? 0.67 : 1.00
@@ -680,71 +675,72 @@ f_row(string nm, bool s1, bool s2, bool s3, bool s4, bool s5, bool s6, bool s7, 
 
 if showLbl
     if hit15L
-        label.new(bar_index, low, "B15", style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.tiny)
-    if hit18L
-        label.new(bar_index, low, "B18", style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.tiny)
-    if hit21L
-        label.new(bar_index, low, "B21", style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.tiny)
-    if hit24L
-        label.new(bar_index, low, "B24", style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.tiny)
-    if hit27L
-        label.new(bar_index, low, "B27", style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.tiny)
+        label.new(bar_index, low, "شراء\n15/5", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
     if hit30L
-        label.new(bar_index, low, "B30", style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.tiny)
+        label.new(bar_index, low, "شراء\n30/10", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
     if hit45L
-        label.new(bar_index, low, "B45", style=label.style_label_up, color=color.teal, textcolor=color.white, size=size.tiny)
+        label.new(bar_index, low, "شراء\n45/15", style=label.style_label_up, color=color.new(color.teal, 0), textcolor=color.white, size=size.tiny)
     if hit60L
-        label.new(bar_index, low, "B60", style=label.style_label_up, color=color.teal, textcolor=color.white, size=size.tiny)
+        label.new(bar_index, low, "شراء\n1س/20", style=label.style_label_up, color=color.new(color.teal, 0), textcolor=color.white, size=size.tiny)
     if hit90L
-        label.new(bar_index, low, "B90", style=label.style_label_up, color=color.teal, textcolor=color.white, size=size.tiny)
+        label.new(bar_index, low, "شراء\n90/30", style=label.style_label_up, color=color.new(color.teal, 0), textcolor=color.white, size=size.tiny)
     if hit120L
-        label.new(bar_index, low, "B120", style=label.style_label_up, color=color.navy, textcolor=color.white, size=size.tiny)
+        label.new(bar_index, low, "شراء\n2س/40", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
     if hit150L
-        label.new(bar_index, low, "B150", style=label.style_label_up, color=color.navy, textcolor=color.white, size=size.tiny)
+        label.new(bar_index, low, "شراء\n150/50", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
+    if hit180L
+        label.new(bar_index, low, "شراء\n3س/1س", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
     if hit210L
-        label.new(bar_index, low, "B210", style=label.style_label_up, color=color.navy, textcolor=color.white, size=size.tiny)
+        label.new(bar_index, low, "شراء\n210/70", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
     if hit240L
-        label.new(bar_index, low, "B240", style=label.style_label_up, color=color.navy, textcolor=color.white, size=size.tiny)
-    if hit15S
-        label.new(bar_index, high, "S15", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
-    if hit18S
-        label.new(bar_index, high, "S18", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
-    if hit21S
-        label.new(bar_index, high, "S21", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
-    if hit24S
-        label.new(bar_index, high, "S24", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
-    if hit27S
-        label.new(bar_index, high, "S27", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
-    if hit30S
-        label.new(bar_index, high, "S30", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
-    if hit45S
-        label.new(bar_index, high, "S45", style=label.style_label_down, color=color.orange, textcolor=color.black, size=size.tiny)
-    if hit60S
-        label.new(bar_index, high, "S60", style=label.style_label_down, color=color.orange, textcolor=color.black, size=size.tiny)
-    if hit90S
-        label.new(bar_index, high, "S90", style=label.style_label_down, color=color.orange, textcolor=color.black, size=size.tiny)
-    if hit120S
-        label.new(bar_index, high, "S120", style=label.style_label_down, color=color.maroon, textcolor=color.white, size=size.tiny)
-    if hit150S
-        label.new(bar_index, high, "S150", style=label.style_label_down, color=color.maroon, textcolor=color.white, size=size.tiny)
-    if hit210S
-        label.new(bar_index, high, "S210", style=label.style_label_down, color=color.maroon, textcolor=color.white, size=size.tiny)
-    if hit240S
-        label.new(bar_index, high, "S240", style=label.style_label_down, color=color.maroon, textcolor=color.white, size=size.tiny)
+        label.new(bar_index, low, "شراء\n4س/80", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
+    if hitD1L
+        label.new(bar_index, low, "شراء\n1ي/2س", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
+    if hitD2L
+        label.new(bar_index, low, "شراء\n2ي/4س", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
+    if hitD3L
+        label.new(bar_index, low, "شراء\n3ي/1ي", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
 
-anySetup = set15L or set18L or set21L or set24L or set27L or set30L or set45L or set60L or set90L or set120L or set150L or set210L or set240L or set15S or set18S or set21S or set24S or set27S or set30S or set45S or set60S or set90S or set120S or set150S or set210S or set240S
+    if hit15S
+        label.new(bar_index, high, "بيع\n15/5", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
+    if hit30S
+        label.new(bar_index, high, "بيع\n30/10", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
+    if hit45S
+        label.new(bar_index, high, "بيع\n45/15", style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
+    if hit60S
+        label.new(bar_index, high, "بيع\n1س/20", style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
+    if hit90S
+        label.new(bar_index, high, "بيع\n90/30", style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
+    if hit120S
+        label.new(bar_index, high, "بيع\n2س/40", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
+    if hit150S
+        label.new(bar_index, high, "بيع\n150/50", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
+    if hit180S
+        label.new(bar_index, high, "بيع\n3س/1س", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
+    if hit210S
+        label.new(bar_index, high, "بيع\n210/70", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
+    if hit240S
+        label.new(bar_index, high, "بيع\n4س/80", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
+    if hitD1S
+        label.new(bar_index, high, "بيع\n1ي/2س", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
+    if hitD2S
+        label.new(bar_index, high, "بيع\n2ي/4س", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
+    if hitD3S
+        label.new(bar_index, high, "بيع\n3ي/1ي", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
+
+anySetup = set15L or set30L or set45L or set60L or set90L or set120L or set150L or set180L or set210L or set240L or setD1L or setD2L or setD3L or set15S or set30S or set45S or set60S or set90S or set120S or set150S or set180S or set210S or set240S or setD1S or setD2S or setD3S
 bgcolor(showBg and anySetup ? color.new(color.gray, 92) : na)
 plotshape(buyHit, title="شراء", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny)
 plotshape(sellHit, title="بيع", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
 
 var label logLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(#111111, 5), textcolor=color.white, size=size.small, textalign=text.align_left)
 
-chartTooHigh = timeframe.in_seconds() > 20 * 60
+chartTooHigh = timeframe.in_seconds() > 5 * 60
 ltfNa = na(dC5) or na(dC20)
 var label warnLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.black, size=size.normal, textalign=text.align_left)
 if chartTooHigh or ltfNa
     label.set_xy(warnLbl, bar_index, high)
-    string wtxt = chartTooHigh ? "حط الشارت على 20 دقيقة أو أقل\nفريم الساعة يضيّع مداخل 20م و5م\nزوج الساعة = 60/180/20 مو شارت 1س" : ""
+    string wtxt = chartTooHigh ? "حط الشارت على 5 دقائق أو أقل\nيفضّل الدقيقة حتى تظهر كل المداخل" : ""
     if ltfNa
         wtxt := (wtxt == "" ? "" : wtxt + "\n") + "فريم الدخول رجع na — صغّر الشارت"
     label.set_text(warnLbl, wtxt)
@@ -753,22 +749,23 @@ else
 
 if showLog
     string txt = "Cascade | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | الشارت: 20م أو أقل\n"
+    txt += "ربح " + str.tostring(histWin, "#.##") + "%  خسارة " + str.tostring(histLoss, "#.##") + "% | الشارت: 5د أو أقل\n"
     txt += f_row("15 B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
-    txt += f_row("18 B", L18_1, L18_2, L18_3, L18_4, L18_5, L18_6, L18_7, L18_8) + " " + f_row("S", S18_1, S18_2, S18_3, S18_4, S18_5, S18_6, S18_7, S18_8) + "\n"
-    txt += f_row("21 B", L21_1, L21_2, L21_3, L21_4, L21_5, L21_6, L21_7, L21_8) + " " + f_row("S", S21_1, S21_2, S21_3, S21_4, S21_5, S21_6, S21_7, S21_8) + "\n"
-    txt += f_row("24 B", L24_1, L24_2, L24_3, L24_4, L24_5, L24_6, L24_7, L24_8) + " " + f_row("S", S24_1, S24_2, S24_3, S24_4, S24_5, S24_6, S24_7, S24_8) + "\n"
-    txt += f_row("27 B", L27_1, L27_2, L27_3, L27_4, L27_5, L27_6, L27_7, L27_8) + " " + f_row("S", S27_1, S27_2, S27_3, S27_4, S27_5, S27_6, S27_7, S27_8) + "\n"
     txt += f_row("30 B", L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8) + " " + f_row("S", S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8) + "\n"
     txt += f_row("45 B", L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8) + " " + f_row("S", S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8) + "\n"
-    txt += f_row("60 B", L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8) + " " + f_row("S", S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8) + "\n"
+    txt += f_row("1س B", L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8) + " " + f_row("S", S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8) + "\n"
     txt += f_row("90 B", L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8) + " " + f_row("S", S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8) + "\n"
-    txt += f_row("120 B", L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8) + " " + f_row("S", S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8) + "\n"
+    txt += f_row("2س B", L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8) + " " + f_row("S", S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8) + "\n"
     txt += f_row("150 B", L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8) + " " + f_row("S", S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8) + "\n"
+    txt += f_row("3س B", L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8) + " " + f_row("S", S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8) + "\n"
     txt += f_row("210 B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
-    txt += f_row("240 B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
+    txt += f_row("4س B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8) + "\n"
+    txt += f_row("1ي B", LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8) + " " + f_row("S", SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8) + "\n"
+    txt += f_row("2ي B", LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8) + " " + f_row("S", SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8) + "\n"
+    txt += f_row("3ي B", LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8) + " " + f_row("S", SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8)
+    txt += "\nإلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س | 2ي←1ي · 3ي←2ي · 4ي←3ي"
     if chartTooHigh
-        txt += "\nحط الشارت على 20م أو أقل حتى تظهر الأسهم"
+        txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
     label.set_text(logLbl, txt)
 else
