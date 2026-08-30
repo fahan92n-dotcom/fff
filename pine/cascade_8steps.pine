@@ -8,7 +8,7 @@
 // Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD: شراء خط فوق الهستوجرام الأحمر وتحت 40٪ من أعلى موجة | بيع تحت الأخضر وفوق 40٪ من أدنى موجة
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
-// النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI الفريم الرئيسي والتأكيد لكل صفقة عند الدخول.
+// النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI وإغلاق الرئيس والتأكيد لكل صفقة.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
 strategy("Cascade 8 — فريمات د/س/ي",
      overlay                  = true,
@@ -85,28 +85,40 @@ var array<int>    pSide = array.new_int()
 var array<string> pTag  = array.new_string()
 var array<float>  pRsiM = array.new_float()
 var array<float>  pRsiC = array.new_float()
+var array<float>  pClM  = array.new_float()
+var array<float>  pClC  = array.new_float()
 var array<int>    hTime = array.new_int()
 var array<string> hTag  = array.new_string()
 var array<int>    hSide = array.new_int()
 var array<int>    hWin  = array.new_int()
 var array<float>  hRsiM = array.new_float()
 var array<float>  hRsiC = array.new_float()
+var array<float>  hClM  = array.new_float()
+var array<float>  hClC  = array.new_float()
 var array<int>    tally = array.new_int(2, 0)
 var int firstBarTime = time
 
 f_rsi_txt(float v) =>
     na(v) ? "—" : str.tostring(v, "#.#")
 
+f_px_txt(float v) =>
+    na(v) ? "—" : str.tostring(v, format.mintick)
+
+f_pair_txt(float rsi, float cl) =>
+    "RSI " + f_rsi_txt(rsi) + "\nإغلاق " + f_px_txt(cl)
+
 f_score_json() =>
     '"wins":' + str.tostring(array.get(tally, 0)) + ',"losses":' + str.tostring(array.get(tally, 1)) + ',"open":' + str.tostring(array.size(pTime))
 
-f_store(int et, string tag, int side, int win, float px, float rsiM, float rsiC) =>
+f_store(int et, string tag, int side, int win, float px, float rsiM, float rsiC, float clM, float clC) =>
     array.push(hTime, et)
     array.push(hTag, tag)
     array.push(hSide, side)
     array.push(hWin, win)
     array.push(hRsiM, rsiM)
     array.push(hRsiC, rsiC)
+    array.push(hClM, clM)
+    array.push(hClC, clC)
     if array.size(hTime) > histKeep
         array.shift(hTime)
         array.shift(hTag)
@@ -114,11 +126,13 @@ f_store(int et, string tag, int side, int win, float px, float rsiM, float rsiC)
         array.shift(hWin)
         array.shift(hRsiM)
         array.shift(hRsiC)
+        array.shift(hClM)
+        array.shift(hClC)
     int tIdx = win == 1 ? 0 : 1
     array.set(tally, tIdx, array.get(tally, tIdx) + 1)
     string sideTxt = side == 1 ? "buy" : "sell"
     string winTxt = win == 1 ? "true" : "false"
-    alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + ',"rsi_main":' + str.tostring(rsiM) + ',"rsi_confirm":' + str.tostring(rsiC) + ',' + f_score_json() + '}', alert.freq_all)
+    alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + ',"rsi_main":' + str.tostring(rsiM) + ',"rsi_confirm":' + str.tostring(rsiC) + ',"close_main":' + str.tostring(clM) + ',"close_confirm":' + str.tostring(clC) + ',' + f_score_json() + '}', alert.freq_all)
 
 f_resolve_one(int i) =>
     int et = array.get(pTime, i)
@@ -127,22 +141,26 @@ f_resolve_one(int i) =>
     string tag = array.get(pTag, i)
     float rsiM = array.get(pRsiM, i)
     float rsiC = array.get(pRsiC, i)
+    float clM = array.get(pClM, i)
+    float clC = array.get(pClC, i)
     float tp = side == 1 ? px * (1.0 + histWin / 100.0) : px * (1.0 - histWin / 100.0)
     float sl = side == 1 ? px * (1.0 - histLoss / 100.0) : px * (1.0 + histLoss / 100.0)
     bool slHit = side == 1 ? low <= sl : high >= sl
     bool tpHit = side == 1 ? high >= tp : low <= tp
     int result = slHit ? 0 : tpHit ? 1 : -1
     if result >= 0
-        f_store(et, tag, side, result, px, rsiM, rsiC)
+        f_store(et, tag, side, result, px, rsiM, rsiC, clM, clC)
         array.remove(pTime, i)
         array.remove(pPx, i)
         array.remove(pSide, i)
         array.remove(pTag, i)
         array.remove(pRsiM, i)
         array.remove(pRsiC, i)
+        array.remove(pClM, i)
+        array.remove(pClC, i)
     result
 
-f_track(bool hit, int side, string tag, float rsiM, float rsiC) =>
+f_track(bool hit, int side, string tag, float rsiM, float rsiC, float clM, float clC) =>
     bool done = false
     if hit
         array.push(pTime, time)
@@ -151,8 +169,10 @@ f_track(bool hit, int side, string tag, float rsiM, float rsiC) =>
         array.push(pTag, tag)
         array.push(pRsiM, rsiM)
         array.push(pRsiC, rsiC)
+        array.push(pClM, clM)
+        array.push(pClC, clC)
         string sideTxt = side == 1 ? "buy" : "sell"
-        alert('{"src":"cascade","event":"entry","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"rsi_main":' + str.tostring(rsiM) + ',"rsi_confirm":' + str.tostring(rsiC) + '}', alert.freq_all)
+        alert('{"src":"cascade","event":"entry","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"rsi_main":' + str.tostring(rsiM) + ',"rsi_confirm":' + str.tostring(rsiC) + ',"close_main":' + str.tostring(clM) + ',"close_confirm":' + str.tostring(clC) + '}', alert.freq_all)
         done := true
     done
 
@@ -314,7 +334,7 @@ f_snap_confirm() =>
     don = f_don()
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
-    [don, hist2, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), rsi]
+    [don, hist2, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), rsi, close[1]]
 
 f_snap_base() =>
     smi = f_smi()
@@ -323,7 +343,7 @@ f_snap_base() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi), rsi]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi), rsi, close[1]]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -338,7 +358,7 @@ f_snap_base_entry() =>
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time[1]]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time[1], close[1]]
 
 f_snap_htf() =>
     smi = f_smi()
@@ -347,7 +367,7 @@ f_snap_htf() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), rsi]
+    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), rsi, close[1]]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -374,28 +394,28 @@ f_req_htf(simple string tf) =>
 [dC50, s8L50, s8S50, t50] = f_req_entry("50")
 [dC70, s8L70, s8S70, t70] = f_req_entry("70")
 [dC80, s8L80, s8S80, t80] = f_req_entry("80")
-[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15, rsi15, t15] = f_req_base_entry("15")
-[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30, rsi30, t30] = f_req_base_entry("30")
-[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45, rsi45] = f_req_htf("45")
-[smi60, dC60, mL60, mS60, eL60, eS60, s8L60, s8S60, bL60, bS60, rsi60, t60] = f_req_base_entry("60")
-[smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, bL90, bS90, rsi90] = f_req_htf("90")
-[smi120, dC120, mL120, mS120, eL120, eS120, s8L120, s8S120, bL120, bS120, rsi120, t120] = f_req_base_entry("120")
-[smi150, dC150, mL150, mS150, eL150, eS150, bL150, bS150, rsi150] = f_req_base("150")
-[smi180, dL180, dC180, h180, mL180, mS180, eL180, eS180, rL180, rS180, bL180, bS180, rsi180] = f_req_htf("180")
-[smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210, rsi210] = f_req_base("210")
-[smi240, dC240, mL240, mS240, eL240, eS240, s8L240, s8S240, bL240, bS240, rsi240, t240] = f_req_base_entry("240")
-[smiD1, dCD1, mLD1, mSD1, eLD1, eSD1, s8LD1, s8SD1, bLD1, bSD1, rsiD1, tD1] = f_req_base_entry("D")
-[smiD2, dCD2, mLD2, mSD2, eLD2, eSD2, bLD2, bSD2, rsiD2] = f_req_base("2D")
-[smiD3, dLD3, dCD3, hD3, mLD3, mSD3, eLD3, eSD3, rLD3, rSD3, bLD3, bSD3, rsiD3] = f_req_htf("3D")
-[dL135, h135, rL135, rS135, rsi135] = f_req_confirm("135")
-[dL270, h270, rL270, rS270, rsi270] = f_req_confirm("270")
-[dL360, h360, rL360, rS360, rsi360] = f_req_confirm("360")
-[dL450, h450, rL450, rS450, rsi450] = f_req_confirm("450")
-[dL540, h540, rL540, rS540, rsi540] = f_req_confirm("540")
-[dL630, h630, rL630, rS630, rsi630] = f_req_confirm("630")
-[dL720, h720, rL720, rS720, rsi720] = f_req_confirm("720")
-[dL6D, h6D, rL6D, rS6D, rsi6D] = f_req_confirm("6D")
-[dL9D, h9D, rL9D, rS9D, rsi9D] = f_req_confirm("9D")
+[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15, rsi15, t15, cl15] = f_req_base_entry("15")
+[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30, rsi30, t30, cl30] = f_req_base_entry("30")
+[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45, rsi45, cl45] = f_req_htf("45")
+[smi60, dC60, mL60, mS60, eL60, eS60, s8L60, s8S60, bL60, bS60, rsi60, t60, cl60] = f_req_base_entry("60")
+[smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, bL90, bS90, rsi90, cl90] = f_req_htf("90")
+[smi120, dC120, mL120, mS120, eL120, eS120, s8L120, s8S120, bL120, bS120, rsi120, t120, cl120] = f_req_base_entry("120")
+[smi150, dC150, mL150, mS150, eL150, eS150, bL150, bS150, rsi150, cl150] = f_req_base("150")
+[smi180, dL180, dC180, h180, mL180, mS180, eL180, eS180, rL180, rS180, bL180, bS180, rsi180, cl180] = f_req_htf("180")
+[smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210, rsi210, cl210] = f_req_base("210")
+[smi240, dC240, mL240, mS240, eL240, eS240, s8L240, s8S240, bL240, bS240, rsi240, t240, cl240] = f_req_base_entry("240")
+[smiD1, dCD1, mLD1, mSD1, eLD1, eSD1, s8LD1, s8SD1, bLD1, bSD1, rsiD1, tD1, clD1] = f_req_base_entry("D")
+[smiD2, dCD2, mLD2, mSD2, eLD2, eSD2, bLD2, bSD2, rsiD2, clD2] = f_req_base("2D")
+[smiD3, dLD3, dCD3, hD3, mLD3, mSD3, eLD3, eSD3, rLD3, rSD3, bLD3, bSD3, rsiD3, clD3] = f_req_htf("3D")
+[dL135, h135, rL135, rS135, rsi135, cl135] = f_req_confirm("135")
+[dL270, h270, rL270, rS270, rsi270, cl270] = f_req_confirm("270")
+[dL360, h360, rL360, rS360, rsi360, cl360] = f_req_confirm("360")
+[dL450, h450, rL450, rS450, rsi450, cl450] = f_req_confirm("450")
+[dL540, h540, rL540, rS540, rsi540, cl540] = f_req_confirm("540")
+[dL630, h630, rL630, rS630, rsi630, cl630] = f_req_confirm("630")
+[dL720, h720, rL720, rS720, rsi720, cl720] = f_req_confirm("720")
+[dL6D, h6D, rL6D, rS6D, rsi6D, cl6D] = f_req_confirm("6D")
+[dL9D, h9D, rL9D, rS9D, rsi9D, cl9D] = f_req_confirm("9D")
 [bL300, bS300] = f_req_cancel("300")
 [bL4D, bS4D] = f_req_cancel("4D")
 
@@ -610,32 +630,32 @@ if nPend > 0
     for i = nPend - 1 to 0
         int ignRes = f_resolve_one(i)
 
-ok15L = f_track(hit15L, 1, "15/5", rsi15, rsi45)
-ok30L = f_track(hit30L, 1, "30/10", rsi30, rsi90)
-ok45L = f_track(hit45L, 1, "45/15", rsi45, rsi135)
-ok60L = f_track(hit60L, 1, "1س/20", rsi60, rsi180)
-ok90L = f_track(hit90L, 1, "90/30", rsi90, rsi270)
-ok120L = f_track(hit120L, 1, "2س/40", rsi120, rsi360)
-ok150L = f_track(hit150L, 1, "150/50", rsi150, rsi450)
-ok180L = f_track(hit180L, 1, "3س/1س", rsi180, rsi540)
-ok210L = f_track(hit210L, 1, "210/70", rsi210, rsi630)
-ok240L = f_track(hit240L, 1, "4س/80", rsi240, rsi720)
-okD1L = f_track(hitD1L, 1, "1ي/2س", rsiD1, rsiD3)
-okD2L = f_track(hitD2L, 1, "2ي/4س", rsiD2, rsi6D)
-okD3L = f_track(hitD3L, 1, "3ي/1ي", rsiD3, rsi9D)
-ok15S = f_track(hit15S, -1, "15/5", rsi15, rsi45)
-ok30S = f_track(hit30S, -1, "30/10", rsi30, rsi90)
-ok45S = f_track(hit45S, -1, "45/15", rsi45, rsi135)
-ok60S = f_track(hit60S, -1, "1س/20", rsi60, rsi180)
-ok90S = f_track(hit90S, -1, "90/30", rsi90, rsi270)
-ok120S = f_track(hit120S, -1, "2س/40", rsi120, rsi360)
-ok150S = f_track(hit150S, -1, "150/50", rsi150, rsi450)
-ok180S = f_track(hit180S, -1, "3س/1س", rsi180, rsi540)
-ok210S = f_track(hit210S, -1, "210/70", rsi210, rsi630)
-ok240S = f_track(hit240S, -1, "4س/80", rsi240, rsi720)
-okD1S = f_track(hitD1S, -1, "1ي/2س", rsiD1, rsiD3)
-okD2S = f_track(hitD2S, -1, "2ي/4س", rsiD2, rsi6D)
-okD3S = f_track(hitD3S, -1, "3ي/1ي", rsiD3, rsi9D)
+ok15L = f_track(hit15L, 1, "15/5", rsi15, rsi45, cl15, cl45)
+ok30L = f_track(hit30L, 1, "30/10", rsi30, rsi90, cl30, cl90)
+ok45L = f_track(hit45L, 1, "45/15", rsi45, rsi135, cl45, cl135)
+ok60L = f_track(hit60L, 1, "1س/20", rsi60, rsi180, cl60, cl180)
+ok90L = f_track(hit90L, 1, "90/30", rsi90, rsi270, cl90, cl270)
+ok120L = f_track(hit120L, 1, "2س/40", rsi120, rsi360, cl120, cl360)
+ok150L = f_track(hit150L, 1, "150/50", rsi150, rsi450, cl150, cl450)
+ok180L = f_track(hit180L, 1, "3س/1س", rsi180, rsi540, cl180, cl540)
+ok210L = f_track(hit210L, 1, "210/70", rsi210, rsi630, cl210, cl630)
+ok240L = f_track(hit240L, 1, "4س/80", rsi240, rsi720, cl240, cl720)
+okD1L = f_track(hitD1L, 1, "1ي/2س", rsiD1, rsiD3, clD1, clD3)
+okD2L = f_track(hitD2L, 1, "2ي/4س", rsiD2, rsi6D, clD2, cl6D)
+okD3L = f_track(hitD3L, 1, "3ي/1ي", rsiD3, rsi9D, clD3, cl9D)
+ok15S = f_track(hit15S, -1, "15/5", rsi15, rsi45, cl15, cl45)
+ok30S = f_track(hit30S, -1, "30/10", rsi30, rsi90, cl30, cl90)
+ok45S = f_track(hit45S, -1, "45/15", rsi45, rsi135, cl45, cl135)
+ok60S = f_track(hit60S, -1, "1س/20", rsi60, rsi180, cl60, cl180)
+ok90S = f_track(hit90S, -1, "90/30", rsi90, rsi270, cl90, cl270)
+ok120S = f_track(hit120S, -1, "2س/40", rsi120, rsi360, cl120, cl360)
+ok150S = f_track(hit150S, -1, "150/50", rsi150, rsi450, cl150, cl450)
+ok180S = f_track(hit180S, -1, "3س/1س", rsi180, rsi540, cl180, cl540)
+ok210S = f_track(hit210S, -1, "210/70", rsi210, rsi630, cl210, cl630)
+ok240S = f_track(hit240S, -1, "4س/80", rsi240, rsi720, cl240, cl720)
+okD1S = f_track(hitD1S, -1, "1ي/2س", rsiD1, rsiD3, clD1, clD3)
+okD2S = f_track(hitD2S, -1, "2ي/4س", rsiD2, rsi6D, clD2, cl6D)
+okD3S = f_track(hitD3S, -1, "3ي/1ي", rsiD3, rsi9D, clD3, cl9D)
 
 buyHit = hitD3L or hitD2L or hitD1L or hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L or hit15L
 sellHit = hitD3S or hitD2S or hitD1S or hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit15S
@@ -806,8 +826,8 @@ if barstate.islast
         f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), scoreFg, bg)
         f_cell(scoreBox, 0, 3, "الصفقة", color.white, hd)
         f_cell(scoreBox, 1, 3, "النتيجة", color.white, hd)
-        f_cell(scoreBox, 2, 3, "RSI رئيس", color.white, hd)
-        f_cell(scoreBox, 3, 3, "RSI تأكيد", color.white, hd)
+        f_cell(scoreBox, 2, 3, "رئيس", color.white, hd)
+        f_cell(scoreBox, 3, 3, "تأكيد", color.white, hd)
         for k = 0 to pageSize - 1
             int src = nHist - 1 - skip - k
             int row = 4 + k
@@ -819,8 +839,8 @@ if barstate.islast
                 color resFg = win == 1 ? color.lime : color.red
                 f_cell(scoreBox, 0, row, sideAr + array.get(hTag, src), color.white, bg)
                 f_cell(scoreBox, 1, row, resTxt, resFg, bg)
-                f_cell(scoreBox, 2, row, f_rsi_txt(array.get(hRsiM, src)), color.silver, bg)
-                f_cell(scoreBox, 3, row, f_rsi_txt(array.get(hRsiC, src)), color.silver, bg)
+                f_cell(scoreBox, 2, row, f_pair_txt(array.get(hRsiM, src), array.get(hClM, src)), color.silver, bg)
+                f_cell(scoreBox, 3, row, f_pair_txt(array.get(hRsiC, src), array.get(hClC, src)), color.silver, bg)
             else
                 f_cell(scoreBox, 0, row, "", color.white, bg)
                 f_cell(scoreBox, 1, row, "", color.white, bg)
