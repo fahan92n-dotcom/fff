@@ -7,7 +7,7 @@
 // شرط 4 (Donchian التأكيد) ملغى ولا يدخل في قرار الصفقة.
 // شرط 5: Awesome Oscillator على فريم التأكيد. فوق 0 شراء | تحت 0 بيع. MACD التأكيد أُزيل.
 // Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD: بعد أول تشبع انتظر. شراء خط فوق الأحمر وتحت 20٪ من أعلى موجة | بيع تحت الأخضر وفوق 20٪ من أدنى موجة. يثبت جاهز حتى يأتي الدخول أو ينتهي التشبع.
+// MACD: بعد أول تشبع انتظر. أقصى موجة من آخر 24س (فريم < 1س) أو 72س فعلية (1س فأعلى). شراء خط فوق الأحمر وتحت 20٪ | بيع تحت الأخضر وفوق 20٪. يثبت جاهز حتى الدخول أو نهاية التشبع.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI وإغلاق الرئيس والتأكيد لكل صفقة.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
@@ -213,14 +213,13 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
             if not still
                 break
             off := i
-        int sec = timeframe.in_seconds()
-        int winHours = sec <= 3600 ? 24 : 72
-        int winBars = int(math.max(2, math.round(winHours * 3600.0 / sec)))
+        int barSec = int(math.max(1, (time - time[1]) / 1000))
+        int winHours = barSec < 3600 ? 24 : 72
+        int winBars = int(math.max(2, math.round(winHours * 3600.0 / barSec)))
         if winBars > 300
             winBars := 300
         float bound = 0.0
-        int last = off + winBars - 1
-        for j = off to last
+        for j = 1 to winBars
             float v = macd[j]
             if not na(v)
                 if isLong and v > 0 and v > bound
