@@ -4,6 +4,7 @@
 // الحظر يرتفع فور خروج SMI الأب من ±40 (بدون سماحية 1–2 شمعة).
 // request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
 // step8 فقط على فريمات الدخول. 6 EMA ثم 7 Donchian الدخول ثم 8 — تسلسل، مو مع بعض.
+// شرط 4 (Donchian التأكيد) ملغى ولا يدخل في قرار الصفقة.
 // Donchian بـ var حتى يثبت عبر استدعاءات security.
 // MACD: شراء خط فوق الهستوجرام الأحمر وتحت 40٪ من أعلى موجة | بيع تحت الأخضر وفوق 40٪ من أدنى موجة
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
@@ -106,6 +107,12 @@ var array<string> diagLabels = array.concat(
          array.from("90 بيع", "2س شراء", "2س بيع", "150 شراء", "150 بيع", "3س شراء", "3س بيع", "210 شراء", "210 بيع"),
          array.from("4س شراء", "4س بيع", "1ي شراء", "1ي بيع", "2ي شراء", "2ي بيع", "3ي شراء", "3ي بيع")))
 
+f_edge_one(matrix<int> m, matrix<bool> prevM, int row, int col, bool curVal) =>
+    bool prevVal = matrix.get(prevM, row, col)
+    if curVal and not prevVal
+        matrix.set(m, row, col, matrix.get(m, row, col) + 1)
+    matrix.set(prevM, row, col, curVal)
+
 f_tally_edge(matrix<int> m, matrix<bool> prevM, int row, bool s1, bool s2, bool s3, bool s4, bool s5, bool s6, bool s7, bool s8) =>
     f_edge_one(m, prevM, row, 0, s1)
     f_edge_one(m, prevM, row, 1, s2)
@@ -115,12 +122,6 @@ f_tally_edge(matrix<int> m, matrix<bool> prevM, int row, bool s1, bool s2, bool 
     f_edge_one(m, prevM, row, 5, s6)
     f_edge_one(m, prevM, row, 6, s7)
     f_edge_one(m, prevM, row, 7, s8)
-
-f_edge_one(matrix<int> m, matrix<bool> prevM, int row, int col, bool curVal) =>
-    bool prevVal = matrix.get(prevM, row, col)
-    if curVal and not prevVal
-        matrix.set(m, row, col, matrix.get(m, row, col) + 1)
-    matrix.set(prevM, row, col, curVal)
 
 f_rsi_txt(float v) =>
     na(v) ? "—" : str.tostring(v, "#.#")
@@ -431,7 +432,7 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
     bool s2 = mOk
     bool s3 = isLong ? donB == 1 : donB == -1
-    bool s4 = isLong ? donCf == 1 : donCf == -1
+    bool s4 = true
     bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
     bool s6 = not na(emaT) and rsiCf
     bool donOpp = isLong ? donT == -1 : donT == 1
@@ -442,7 +443,7 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
         t7 := entT
     bool s7 = not na(t7)
     bool s8 = s7 and not na(s8T) and s8T >= t7
-    bool setup = s1 and s2 and s3 and s4 and s5 and s6 and s7
+    bool setup = s1 and s2 and s3 and s5 and s6 and s7
     bool all8 = setup and s8
     [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
 
