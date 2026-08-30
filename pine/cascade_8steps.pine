@@ -7,7 +7,7 @@
 // شرط 4 (Donchian التأكيد) ملغى ولا يدخل في قرار الصفقة.
 // شرط 5: Awesome Oscillator على فريم التأكيد. فوق 0 شراء | تحت 0 بيع. MACD التأكيد أُزيل.
 // Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD: شراء خط فوق الهستوجرام الأحمر وتحت 40٪ من أعلى موجة | بيع تحت الأخضر وفوق 40٪ من أدنى موجة
+// MACD: بعد أول تشبع انتظر. شراء خط فوق الأحمر وتحت 20٪ من أعلى موجة | بيع تحت الأخضر وفوق 20٪ من أدنى موجة. يثبت جاهز حتى يأتي الدخول أو ينتهي التشبع.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI وإغلاق الرئيس والتأكيد لكل صفقة.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
@@ -33,7 +33,7 @@ obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
-macdPct = input.float(40.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
+macdPct = input.float(20.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
 aoFast = input.int(5, "AO سريع", minval=1, group=grpInd)
 aoSlow = input.int(34, "AO بطيء", minval=1, group=grpInd)
 dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
@@ -200,38 +200,44 @@ f_ao() =>
     float mid = (high + low) / 2.0
     ta.sma(mid, aoFast) - ta.sma(mid, aoSlow)
 
+// بعد أول تشبع لا يُرفض فورًا. ينتظر حتى يصل الخط إلى 20٪ من أقصى موجة، ثم يثبت جاهز.
 f_macd_ok(bool isLong, float smi, float hist, float macd) =>
-    bool ok = false
-    bool sat = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
-    if sat
+    var bool ready = false
+    bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
+    if not satNow
+        ready := false
+    else if not ready
         int off = 1
         for i = 2 to 50
             bool still = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
             if not still
                 break
             off := i
-        float h0 = hist[off]
-        float m0 = macd[off]
-        if not na(h0) and not na(m0)
-            bool sideOk = isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
-            if sideOk
-                int sec = timeframe.in_seconds()
-                int winHours = sec <= 3600 ? 24 : 72
-                int winBars = int(math.max(2, math.round(winHours * 3600.0 / sec)))
-                if winBars > 300
-                    winBars := 300
-                float bound = 0.0
-                int last = off + winBars - 1
-                for j = off to last
-                    float v = macd[j]
-                    if not na(v)
-                        if isLong and v > 0 and v > bound
-                            bound := v
-                        if not isLong and v < 0 and v < bound
-                            bound := v
-                float cap = bound * (macdPct / 100.0)
-                ok := isLong ? m0 <= cap : m0 >= cap
-    ok
+        int sec = timeframe.in_seconds()
+        int winHours = sec <= 3600 ? 24 : 72
+        int winBars = int(math.max(2, math.round(winHours * 3600.0 / sec)))
+        if winBars > 300
+            winBars := 300
+        float bound = 0.0
+        int last = off + winBars - 1
+        for j = off to last
+            float v = macd[j]
+            if not na(v)
+                if isLong and v > 0 and v > bound
+                    bound := v
+                if not isLong and v < 0 and v < bound
+                    bound := v
+        float cap = bound * (macdPct / 100.0)
+        for i = off to 1
+            float h0 = hist[i]
+            float m0 = macd[i]
+            if not na(h0) and not na(m0)
+                bool sideOk = isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
+                bool distOk = isLong ? m0 <= cap : m0 >= cap
+                if sideOk and distOk
+                    ready := true
+                    break
+    ready
 
 // أول وقت (أقدم شمعة) أغلق ضد EMA50 داخل موجة تشبع الرئيس الحالية.
 f_ema_ok(bool isLong, float smi, float ema, float cl) =>
