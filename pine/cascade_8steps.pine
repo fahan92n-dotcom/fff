@@ -238,17 +238,7 @@ f_rsi_conf(bool isLong, float rsi) =>
     not bad
 
 f_block(bool isLong, float smi) =>
-    bool sat0 = isLong ? smi <= osLvl : smi >= obLvl
-    bool blocked = sat0
-    if not sat0
-        int last = -1
-        for i = 1 to 5
-            bool s = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
-            if s
-                last := i
-                break
-        blocked := last == 1 or last == 2
-    blocked
+    isLong ? smi <= osLvl : smi >= obLvl
 
 f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
     float smiTh = isLong ? osLvl : obLvl
@@ -649,8 +639,6 @@ buyHit = hitD3L or hitD2L or hitD1L or hit240L or hit210L or hit180L or hit150L 
 sellHit = hitD3S or hitD2S or hitD1S or hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit15S
 buyTag = hitD3L ? "3ي/1ي" : hitD2L ? "2ي/4س" : hitD1L ? "1ي/2س" : hit240L ? "4س/80" : hit210L ? "210/70" : hit180L ? "3س/1س" : hit150L ? "150/50" : hit120L ? "2س/40" : hit90L ? "90/30" : hit60L ? "1س/20" : hit45L ? "45/15" : hit30L ? "30/10" : "15/5"
 sellTag = hitD3S ? "3ي/1ي" : hitD2S ? "2ي/4س" : hitD1S ? "1ي/2س" : hit240S ? "4س/80" : hit210S ? "210/70" : hit180S ? "3س/1س" : hit150S ? "150/50" : hit120S ? "2س/40" : hit90S ? "90/30" : hit60S ? "1س/20" : hit45S ? "45/15" : hit30S ? "30/10" : "15/5"
-buyMin = hitD3L ? 4320 : hitD2L ? 2880 : hitD1L ? 1440 : hit240L ? 240 : hit210L ? 210 : hit180L ? 180 : hit150L ? 150 : hit120L ? 120 : hit90L ? 90 : hit60L ? 60 : hit45L ? 45 : hit30L ? 30 : 15
-sellMin = hitD3S ? 4320 : hitD2S ? 2880 : hitD1S ? 1440 : hit240S ? 240 : hit210S ? 210 : hit180S ? 180 : hit150S ? 150 : hit120S ? 120 : hit90S ? 90 : hit60S ? 60 : hit45S ? 45 : hit30S ? 30 : 15
 tpBuy = histWin
 slBuy = histLoss
 tpSel = histWin
