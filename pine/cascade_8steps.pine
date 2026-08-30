@@ -10,7 +10,6 @@
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI الفريم الرئيسي والتأكيد لكل صفقة عند الدخول.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
-// تشخيص مؤقت أسفل اليسار: لحظات تحقق s1–s8 (false→true) لكل فريم. لا يغيّر الدخول. يُزال بعد القراءة.
 strategy("Cascade 8 — فريمات د/س/ي",
      overlay                  = true,
      pyramiding               = 0,
@@ -74,7 +73,6 @@ showBg  = input.bool(true, "تظليل", group=grpVis)
 showLog = input.bool(true, "لوحة كل الفريمات", group=grpVis)
 showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
 showScore = input.bool(true, "نتائج الصفقات + RSI", group=grpVis)
-showDiag = input.bool(true, "تشخيص مؤقت: لحظات تحقق s1–s8", group=grpVis)
 scorePage = input.int(1, "صفحة النتائج", minval=1, group=grpVis)
 histWin  = input.float(2.00, "ربح الصفقة %", step=0.01, group=grpVis)
 histLoss = input.float(2.00, "خسارة الصفقة %", step=0.01, group=grpVis)
@@ -95,33 +93,6 @@ var array<float>  hRsiM = array.new_float()
 var array<float>  hRsiC = array.new_float()
 var array<int>    tally = array.new_int(2, 0)
 var int firstBarTime = time
-
-// تشخيص مؤقت — يعدّ لحظة التحقق فقط (false→true) لكل شرط. لا يغيّر الدخول.
-var matrix<int> diagCnt = matrix.new<int>(26, 8, 0)
-var matrix<bool> diagPrev = matrix.new<bool>(26, 8, false)
-var int diagTotalBars = 0
-diagTotalBars := diagTotalBars + 1
-var array<string> diagLabels = array.concat(
-     array.from("15 شراء", "15 بيع", "30 شراء", "30 بيع", "45 شراء", "45 بيع", "1س شراء", "1س بيع", "90 شراء"),
-     array.concat(
-         array.from("90 بيع", "2س شراء", "2س بيع", "150 شراء", "150 بيع", "3س شراء", "3س بيع", "210 شراء", "210 بيع"),
-         array.from("4س شراء", "4س بيع", "1ي شراء", "1ي بيع", "2ي شراء", "2ي بيع", "3ي شراء", "3ي بيع")))
-
-f_edge_one(matrix<int> m, matrix<bool> prevM, int row, int col, bool curVal) =>
-    bool prevVal = matrix.get(prevM, row, col)
-    if curVal and not prevVal
-        matrix.set(m, row, col, matrix.get(m, row, col) + 1)
-    matrix.set(prevM, row, col, curVal)
-
-f_tally_edge(matrix<int> m, matrix<bool> prevM, int row, bool s1, bool s2, bool s3, bool s4, bool s5, bool s6, bool s7, bool s8) =>
-    f_edge_one(m, prevM, row, 0, s1)
-    f_edge_one(m, prevM, row, 1, s2)
-    f_edge_one(m, prevM, row, 2, s3)
-    f_edge_one(m, prevM, row, 3, s4)
-    f_edge_one(m, prevM, row, 4, s5)
-    f_edge_one(m, prevM, row, 5, s6)
-    f_edge_one(m, prevM, row, 6, s7)
-    f_edge_one(m, prevM, row, 7, s8)
 
 f_rsi_txt(float v) =>
     na(v) ? "—" : str.tostring(v, "#.#")
@@ -473,33 +444,6 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
 [SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8, setD2S, allD2S] = f_side(false, bSD3, smiD2, mSD2, dCD2, dL6D, h6D, eSD2, rS6D, dC240, s8S240, t240)
 [LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8, setD3L, allD3L] = f_side(true,  bL4D, smiD3, mLD3, dCD3, dL9D, h9D, eLD3, rL9D, dCD1, s8LD1, tD1)
 [SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8, setD3S, allD3S] = f_side(false, bS4D, smiD3, mSD3, dCD3, dL9D, h9D, eSD3, rS9D, dCD1, s8SD1, tD1)
-
-f_tally_edge(diagCnt, diagPrev, 0,  L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8)
-f_tally_edge(diagCnt, diagPrev, 1,  S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8)
-f_tally_edge(diagCnt, diagPrev, 2,  L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8)
-f_tally_edge(diagCnt, diagPrev, 3,  S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8)
-f_tally_edge(diagCnt, diagPrev, 4,  L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8)
-f_tally_edge(diagCnt, diagPrev, 5,  S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8)
-f_tally_edge(diagCnt, diagPrev, 6,  L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8)
-f_tally_edge(diagCnt, diagPrev, 7,  S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8)
-f_tally_edge(diagCnt, diagPrev, 8,  L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8)
-f_tally_edge(diagCnt, diagPrev, 9,  S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8)
-f_tally_edge(diagCnt, diagPrev, 10, L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8)
-f_tally_edge(diagCnt, diagPrev, 11, S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8)
-f_tally_edge(diagCnt, diagPrev, 12, L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8)
-f_tally_edge(diagCnt, diagPrev, 13, S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8)
-f_tally_edge(diagCnt, diagPrev, 14, L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8)
-f_tally_edge(diagCnt, diagPrev, 15, S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8)
-f_tally_edge(diagCnt, diagPrev, 16, L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8)
-f_tally_edge(diagCnt, diagPrev, 17, S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8)
-f_tally_edge(diagCnt, diagPrev, 18, L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8)
-f_tally_edge(diagCnt, diagPrev, 19, S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
-f_tally_edge(diagCnt, diagPrev, 20, LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8)
-f_tally_edge(diagCnt, diagPrev, 21, SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8)
-f_tally_edge(diagCnt, diagPrev, 22, LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8)
-f_tally_edge(diagCnt, diagPrev, 23, SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8)
-f_tally_edge(diagCnt, diagPrev, 24, LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8)
-f_tally_edge(diagCnt, diagPrev, 25, SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8)
 
 var bool a15L = true
 var bool a15S = true
@@ -884,30 +828,6 @@ if barstate.islast
                 f_cell(scoreBox, 3, row, "", color.white, bg)
     else
         table.clear(scoreBox, 0, 0, 3, 23)
-
-var table diagTable = table.new(position.bottom_left, 9, 27, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0))
-if barstate.islast
-    if showDiag
-        color dHd = color.new(#1b3a5c, 0)
-        color dBg = color.new(#1a1a1a, 0)
-        f_cell(diagTable, 0, 0, "الفريم " + str.tostring(diagTotalBars), color.white, dHd)
-        f_cell(diagTable, 1, 0, "1", color.white, dHd)
-        f_cell(diagTable, 2, 0, "2", color.white, dHd)
-        f_cell(diagTable, 3, 0, "3", color.white, dHd)
-        f_cell(diagTable, 4, 0, "4", color.white, dHd)
-        f_cell(diagTable, 5, 0, "5", color.white, dHd)
-        f_cell(diagTable, 6, 0, "6", color.white, dHd)
-        f_cell(diagTable, 7, 0, "7", color.white, dHd)
-        f_cell(diagTable, 8, 0, "8", color.white, dHd)
-        for r = 0 to 25
-            f_cell(diagTable, 0, r + 1, array.get(diagLabels, r), color.silver, dBg)
-            for c = 0 to 7
-                int cnt = matrix.get(diagCnt, r, c)
-                float pct = diagTotalBars > 0 ? (cnt / float(diagTotalBars)) * 100.0 : 0.0
-                color fg = pct < 1.0 ? color.red : pct < 5.0 ? color.orange : color.lime
-                f_cell(diagTable, c + 1, r + 1, str.tostring(pct, "#.##") + "%", fg, dBg)
-    else
-        table.clear(diagTable, 0, 0, 8, 26)
 
 alertcondition(buyHit, title="شراء", message="Cascade شراء")
 alertcondition(sellHit, title="بيع", message="Cascade بيع")
