@@ -5,7 +5,7 @@
 // request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
 // step8 فقط على فريمات الدخول. 6 EMA ثم 7 Donchian الدخول ثم 8 — تسلسل، مو مع بعض.
 // Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD: شراء خط فوق الهستوجرام الأحمر وتحت 20٪ من أعلى موجة | بيع تحت الأخضر وفوق 20٪ من أدنى موجة
+// MACD: شراء خط فوق الهستوجرام الأحمر وتحت 40٪ من أعلى موجة | بيع تحت الأخضر وفوق 40٪ من أدنى موجة
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI الفريم الرئيسي والتأكيد لكل صفقة عند الدخول.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
@@ -31,7 +31,7 @@ obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
-macdPct = input.float(20.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
+macdPct = input.float(40.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
 dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
 emaLen = input.int(50, "EMA", minval=1, group=grpInd)
 rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
