@@ -19,7 +19,7 @@ strategy("Cascade 8 — كل الفريمات (شارت 20م)",
      process_orders_on_close  = true,
      calc_on_every_tick       = false,
      max_labels_count         = 500,
-     max_bars_back            = 1000)
+     max_bars_back            = 5000)
 
 grpInd = "المؤشرات"
 smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
@@ -776,12 +776,14 @@ else
 f_cell(table t, int col, int row, string txt, color fg, color bg) =>
     table.cell(t, col, row, txt, text_color=fg, bgcolor=bg, text_size=size.small, text_halign=text.align_center)
 
-var table scoreBox = table.new(position.top_left, 4, 24, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
+var int firstBarTime = time
+var table scoreBox = table.new(position.top_left, 4, 25, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
 var bool scoreMerged = false
 if not scoreMerged
     table.merge_cells(scoreBox, 0, 0, 3, 0)
     table.merge_cells(scoreBox, 0, 1, 3, 1)
     table.merge_cells(scoreBox, 0, 2, 3, 2)
+    table.merge_cells(scoreBox, 0, 3, 3, 3)
     scoreMerged := true
 
 if barstate.islast
@@ -795,16 +797,21 @@ if barstate.islast
         int pages = int(math.max(1, math.ceil(nHist / float(pageSize))))
         int page = math.min(scorePage, pages)
         int skip = (page - 1) * pageSize
+        int nBars = bar_index + 1
+        float loadedDays = (time - firstBarTime) / 86400000.0
+        string loadTxt = loadedDays >= 1.0 ? ("تم تحميل " + str.tostring(loadedDays, "#.#") + " يوم") : ("تم تحميل " + str.tostring(loadedDays * 24.0, "#.#") + " ساعة")
+        loadTxt += "  (" + str.tostring(nBars) + " شمعة)"
         f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages), color.white, hd)
-        f_cell(scoreBox, 0, 1, "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%   |   غيّر الصفحة من الإعدادات", color.silver, bg)
-        f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), scoreFg, bg)
-        f_cell(scoreBox, 0, 3, "الصفقة", color.white, hd)
-        f_cell(scoreBox, 1, 3, "النتيجة", color.white, hd)
-        f_cell(scoreBox, 2, 3, "RSI رئيس", color.white, hd)
-        f_cell(scoreBox, 3, 3, "RSI تأكيد", color.white, hd)
+        f_cell(scoreBox, 0, 1, loadTxt, color.orange, bg)
+        f_cell(scoreBox, 0, 2, "ربح " + str.tostring(histWin, "#.##") + "%   |   خسارة " + str.tostring(histLoss, "#.##") + "%   |   غيّر الصفحة من الإعدادات", color.silver, bg)
+        f_cell(scoreBox, 0, 3, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), scoreFg, bg)
+        f_cell(scoreBox, 0, 4, "الصفقة", color.white, hd)
+        f_cell(scoreBox, 1, 4, "النتيجة", color.white, hd)
+        f_cell(scoreBox, 2, 4, "RSI رئيس", color.white, hd)
+        f_cell(scoreBox, 3, 4, "RSI تأكيد", color.white, hd)
         for k = 0 to pageSize - 1
             int src = nHist - 1 - skip - k
-            int row = 4 + k
+            int row = 5 + k
             if src >= 0
                 int side = array.get(hSide, src)
                 int win = array.get(hWin, src)
@@ -821,7 +828,7 @@ if barstate.islast
                 f_cell(scoreBox, 2, row, "", color.white, bg)
                 f_cell(scoreBox, 3, row, "", color.white, bg)
     else
-        table.clear(scoreBox, 0, 0, 3, 23)
+        table.clear(scoreBox, 0, 0, 3, 24)
 
 alertcondition(buyHit, title="شراء", message="Cascade شراء")
 alertcondition(sellHit, title="بيع", message="Cascade بيع")
