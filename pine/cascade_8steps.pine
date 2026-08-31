@@ -4,7 +4,7 @@
 // الإلغاء: كل رئيس يلغي الأصغر منه من 15م إلى 4س. 4س يلغيه 5س. 1ي←2ي←3ي←4ي.
 // الحظر يرتفع فور خروج SMI الأب من ±40 (بدون سماحية 1–2 شمعة).
 // request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
-// كل شرط يُثبَّت عندما يتحقق في الموجة. الدخول عند اكتمال آخر شرط حتى لو الباقي لم يعد صحيحًا الآن. إعادة الضبط عند تشبع جديد.
+// ماضي الصفقة يجب أن يكون صحيحاً ومكتملاً: كل شرط يُحسب فقط إذا تحقق فعليًا في نفس موجة التشبع. Cond 7 بعد Cond 6 فقط. Cond 8 بعد 7 ومن تشبع الدخول الحالي فقط. الدخول عند اكتمال السجل — لا نركّب أجزاء غير صحيحة، ولا نطلب أن تبقى كلها حية في شمعة الدخول.
 // شرط 4 (Donchian التأكيد) ملغى ولا يدخل في قرار الصفقة.
 // شرط 5: MACD التأكيد. هستوجرام فوق 0 شراء | تحت 0 بيع.
 // شرط 6 RSI: تأكيد شراء 50–60 | تأكيد بيع 40–50. التأكيد أعلى من الرئيس بفرق 3–10 (الشراء والبيع).
@@ -459,7 +459,6 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     var bool l6 = false
     var bool l7 = false
     var bool l8 = false
-    var bool sawDon = false
     if satNow and not wasSat
         l1 := false
         l2 := false
@@ -468,7 +467,6 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
         l6 := false
         l7 := false
         l8 := false
-        sawDon := false
     wasSat := satNow
     if now1
         l1 := true
@@ -480,11 +478,11 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
         l5 := true
     if now6
         l6 := true
-    if donOpp and not na(entT)
-        sawDon := true
-    if l6 and sawDon
+    // Cond 7 صحيح فقط إذا حصل Donchian المعاكس بعد تحقق Cond 6 في هذه الموجة.
+    if l6 and donOpp and not na(entT)
         l7 := true
-    if now8
+    // Cond 8 يُحسب بعد 7، وفقط إذا سلسلته اكتملت فعلاً في تشبع الدخول الحالي (ليس من موجة سابقة).
+    if l7 and now8
         l8 := true
     bool s4 = true
     bool setup = l1 and l2 and l3 and l5 and l6 and l7
@@ -839,7 +837,7 @@ if showLog
     txt += f_row("1ي B", LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8) + " " + f_row("S", SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8) + "\n"
     txt += f_row("2ي B", LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8) + " " + f_row("S", SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8) + "\n"
     txt += f_row("3ي B", LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8) + " " + f_row("S", SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8)
-    txt += "\nكل شرط يُثبَّت عند تحققه في الموجة (مو لازم كلها الآن) | شرط 5: MACD تأكيد | شرط 6: RSI 50–60 / 40–50 وفرق 3–10 | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س | 2ي←1ي · 3ي←2ي · 4ي←3ي"
+    txt += "\nماضي الصفقة صحيح ومكتمل: كل شرط تحقق فعلاً في الموجة | 6 ثم 7 ثم 8 | لا أجزاء ملفّقة | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س | 2ي←1ي · 3ي←2ي · 4ي←3ي"
     if chartTooHigh
         txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
