@@ -1,19 +1,15 @@
 //@version=5
-// Cascade 8 خطوات — زوج 15د ملغى. الشارت 5م أو أقل (الدقيقة أفضل) حتى تظهر مداخل 5م.
+// Cascade تسلسل 7 — استراتيجية جديدة. من الكود القديم نقتبس فقط إعدادات المؤشرات وعدد الفريمات.
+// الشارت 5م أو أقل (الدقيقة أفضل). زوج 15د ملغى.
 // وقف/هدف: أقل من 2س = 2٪/2٪ | من 2س إلى اليوم = وقف 3٪ هدف 4٪.
-// الإلغاء: كل رئيس يلغي الأصغر منه من 15م إلى 4س. 4س يلغيه 5س. 1ي←2ي←3ي←4ي.
-// الحظر يرتفع فور خروج SMI الأب من ±40 (بدون سماحية 1–2 شمعة).
-// request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
-// ماضي الصفقة يجب أن يكون صحيحاً ومكتملاً: كل شرط يُحسب فقط إذا تحقق فعليًا في نفس موجة التشبع. Cond 7 بعد Cond 6 فقط. Cond 8 بعد 7 ومن تشبع الدخول الحالي فقط. الدخول عند اكتمال السجل — لا نركّب أجزاء غير صحيحة، ولا نطلب أن تبقى كلها حية في شمعة الدخول.
-// شرط 4 (Donchian التأكيد) ملغى ولا يدخل في قرار الصفقة.
-// شرط 5: MACD التأكيد. هستوجرام فوق 0 شراء | تحت 0 بيع.
-// شرط 6 RSI: تأكيد شراء 50–60 | تأكيد بيع 40–50. التأكيد أعلى من الرئيس بفرق 3–10 (الشراء والبيع).
-// Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD: بعد أول تشبع انتظر. أقصى موجة من آخر 24س (فريم < 1س) أو 72س فعلية (1س فأعلى). شراء خط فوق الأحمر وتحت 20٪ | بيع تحت الأخضر وفوق 20٪. يثبت جاهز حتى الدخول أو نهاية التشبع.
-// تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
-// النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI وإغلاق الرئيس والتأكيد لكل صفقة.
-// صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
-strategy("Cascade 8 — فريمات د/س/ي",
+// الإلغاء: الفريم الأكبر يلغي الأصغر. الحظر يرتفع فور خروج SMI الأب من ±40.
+// التسلسل داخل موجة تشبع واحدة (لا يُحسب شرط قبل الذي قبله):
+// 1 SMI ±40 → 2 MACD 20٪ → 3 Donchian الرئيس مع الصفقة → 4 EMA50
+// → 5 MACD التأكيد ثم RSI التأكيد → 6 Donchian الدخول معاكس → 7 دخول: SMI ثم RSI+Stoch (أيّهما أولاً، فرق 3 شموع).
+// MACD رئيس: شراء خط فوق الأحمر وضمن 20٪ من أعلى موجة | بيع خط تحت الأخضر وضمن 20٪ من أدنى موجة.
+// RSI تأكيد: آخر 30 شمعة شراء ما نزل ≤30 / بيع ما طلع ≥70 | الآن شراء 50–60 / بيع 40–50 | التأكيد أعلى من الرئيس 3–10.
+// RSI الرئيس والتأكيد يظهران على الشارت (لوحة حية + نتائج الصفقات).
+strategy("Cascade 7 — تسلسل",
      overlay                  = true,
      pyramiding               = 0,
      initial_capital          = 100000,
@@ -256,27 +252,9 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
                     break
     ready
 
-// أول وقت (أقدم شمعة) أغلق ضد EMA50 داخل موجة تشبع الرئيس الحالية.
-f_ema_ok(bool isLong, float smi, float ema, float cl) =>
-    var int hit = na
-    bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
-    if not satNow
-        hit := na
-    else if na(hit)
-        int off = 1
-        for i = 2 to 200
-            bool sat = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
-            if not sat
-                break
-            off := i
-        for i = off to 1
-            if isLong and cl[i] < ema[i]
-                hit := time[i]
-                break
-            if not isLong and cl[i] > ema[i]
-                hit := time[i]
-                break
-    hit
+// Cond 4: الشراء تحت EMA50 | البيع فوق EMA50 (شمعة مغلقة).
+f_ema_now(bool isLong, float ema, float cl) =>
+    not na(ema) and not na(cl) and (isLong ? cl < ema : cl > ema)
 
 f_rsi_conf(bool isLong, float rsi) =>
     bool bad = false
@@ -301,20 +279,21 @@ f_rsi_gap(float rsiM, float rsiC) =>
 f_block(bool isLong, float smi) =>
     isLong ? smi <= osLvl : smi >= obLvl
 
-f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
+// Cond 7 على فريم الدخول: أولاً تشبع SMI، ثم RSI (لمس 35/65 ثم قطع SMA14) وStoch. أيّهما أولاً، فرق ≤ 3 شموع.
+f_entry7(bool isLong, float smi, float rsi, float rsiMa, float k) =>
     float smiTh = isLong ? osLvl : obLvl
     float rsiTh = isLong ? rsiOs : rsiOb
     float stTh  = isLong ? stochBuy : stochSell
     int done = na
-    int smiIdx = -1
     bool sat1 = isLong ? smi[1] <= smiTh : smi[1] >= smiTh
     if sat1
-        smiIdx := 1
+        int smiIdx = 1
         for i = 2 to 200
             bool satI = isLong ? smi[i] <= smiTh : smi[i] >= smiTh
             if not satI
                 break
             smiIdx := i
+        int best = 100000
         for rsiIdx = 1 to smiIdx
             bool rHit = isLong ? rsi[rsiIdx] <= rsiTh : rsi[rsiIdx] >= rsiTh
             if not rHit
@@ -330,16 +309,19 @@ f_step8(bool isLong, float smi, float rsi, float rsiMa, float k) =>
                     if crossed
                         crossIdx := i
                         break
-            if crossIdx > 0
-                int newest = math.max(1, crossIdx - stochGap)
-                for j = crossIdx to newest
-                    if not na(k[j])
-                        bool st = isLong ? k[j] > stTh : k[j] < stTh
-                        if st
-                            done := time[j]
-                            break
-            if not na(done)
-                break
+            if crossIdx < 1
+                continue
+            int lo = math.max(1, crossIdx - stochGap)
+            int hi = math.min(smiIdx, crossIdx + stochGap)
+            for j = lo to hi
+                if not na(k[j])
+                    bool st = isLong ? k[j] > stTh : k[j] < stTh
+                    if st
+                        int laterIdx = math.min(crossIdx, j)
+                        if laterIdx < best
+                            best := laterIdx
+        if best < 100000
+            done := time[best]
     done
 
 // security على فريم أدنى من الشارت ترجع آخر شمعة فقط (مو كل na).
@@ -350,7 +332,7 @@ f_snap_entry() =>
     rsi = ta.rsi(close, rsiLen)
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-    [don[1], f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), time[1]]
+    [don[1], f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), time[1]]
 
 f_snap_confirm() =>
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
@@ -366,7 +348,7 @@ f_snap_base() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], close[1]]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema[1], close[1]), f_ema_now(false, ema[1], close[1]), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], close[1]]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -381,7 +363,7 @@ f_snap_base_entry() =>
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], time[1], close[1]]
+    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema[1], close[1]), f_ema_now(false, ema[1], close[1]), f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], time[1], close[1]]
 
 f_snap_htf() =>
     smi = f_smi()
@@ -390,7 +372,7 @@ f_snap_htf() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], don[1], hist2[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], close[1]]
+    [smi[1], don[1], don[1], hist2[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema[1], close[1]), f_ema_now(false, ema[1], close[1]), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], close[1]]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -442,19 +424,21 @@ f_req_htf(simple string tf) =>
 [bL300, bS300] = f_req_cancel("300")
 [bL4D, bS4D] = f_req_cancel("4D")
 
-f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, int emaT, bool rsiCf, float rsiM, float rsiC, float donT, int s8T, int entT) =>
+f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float rsiM, float rsiC, float donT, int s7T, int entT) =>
     bool satNow = not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
     bool now1 = not blk and satNow
     bool now2 = mOk
-    bool now3 = isLong ? donB == 1 : donB == -1
+    bool now3 = (isLong ? donB == 1 : donB == -1) and (na(donCf) or not na(donCf))
+    bool now4 = emaOk
     bool now5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
-    bool now6 = not na(emaT) and rsiCf and f_rsi_band(isLong, rsiC) and f_rsi_gap(rsiM, rsiC)
-    bool donOpp = isLong ? donT == -1 : donT == 1
-    bool now8 = not na(s8T)
+    bool now6 = rsiCf and f_rsi_band(isLong, rsiC) and f_rsi_gap(rsiM, rsiC)
+    bool now7 = (isLong ? donT == -1 : donT == 1) and not na(entT)
+    bool now8 = not na(s7T)
     var bool wasSat = false
     var bool l1 = false
     var bool l2 = false
     var bool l3 = false
+    var bool l4 = false
     var bool l5 = false
     var bool l6 = false
     var bool l7 = false
@@ -463,6 +447,7 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
         l1 := false
         l2 := false
         l3 := false
+        l4 := false
         l5 := false
         l6 := false
         l7 := false
@@ -470,24 +455,23 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     wasSat := satNow
     if now1
         l1 := true
-    if now2
+    if l1 and now2
         l2 := true
-    if now3
+    if l2 and now3
         l3 := true
-    if now5
+    if l3 and now4
+        l4 := true
+    if l4 and now5
         l5 := true
-    if now6
+    if l5 and now6
         l6 := true
-    // Cond 7 صحيح فقط إذا حصل Donchian المعاكس بعد تحقق Cond 6 في هذه الموجة.
-    if l6 and donOpp and not na(entT)
+    if l6 and now7
         l7 := true
-    // Cond 8 يُحسب بعد 7، وفقط إذا سلسلته اكتملت فعلاً في تشبع الدخول الحالي (ليس من موجة سابقة).
     if l7 and now8
         l8 := true
-    bool s4 = true
-    bool setup = l1 and l2 and l3 and l5 and l6 and l7
-    bool all8 = setup and l8
-    [l1, l2, l3, s4, l5, l6, l7, l8, setup, all8]
+    bool setup = l1 and l2 and l3 and l4 and l5 and l6 and l7
+    bool all8 = setup and l8 and satNow and not blk
+    [l1, l2, l3, l4, l5, l6, l7, l8, setup, all8]
 
 [L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL30, smi15, mL15, dC15, dL45, h45, eL15, rL45, rsi15, rsi45, dC5, s8L5, t5)
 [S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS30, smi15, mS15, dC15, dL45, h45, eS15, rS45, rsi15, rsi45, dC5, s8S5, t5)
@@ -837,7 +821,7 @@ if showLog
     txt += f_row("1ي B", LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8) + " " + f_row("S", SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8) + "\n"
     txt += f_row("2ي B", LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8) + " " + f_row("S", SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8) + "\n"
     txt += f_row("3ي B", LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8) + " " + f_row("S", SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8)
-    txt += "\nماضي الصفقة صحيح ومكتمل: كل شرط تحقق فعلاً في الموجة | 6 ثم 7 ثم 8 | لا أجزاء ملفّقة | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س | 2ي←1ي · 3ي←2ي · 4ي←3ي"
+    txt += "\nتسلسل: 1SMI 2MACD 3Don 4EMA50 5MACDتأكيد 6RSIتأكيد 7Donدخول 8دخول(SMI ثم RSI+Stoch≤3) | الأكبر يلغي الأصغر"
     if chartTooHigh
         txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
@@ -848,6 +832,17 @@ else
 f_cell(table t, int col, int row, string txt, color fg, color bg) =>
     table.cell(t, col, row, txt, text_color=fg, bgcolor=bg, text_size=size.small, text_halign=text.align_center)
 
+f_rsi_fg(float v) =>
+    na(v) ? color.gray : v >= 70 ? color.red : v <= 30 ? color.lime : color.white
+
+var table rsiLive = table.new(position.top_right, 3, 14, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
+
+f_rsi_line(int row, string nm, float rM, float rC) =>
+    color bgR = color.new(#1a1a1a, 0)
+    f_cell(rsiLive, 0, row, nm, color.silver, bgR)
+    f_cell(rsiLive, 1, row, f_rsi_txt(rM), f_rsi_fg(rM), bgR)
+    f_cell(rsiLive, 2, row, f_rsi_txt(rC), f_rsi_fg(rC), bgR)
+
 var table scoreBox = table.new(position.top_left, 4, 24, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
 var bool scoreMerged = false
 if not scoreMerged
@@ -857,6 +852,22 @@ if not scoreMerged
     scoreMerged := true
 
 if barstate.islast
+    color hdR = color.new(#1b3a5c, 0)
+    f_cell(rsiLive, 0, 0, "زوج", color.white, hdR)
+    f_cell(rsiLive, 1, 0, "RSI رئيس", color.white, hdR)
+    f_cell(rsiLive, 2, 0, "RSI تأكيد", color.white, hdR)
+    f_rsi_line(1, "30/10", rsi30, rsi90)
+    f_rsi_line(2, "45/15", rsi45, rsi135)
+    f_rsi_line(3, "1س/20", rsi60, rsi180)
+    f_rsi_line(4, "90/30", rsi90, rsi270)
+    f_rsi_line(5, "2س/40", rsi120, rsi360)
+    f_rsi_line(6, "150/50", rsi150, rsi450)
+    f_rsi_line(7, "3س/1س", rsi180, rsi540)
+    f_rsi_line(8, "210/70", rsi210, rsi630)
+    f_rsi_line(9, "4س/80", rsi240, rsi720)
+    f_rsi_line(10, "1ي/2س", rsiD1, rsiD3)
+    f_rsi_line(11, "2ي/4س", rsiD2, rsi6D)
+    f_rsi_line(12, "3ي/1ي", rsiD3, rsi9D)
     if showScore
         int wins = array.get(tally, 0)
         int losses = array.get(tally, 1)
