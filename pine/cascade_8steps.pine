@@ -215,14 +215,15 @@ f_don() =>
     trend
 
 // بعد أول تشبع لا يُرفض فورًا. ينتظر حتى يصل الخط إلى 20٪ من أقصى موجة، ثم يثبت جاهز.
+// Cond 2 MACD: على آخر شمعة مغلقة داخل security (lookahead_off). لا نأخذ [1] مرة ثانية.
 f_macd_ok(bool isLong, float smi, float hist, float macd) =>
     var bool ready = false
-    bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
+    bool satNow = isLong ? smi <= osLvl : smi >= obLvl
     if not satNow
         ready := false
     else if not ready
-        int off = 1
-        for i = 2 to 200
+        int off = 0
+        for i = 1 to 200
             bool still = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
             if not still
                 break
@@ -233,7 +234,7 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
         if winBars > 300
             winBars := 300
         float bound = 0.0
-        for j = 1 to winBars
+        for j = 0 to winBars
             float v = macd[j]
             if not na(v)
                 if isLong and v > 0 and v > bound
@@ -241,7 +242,7 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
                 if not isLong and v < 0 and v < bound
                     bound := v
         float cap = bound * (macdPct / 100.0)
-        for i = off to 1
+        for i = off to 0
             float h0 = hist[i]
             float m0 = macd[i]
             if not na(h0) and not na(m0)
@@ -286,21 +287,21 @@ f_entry7(bool isLong, float smi, float rsi, float rsiMa, float k) =>
     float rsiTh = isLong ? rsiOs : rsiOb
     float stTh  = isLong ? stochBuy : stochSell
     int done = na
-    bool sat1 = isLong ? smi[1] <= smiTh : smi[1] >= smiTh
-    if sat1
-        int smiIdx = 1
-        for i = 2 to 200
+    bool sat0 = isLong ? smi <= smiTh : smi >= smiTh
+    if sat0
+        int smiIdx = 0
+        for i = 1 to 200
             bool satI = isLong ? smi[i] <= smiTh : smi[i] >= smiTh
             if not satI
                 break
             smiIdx := i
         int best = 100000
-        for rsiIdx = 1 to smiIdx
+        for rsiIdx = 0 to smiIdx
             bool rHit = isLong ? rsi[rsiIdx] <= rsiTh : rsi[rsiIdx] >= rsiTh
             if not rHit
                 continue
             int crossIdx = -1
-            for i = rsiIdx to 1
+            for i = rsiIdx to 0
                 float prevR = rsi[i + 1]
                 float prevM = rsiMa[i + 1]
                 float curR  = rsi[i]
@@ -310,9 +311,9 @@ f_entry7(bool isLong, float smi, float rsi, float rsiMa, float k) =>
                     if crossed
                         crossIdx := i
                         break
-            if crossIdx < 1
+            if crossIdx < 0
                 continue
-            int lo = math.max(1, crossIdx - stochGap)
+            int lo = math.max(0, crossIdx - stochGap)
             int hi = math.min(smiIdx, crossIdx + stochGap)
             for j = lo to hi
                 if not na(k[j])
@@ -333,14 +334,14 @@ f_snap_entry() =>
     rsi = ta.rsi(close, rsiLen)
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-    [don[1], f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), time[1]]
+    [don, f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), time]
 
 f_snap_confirm() =>
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
-    [don[1], hist2[1], f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), rsi[1], close[1]]
+    [don, hist2, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), rsi, close]
 
 f_snap_base() =>
     smi = f_smi()
@@ -349,11 +350,11 @@ f_snap_base() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema[1], close[1]), f_ema_now(false, ema[1], close[1]), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], close[1]]
+    [smi, don, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema, close), f_ema_now(false, ema, close), f_block(true, smi), f_block(false, smi), rsi, close]
 
 f_snap_cancel() =>
     smi = f_smi()
-    [f_block(true, smi[1]), f_block(false, smi[1])]
+    [f_block(true, smi), f_block(false, smi)]
 
 f_snap_base_entry() =>
     smi = f_smi()
@@ -364,7 +365,7 @@ f_snap_base_entry() =>
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema[1], close[1]), f_ema_now(false, ema[1], close[1]), f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], time[1], close[1]]
+    [smi, don, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema, close), f_ema_now(false, ema, close), f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time, close]
 
 f_snap_htf() =>
     smi = f_smi()
@@ -373,8 +374,9 @@ f_snap_htf() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], don[1], hist2[1], f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema[1], close[1]), f_ema_now(false, ema[1], close[1]), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi[1]), f_block(false, smi[1]), rsi[1], close[1]]
+    [smi, don, don, hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema, close), f_ema_now(false, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), rsi, close]
 
+// الشارت 1د وكل الفريمات أعلى: lookahead_off يعطي آخر شمعة مغلقة. لا نأخذ [1] مرة ثانية (هذا كان يأخّر كل شرط شمعة فريم كاملة).
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
 
@@ -428,12 +430,12 @@ f_req_htf(simple string tf) =>
 f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float rsiM, float rsiC, float donT, int s7T, int entT) =>
     bool satNow = not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
     bool now1 = not blk and satNow
-    bool now2 = mOk
-    bool now3 = (isLong ? donB == 1 : donB == -1) and (na(donCf) or not na(donCf))
-    bool now4 = emaOk
+    bool now2 = mOk == true
+    bool now3 = isLong ? donB > 0 : donB < 0
+    bool now4 = emaOk == true
     bool now5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
-    bool now6 = rsiCf and f_rsi_band(isLong, rsiC) and f_rsi_gap(rsiM, rsiC)
-    bool now7 = (isLong ? donT == -1 : donT == 1) and not na(entT)
+    bool now6 = rsiCf == true and f_rsi_band(isLong, rsiC) and f_rsi_gap(rsiM, rsiC)
+    bool now7 = (isLong ? donT < 0 : donT > 0) and not na(entT)
     bool now8 = not na(s7T)
     var bool wasSat = false
     var bool l1 = false
