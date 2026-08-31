@@ -7,9 +7,8 @@
 // step8 فقط على فريمات الدخول. 7 Donchian الدخول ثم 8 — تسلسل، مو مع بعض.
 // شرط 3 (Donchian الرئيس) وشرط 4 (Donchian التأكيد) وشرط 6 (EMA + RSI) ملغاة ولا تدخل في قرار الصفقة. شرط 7 يبقى Donchian الدخول.
 // شرط 5: MACD التأكيد. هستوجرام فوق 0 شراء | تحت 0 بيع.
-// ROC على الفريم الأساسي: خط المتوسط فوق 0 شراء | تحت 0 بيع.
+// شرط 2: ROC على الفريم الأساسي فقط. خط المتوسط فوق 0 شراء | تحت 0 بيع. مكان MACD الرئيس لا يُفحص.
 // Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD الرئيس: بعد أول تشبع انتظر حتى الخط فوق الهستوجرام (شراء) أو تحته (بيع). لا سقف 20٪ ولا شرط مقابل الصفر. يثبت جاهز حتى الدخول أو نهاية التشبع.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI وإغلاق الرئيس والتأكيد لكل صفقة.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
@@ -225,29 +224,6 @@ f_roc_ok(bool isLong) =>
     float ma = f_maroc()
     not na(ma) and (isLong ? ma > 0 : ma < 0)
 
-// بعد أول تشبع ينتظر حتى الخط فوق الهستوجرام (شراء) أو تحته (بيع)، بأي مكان مقابل الصفر.
-f_macd_ok(bool isLong, float smi, float hist, float macd) =>
-    var bool ready = false
-    bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
-    if not satNow
-        ready := false
-    else if not ready
-        int off = 1
-        for i = 2 to 50
-            bool still = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
-            if not still
-                break
-            off := i
-        for i = off to 1
-            float h0 = hist[i]
-            float m0 = macd[i]
-            if not na(h0) and not na(m0)
-                bool sideOk = isLong ? m0 >= h0 : m0 <= h0
-                if sideOk
-                    ready := true
-                    break
-    ready
-
 // أول وقت (أقدم شمعة) أغلق ضد EMA50 داخل موجة تشبع الرئيس الحالية.
 f_ema_ok(bool isLong, float smi, float ema, float cl) =>
     var int hit = na
@@ -369,12 +345,10 @@ f_snap_confirm() =>
 
 f_snap_base() =>
     smi = f_smi()
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
-    hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine) and f_roc_ok(true), f_macd_ok(false, smi, hist2, macdLine) and f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi), rsi, close[1]]
+    [smi[1], don[1], f_roc_ok(true), f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi), rsi, close[1]]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -382,14 +356,12 @@ f_snap_cancel() =>
 
 f_snap_base_entry() =>
     smi = f_smi()
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-    hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don[1], f_macd_ok(true, smi, hist2, macdLine) and f_roc_ok(true), f_macd_ok(false, smi, hist2, macdLine) and f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time[1], close[1]]
+    [smi[1], don[1], f_roc_ok(true), f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time[1], close[1]]
 
 f_snap_htf() =>
     smi = f_smi()
@@ -398,7 +370,7 @@ f_snap_htf() =>
     ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don, don[1], hist2, f_macd_ok(true, smi, hist2, macdLine) and f_roc_ok(true), f_macd_ok(false, smi, hist2, macdLine) and f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), rsi, close[1]]
+    [smi[1], don, don[1], hist2, f_roc_ok(true), f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), rsi, close[1]]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
@@ -750,7 +722,7 @@ if showLog
     txt += f_row("3س B", L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8) + " " + f_row("S", S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8) + "\n"
     txt += f_row("210 B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
     txt += f_row("4س B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
-    txt += "\nشرط 2: MACD خط≥هستو شراء / خط≤هستو بيع (بدون 20٪ وبدون مقابل 0) + ROC >0 شراء <0 بيع | شرط 3 و4 و6 ملغاة | شرط 5: MACD التأكيد هستو | شرط 7: Donchian الدخول | تسلسل: 7 ثم 8 | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س"
+    txt += "\nشرط 2: ROC الأساسي >0 شراء <0 بيع | شرط 5: MACD التأكيد هستو | شرط 7: Donchian الدخول | تسلسل: 7 ثم 8 | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س"
     if chartTooHigh
         txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
