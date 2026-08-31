@@ -7,7 +7,7 @@
 // 1 SMI ±40 → 2 MACD 20٪ → 3 Donchian الرئيس مع الصفقة → 4 EMA50
 // → 5 MACD التأكيد ثم RSI التأكيد → 6 Donchian الدخول معاكس → 7 دخول: SMI ثم RSI+Stoch (أيّهما أولاً، فرق 3 شموع).
 // MACD رئيس: شراء خط فوق الأحمر وضمن 20٪ من أعلى موجة | بيع خط تحت الأخضر وضمن 20٪ من أدنى موجة.
-// RSI تأكيد: آخر 30 شمعة شراء ما نزل ≤30 / بيع ما طلع ≥70 | الآن شراء 50–60 / بيع 40–50 | التأكيد أعلى من الرئيس 3–10.
+// RSI تأكيد: آخر 30 شمعة يجب أن يلمس ≤30 شراء / ≥70 بيع، ثم الآن 50–60 / 40–50، والتأكيد أعلى من الرئيس 3–10.
 // RSI الرئيس والتأكيد يظهران على الشارت (لوحة حية + نتائج الصفقات).
 strategy("Cascade 7 — تسلسل",
      overlay                  = true,
@@ -39,8 +39,8 @@ stKlen = input.int(15, "Stoch K", minval=1, group=grpInd)
 stKsm  = input.int(3,  "Stoch K Smooth", minval=1, group=grpInd)
 rsiOs  = input.float(35, "لمس RSI شراء", group=grpInd)
 rsiOb  = input.float(65, "لمس RSI بيع", group=grpInd)
-rsiConfOs = input.float(30, "RSI تأكيد ممنوع <=", group=grpInd)
-rsiConfOb = input.float(70, "RSI تأكيد ممنوع >=", group=grpInd)
+rsiConfOs = input.float(30, "RSI تأكيد لمس شراء <=", group=grpInd)
+rsiConfOb = input.float(70, "RSI تأكيد لمس بيع >=", group=grpInd)
 rsiLook   = input.int(30, "RSI تأكيد شموع", minval=1, group=grpInd)
 rsiCfBuyLo  = input.float(50.0, "RSI تأكيد شراء من", group=grpInd)
 rsiCfBuyHi  = input.float(60.0, "RSI تأكيد شراء إلى", group=grpInd)
@@ -256,17 +256,18 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
 f_ema_now(bool isLong, float ema, float cl) =>
     not na(ema) and not na(cl) and (isLong ? cl < ema : cl > ema)
 
+// Cond RSI التأكيد: آخر 30 شمعة لمس ≤30 شراء / ≥70 بيع (هبوط ثم صعود إلى 50–60).
 f_rsi_conf(bool isLong, float rsi) =>
-    bool bad = false
+    bool hit = false
     for i = 0 to rsiLook - 1
         if not na(rsi[i])
             if isLong and rsi[i] <= rsiConfOs
-                bad := true
+                hit := true
                 break
             if not isLong and rsi[i] >= rsiConfOb
-                bad := true
+                hit := true
                 break
-    not bad
+    hit
 
 // تأكيد شراء 50.00–60.00 | بيع 40.00–50.00 (50.01 و 39.99 مرفوضان للبيع).
 f_rsi_band(bool isLong, float rsiC) =>
@@ -470,7 +471,7 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
     if l7 and now8
         l8 := true
     bool setup = l1 and l2 and l3 and l4 and l5 and l6 and l7
-    bool all8 = setup and l8 and satNow and not blk
+    bool all8 = setup and l8 and not blk
     [l1, l2, l3, l4, l5, l6, l7, l8, setup, all8]
 
 [L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL30, smi15, mL15, dC15, dL45, h45, eL15, rL45, rsi15, rsi45, dC5, s8L5, t5)
@@ -821,7 +822,7 @@ if showLog
     txt += f_row("1ي B", LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8) + " " + f_row("S", SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8) + "\n"
     txt += f_row("2ي B", LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8) + " " + f_row("S", SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8) + "\n"
     txt += f_row("3ي B", LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8) + " " + f_row("S", SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8)
-    txt += "\nتسلسل: 1SMI 2MACD 3Don 4EMA50 5MACDتأكيد 6RSIتأكيد 7Donدخول 8دخول(SMI ثم RSI+Stoch≤3) | الأكبر يلغي الأصغر"
+    txt += "\nتسلسل: 1SMI 2MACD 3Don 4EMA50 5MACDتأكيد 6RSI(لمس30 ثم 50–60) 7Donدخول 8دخول | الأكبر يلغي الأصغر | الدخول عند اكتمال السجل"
     if chartTooHigh
         txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
