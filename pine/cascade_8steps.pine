@@ -1,7 +1,7 @@
 //@version=5
-// Cascade 8 خطوات — زوج 15د ملغى. الشارت 5م أو أقل (الدقيقة أفضل) حتى تظهر مداخل 5م.
-// وقف/هدف: أقل من 2س = 2٪/2٪ | من 2س إلى اليوم = وقف 3٪ هدف 4٪.
-// الإلغاء: كل رئيس يلغي الأصغر منه من 15م إلى 4س. 4س يلغيه 5س. 1ي←2ي←3ي←4ي.
+// Cascade 8 خطوات — بدون أزواج يومية. الشارت 5م أو أقل (الدقيقة أفضل) حتى تظهر مداخل 5م.
+// وقف/هدف: أقل من 2س = 2٪/2٪ | من 2س إلى 4س = وقف 3٪ هدف 4٪.
+// الإلغاء: كل رئيس يلغي الأصغر منه من 15م إلى 4س. 4س يلغيه 5س.
 // الحظر يرتفع فور خروج SMI الأب من ±40 (بدون سماحية 1–2 شمعة).
 // request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
 // step8 فقط على فريمات الدخول. 6 EMA ثم 7 Donchian الدخول ثم 8 — تسلسل، مو مع بعض.
@@ -59,7 +59,7 @@ stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
 
 grpP = "الأزواج"
-use15  = input.bool(false, "15د / 45د / 5د — ملغى", group=grpP)
+use15  = input.bool(true, "15د / 45د / 5د", group=grpP)
 use30  = input.bool(true, "30د / 90د / 10د", group=grpP)
 use45  = input.bool(true, "45د / 135د / 15د", group=grpP)
 use60  = input.bool(true, "1س / 3س / 20د", group=grpP)
@@ -69,9 +69,6 @@ use150 = input.bool(true, "150د / 450د / 50د", group=grpP)
 use180 = input.bool(true, "3س / 9س / 1س", group=grpP)
 use210 = input.bool(true, "210د / 630د / 70د", group=grpP)
 use240 = input.bool(true, "4س / 12س / 80د", group=grpP)
-useD1  = input.bool(true, "1ي / 3ي / 2س", group=grpP)
-useD2  = input.bool(true, "2ي / 6ي / 4س", group=grpP)
-useD3  = input.bool(true, "3ي / 9ي / 1ي", group=grpP)
 
 grpRisk = "إغلاق"
 useLong = input.bool(true, "شراء", group=grpRisk)
@@ -87,8 +84,8 @@ showScore = input.bool(true, "نتائج الصفقات + RSI", group=grpVis)
 scorePage = input.int(1, "صفحة النتائج", minval=1, group=grpVis)
 histWin  = input.float(2.00, "ربح أقل من 2س %", step=0.01, group=grpVis)
 histLoss = input.float(2.00, "خسارة أقل من 2س %", step=0.01, group=grpVis)
-htfWin   = input.float(4.00, "ربح 2س–يوم %", step=0.01, group=grpVis)
-htfLoss  = input.float(3.00, "خسارة 2س–يوم %", step=0.01, group=grpVis)
+htfWin   = input.float(4.00, "ربح 2س–4س %", step=0.01, group=grpVis)
+htfLoss  = input.float(3.00, "خسارة 2س–4س %", step=0.01, group=grpVis)
 histKeep = 100
 pageSize = 20
 
@@ -122,9 +119,9 @@ f_px_txt(float v) =>
 f_pair_txt(float rsi, float cl) =>
     "RSI " + f_rsi_txt(rsi) + "\nإغلاق " + f_px_txt(cl)
 
-// 2س / 150د / 3س / 210د / 4س / 1ي / 2ي / 3ي → ربح 4٪ وقف 3٪
+// 2س / 150د / 3س / 210د / 4س → ربح 4٪ وقف 3٪
 f_wide_tf(string tag) =>
-    tag == "2س/40" or tag == "150/50" or tag == "3س/1س" or tag == "210/70" or tag == "4س/80" or tag == "1ي/2س" or tag == "2ي/4س" or tag == "3ي/1ي"
+    tag == "2س/40" or tag == "150/50" or tag == "3س/1س" or tag == "210/70" or tag == "4س/80"
 
 f_tp_pct(string tag) => f_wide_tf(tag) ? htfWin : histWin
 f_sl_pct(string tag) => f_wide_tf(tag) ? htfLoss : histLoss
@@ -455,9 +452,6 @@ f_req_htf(simple string tf) =>
 [smi180, dL180, dC180, h180, mL180, mS180, eL180, eS180, rL180, rS180, bL180, bS180, rsi180, cl180] = f_req_htf("180")
 [smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210, rsi210, cl210] = f_req_base("210")
 [smi240, dC240, mL240, mS240, eL240, eS240, s8L240, s8S240, bL240, bS240, rsi240, t240, cl240] = f_req_base_entry("240")
-[smiD1, dCD1, mLD1, mSD1, eLD1, eSD1, s8LD1, s8SD1, bLD1, bSD1, rsiD1, tD1, clD1] = f_req_base_entry("D")
-[smiD2, dCD2, mLD2, mSD2, eLD2, eSD2, bLD2, bSD2, rsiD2, clD2] = f_req_base("2D")
-[smiD3, dLD3, dCD3, hD3, mLD3, mSD3, eLD3, eSD3, rLD3, rSD3, bLD3, bSD3, rsiD3, clD3] = f_req_htf("3D")
 [dL135, h135, rL135, rS135, rsi135, cl135] = f_req_confirm("135")
 [dL270, h270, rL270, rS270, rsi270, cl270] = f_req_confirm("270")
 [dL360, h360, rL360, rS360, rsi360, cl360] = f_req_confirm("360")
@@ -465,10 +459,7 @@ f_req_htf(simple string tf) =>
 [dL540, h540, rL540, rS540, rsi540, cl540] = f_req_confirm("540")
 [dL630, h630, rL630, rS630, rsi630, cl630] = f_req_confirm("630")
 [dL720, h720, rL720, rS720, rsi720, cl720] = f_req_confirm("720")
-[dL6D, h6D, rL6D, rS6D, rsi6D, cl6D] = f_req_confirm("6D")
-[dL9D, h9D, rL9D, rS9D, rsi9D, cl9D] = f_req_confirm("9D")
 [bL300, bS300] = f_req_cancel("300")
-[bL4D, bS4D] = f_req_cancel("4D")
 
 f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, int emaT, bool rsiCf, float rsiM, float rsiC, float donT, int s8T, int entT) =>
     bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
@@ -509,12 +500,6 @@ f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, flo
 [S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8, set210S, all210S] = f_side(false, bS240, smi210, mS210, dC210, dL630, h630, eS210, rS630, rsi210, rsi630, dC70, s8S70, t70)
 [L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, set240L, all240L] = f_side(true,  bL300, smi240, mL240, dC240, dL720, h720, eL240, rL720, rsi240, rsi720, dC80, s8L80, t80)
 [S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, set240S, all240S] = f_side(false, bS300, smi240, mS240, dC240, dL720, h720, eS240, rS720, rsi240, rsi720, dC80, s8S80, t80)
-[LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8, setD1L, allD1L] = f_side(true,  bLD2, smiD1, mLD1, dCD1, dLD3, hD3, eLD1, rLD3, rsiD1, rsiD3, dC120, s8L120, t120)
-[SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8, setD1S, allD1S] = f_side(false, bSD2, smiD1, mSD1, dCD1, dLD3, hD3, eSD1, rSD3, rsiD1, rsiD3, dC120, s8S120, t120)
-[LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8, setD2L, allD2L] = f_side(true,  bLD3, smiD2, mLD2, dCD2, dL6D, h6D, eLD2, rL6D, rsiD2, rsi6D, dC240, s8L240, t240)
-[SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8, setD2S, allD2S] = f_side(false, bSD3, smiD2, mSD2, dCD2, dL6D, h6D, eSD2, rS6D, rsiD2, rsi6D, dC240, s8S240, t240)
-[LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8, setD3L, allD3L] = f_side(true,  bL4D, smiD3, mLD3, dCD3, dL9D, h9D, eLD3, rL9D, rsiD3, rsi9D, dCD1, s8LD1, tD1)
-[SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8, setD3S, allD3S] = f_side(false, bS4D, smiD3, mSD3, dCD3, dL9D, h9D, eSD3, rS9D, rsiD3, rsi9D, dCD1, s8SD1, tD1)
 
 var bool a15L = true
 var bool a15S = true
@@ -536,12 +521,6 @@ var bool a210L = true
 var bool a210S = true
 var bool a240L = true
 var bool a240S = true
-var bool aD1L = true
-var bool aD1S = true
-var bool aD2L = true
-var bool aD2S = true
-var bool aD3L = true
-var bool aD3S = true
 
 if not set15L
     a15L := true
@@ -583,18 +562,6 @@ if not set240L
     a240L := true
 if not set240S
     a240S := true
-if not setD1L
-    aD1L := true
-if not setD1S
-    aD1S := true
-if not setD2L
-    aD2L := true
-if not setD2S
-    aD2S := true
-if not setD3L
-    aD3L := true
-if not setD3S
-    aD3S := true
 
 hit15L = use15 and useLong and all15L and a15L
 hit30L = use30 and useLong and all30L and a30L
@@ -606,9 +573,6 @@ hit150L = use150 and useLong and all150L and a150L
 hit180L = use180 and useLong and all180L and a180L
 hit210L = use210 and useLong and all210L and a210L
 hit240L = use240 and useLong and all240L and a240L
-hitD1L = useD1 and useLong and allD1L and aD1L
-hitD2L = useD2 and useLong and allD2L and aD2L
-hitD3L = useD3 and useLong and allD3L and aD3L
 hit15S = use15 and useShrt and all15S and a15S
 hit30S = use30 and useShrt and all30S and a30S
 hit45S = use45 and useShrt and all45S and a45S
@@ -619,9 +583,6 @@ hit150S = use150 and useShrt and all150S and a150S
 hit180S = use180 and useShrt and all180S and a180S
 hit210S = use210 and useShrt and all210S and a210S
 hit240S = use240 and useShrt and all240S and a240S
-hitD1S = useD1 and useShrt and allD1S and aD1S
-hitD2S = useD2 and useShrt and allD2S and aD2S
-hitD3S = useD3 and useShrt and allD3S and aD3S
 
 if hit15L
     a15L := false
@@ -643,12 +604,6 @@ if hit210L
     a210L := false
 if hit240L
     a240L := false
-if hitD1L
-    aD1L := false
-if hitD2L
-    aD2L := false
-if hitD3L
-    aD3L := false
 if hit15S
     a15S := false
 if hit30S
@@ -669,12 +624,6 @@ if hit210S
     a210S := false
 if hit240S
     a240S := false
-if hitD1S
-    aD1S := false
-if hitD2S
-    aD2S := false
-if hitD3S
-    aD3S := false
 
 int nPend = array.size(pTime)
 if nPend > 0
@@ -691,9 +640,6 @@ ok150L = f_track(hit150L, 1, "150/50", rsi150, rsi450, cl150, cl450)
 ok180L = f_track(hit180L, 1, "3س/1س", rsi180, rsi540, cl180, cl540)
 ok210L = f_track(hit210L, 1, "210/70", rsi210, rsi630, cl210, cl630)
 ok240L = f_track(hit240L, 1, "4س/80", rsi240, rsi720, cl240, cl720)
-okD1L = f_track(hitD1L, 1, "1ي/2س", rsiD1, rsiD3, clD1, clD3)
-okD2L = f_track(hitD2L, 1, "2ي/4س", rsiD2, rsi6D, clD2, cl6D)
-okD3L = f_track(hitD3L, 1, "3ي/1ي", rsiD3, rsi9D, clD3, cl9D)
 ok15S = f_track(hit15S, -1, "15/5", rsi15, rsi45, cl15, cl45)
 ok30S = f_track(hit30S, -1, "30/10", rsi30, rsi90, cl30, cl90)
 ok45S = f_track(hit45S, -1, "45/15", rsi45, rsi135, cl45, cl135)
@@ -704,14 +650,11 @@ ok150S = f_track(hit150S, -1, "150/50", rsi150, rsi450, cl150, cl450)
 ok180S = f_track(hit180S, -1, "3س/1س", rsi180, rsi540, cl180, cl540)
 ok210S = f_track(hit210S, -1, "210/70", rsi210, rsi630, cl210, cl630)
 ok240S = f_track(hit240S, -1, "4س/80", rsi240, rsi720, cl240, cl720)
-okD1S = f_track(hitD1S, -1, "1ي/2س", rsiD1, rsiD3, clD1, clD3)
-okD2S = f_track(hitD2S, -1, "2ي/4س", rsiD2, rsi6D, clD2, cl6D)
-okD3S = f_track(hitD3S, -1, "3ي/1ي", rsiD3, rsi9D, clD3, cl9D)
 
-buyHit = hitD3L or hitD2L or hitD1L or hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L
-sellHit = hitD3S or hitD2S or hitD1S or hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S
-buyTag = hitD3L ? "3ي/1ي" : hitD2L ? "2ي/4س" : hitD1L ? "1ي/2س" : hit240L ? "4س/80" : hit210L ? "210/70" : hit180L ? "3س/1س" : hit150L ? "150/50" : hit120L ? "2س/40" : hit90L ? "90/30" : hit60L ? "1س/20" : hit45L ? "45/15" : "30/10"
-sellTag = hitD3S ? "3ي/1ي" : hitD2S ? "2ي/4س" : hitD1S ? "1ي/2س" : hit240S ? "4س/80" : hit210S ? "210/70" : hit180S ? "3س/1س" : hit150S ? "150/50" : hit120S ? "2س/40" : hit90S ? "90/30" : hit60S ? "1س/20" : hit45S ? "45/15" : "30/10"
+buyHit = hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L or hit15L
+sellHit = hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit15S
+buyTag = hit240L ? "4س/80" : hit210L ? "210/70" : hit180L ? "3س/1س" : hit150L ? "150/50" : hit120L ? "2س/40" : hit90L ? "90/30" : hit60L ? "1س/20" : hit45L ? "45/15" : hit30L ? "30/10" : "15/5"
+sellTag = hit240S ? "4س/80" : hit210S ? "210/70" : hit180S ? "3س/1س" : hit150S ? "150/50" : hit120S ? "2س/40" : hit90S ? "90/30" : hit60S ? "1س/20" : hit45S ? "45/15" : hit30S ? "30/10" : "15/5"
 tpBuy = f_tp_pct(buyTag)
 slBuy = f_sl_pct(buyTag)
 tpSel = f_tp_pct(sellTag)
@@ -769,12 +712,6 @@ if showLbl
         label.new(bar_index, low, "شراء\n210/70", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
     if hit240L
         label.new(bar_index, low, "شراء\n4س/80", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
-    if hitD1L
-        label.new(bar_index, low, "شراء\n1ي/2س", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
-    if hitD2L
-        label.new(bar_index, low, "شراء\n2ي/4س", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
-    if hitD3L
-        label.new(bar_index, low, "شراء\n3ي/1ي", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
 
     if hit15S
         label.new(bar_index, high, "بيع\n15/5", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
@@ -796,14 +733,8 @@ if showLbl
         label.new(bar_index, high, "بيع\n210/70", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
     if hit240S
         label.new(bar_index, high, "بيع\n4س/80", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
-    if hitD1S
-        label.new(bar_index, high, "بيع\n1ي/2س", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
-    if hitD2S
-        label.new(bar_index, high, "بيع\n2ي/4س", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
-    if hitD3S
-        label.new(bar_index, high, "بيع\n3ي/1ي", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
 
-anySetup = set15L or set30L or set45L or set60L or set90L or set120L or set150L or set180L or set210L or set240L or setD1L or setD2L or setD3L or set15S or set30S or set45S or set60S or set90S or set120S or set150S or set180S or set210S or set240S or setD1S or setD2S or setD3S
+anySetup = set15L or set30L or set45L or set60L or set90L or set120L or set150L or set180L or set210L or set240L or set15S or set30S or set45S or set60S or set90S or set120S or set150S or set180S or set210S or set240S
 bgcolor(showBg and anySetup ? color.new(color.gray, 92) : na)
 plotshape(buyHit, title="شراء", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny)
 plotshape(sellHit, title="بيع", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
@@ -824,7 +755,8 @@ else
 
 if showLog
     string txt = "Cascade | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "% | 2س–يوم ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "% | الشارت: 5د أو أقل\n"
+    txt += "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "% | 2س–4س ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "% | الشارت: 5د أو أقل\n"
+    txt += f_row("15 B", L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8) + " " + f_row("S", S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8) + "\n"
     txt += f_row("30 B", L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8) + " " + f_row("S", S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8) + "\n"
     txt += f_row("45 B", L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8) + " " + f_row("S", S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8) + "\n"
     txt += f_row("1س B", L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8) + " " + f_row("S", S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8) + "\n"
@@ -833,11 +765,8 @@ if showLog
     txt += f_row("150 B", L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8) + " " + f_row("S", S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8) + "\n"
     txt += f_row("3س B", L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8) + " " + f_row("S", S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8) + "\n"
     txt += f_row("210 B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
-    txt += f_row("4س B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8) + "\n"
-    txt += f_row("1ي B", LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8) + " " + f_row("S", SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8) + "\n"
-    txt += f_row("2ي B", LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8) + " " + f_row("S", SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8) + "\n"
-    txt += f_row("3ي B", LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8) + " " + f_row("S", SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8)
-    txt += "\nشرط 2: MACD الرئيس + ROC الأساسي >0 شراء <0 بيع | شرط 5: MACD التأكيد | شرط 6: RSI تأكيد 50–60 / 40–50 وفرق 3–10 | تسلسل: 6 ثم 7 ثم 8 | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س | 2ي←1ي · 3ي←2ي · 4ي←3ي"
+    txt += f_row("4س B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
+    txt += "\nشرط 2: MACD الرئيس + ROC الأساسي >0 شراء <0 بيع | شرط 5: MACD التأكيد | شرط 6: RSI تأكيد 50–60 / 40–50 وفرق 3–10 | تسلسل: 6 ثم 7 ثم 8 | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س"
     if chartTooHigh
         txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
@@ -872,7 +801,7 @@ if barstate.islast
         string loadTxt = loadedDays >= 1.0 ? ("تم تحميل " + str.tostring(loadedDays, "#.#") + " يوم") : ("تم تحميل " + str.tostring(loadedDays * 24.0, "#.#") + " ساعة")
         loadTxt += "  (" + str.tostring(nBars) + " شمعة)"
         f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages) + "   |   " + loadTxt, color.white, hd)
-        f_cell(scoreBox, 0, 1, "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "%  |  2س–يوم ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "%", color.silver, bg)
+        f_cell(scoreBox, 0, 1, "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "%  |  2س–4س ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "%", color.silver, bg)
         f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), scoreFg, bg)
         f_cell(scoreBox, 0, 3, "الصفقة", color.white, hd)
         f_cell(scoreBox, 1, 3, "النتيجة", color.white, hd)
