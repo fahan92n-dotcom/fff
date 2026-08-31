@@ -4,7 +4,7 @@
 // الإلغاء: كل رئيس يلغي الأصغر منه من 15م إلى 4س. 4س يلغيه 5س. 1ي←2ي←3ي←4ي.
 // الحظر يرتفع فور خروج SMI الأب من ±40 (بدون سماحية 1–2 شمعة).
 // request.security على فريم أدنى ترجع آخر شمعة فقط. security_lower_tf لا تُستخدم.
-// step8 فقط على فريمات الدخول. 6 ثم 7 ثم 8. شرط 8 جاهز في موجة الدخول؛ بعد 7 ننتظر شمعة دخول تالية (مو مقارنة بأول وقت في الموجة).
+// كل شرط يُثبَّت عندما يتحقق في الموجة. الدخول عند اكتمال آخر شرط حتى لو الباقي لم يعد صحيحًا الآن. إعادة الضبط عند تشبع جديد.
 // شرط 4 (Donchian التأكيد) ملغى ولا يدخل في قرار الصفقة.
 // شرط 5: MACD التأكيد. هستوجرام فوق 0 شراء | تحت 0 بيع.
 // شرط 6 RSI: تأكيد شراء 50–60 | تأكيد بيع 40–50. التأكيد أعلى من الرئيس بفرق 3–10 (الشراء والبيع).
@@ -443,23 +443,53 @@ f_req_htf(simple string tf) =>
 [bL4D, bS4D] = f_req_cancel("4D")
 
 f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, int emaT, bool rsiCf, float rsiM, float rsiC, float donT, int s8T, int entT) =>
-    bool s1 = not blk and not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
-    bool s2 = mOk
-    bool s3 = isLong ? donB == 1 : donB == -1
-    bool s4 = true
-    bool s5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
-    bool s6 = not na(emaT) and rsiCf and f_rsi_band(isLong, rsiC) and f_rsi_gap(rsiM, rsiC)
+    bool satNow = not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
+    bool now1 = not blk and satNow
+    bool now2 = mOk
+    bool now3 = isLong ? donB == 1 : donB == -1
+    bool now5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
+    bool now6 = not na(emaT) and rsiCf and f_rsi_band(isLong, rsiC) and f_rsi_gap(rsiM, rsiC)
     bool donOpp = isLong ? donT == -1 : donT == 1
-    var int t7 = na
-    if na(emaT)
-        t7 := na
-    else if s6 and na(t7) and donOpp and not na(entT) and entT >= emaT
-        t7 := entT
-    bool s7 = not na(t7)
-    bool s8 = s7 and not na(s8T) and not na(entT) and entT > t7
-    bool setup = s1 and s2 and s3 and s5 and s6 and s7
-    bool all8 = setup and s8
-    [s1, s2, s3, s4, s5, s6, s7, s8, setup, all8]
+    bool now8 = not na(s8T)
+    var bool wasSat = false
+    var bool l1 = false
+    var bool l2 = false
+    var bool l3 = false
+    var bool l5 = false
+    var bool l6 = false
+    var bool l7 = false
+    var bool l8 = false
+    var bool sawDon = false
+    if satNow and not wasSat
+        l1 := false
+        l2 := false
+        l3 := false
+        l5 := false
+        l6 := false
+        l7 := false
+        l8 := false
+        sawDon := false
+    wasSat := satNow
+    if now1
+        l1 := true
+    if now2
+        l2 := true
+    if now3
+        l3 := true
+    if now5
+        l5 := true
+    if now6
+        l6 := true
+    if donOpp and not na(entT)
+        sawDon := true
+    if l6 and sawDon
+        l7 := true
+    if now8
+        l8 := true
+    bool s4 = true
+    bool setup = l1 and l2 and l3 and l5 and l6 and l7
+    bool all8 = setup and l8
+    [l1, l2, l3, s4, l5, l6, l7, l8, setup, all8]
 
 [L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL30, smi15, mL15, dC15, dL45, h45, eL15, rL45, rsi15, rsi45, dC5, s8L5, t5)
 [S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS30, smi15, mS15, dC15, dL45, h45, eS15, rS45, rsi15, rsi45, dC5, s8S5, t5)
