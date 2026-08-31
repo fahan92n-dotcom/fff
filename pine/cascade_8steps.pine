@@ -733,6 +733,7 @@ else
 f_cell(table t, int col, int row, string txt, color fg, color bg) =>
     table.cell(t, col, row, txt, text_color=fg, bgcolor=bg, text_size=size.small, text_halign=text.align_center)
 
+var table board = table.new(position.top_right, 3, 2, bgcolor=color.new(#111111, 0), border_width=2, border_color=color.new(#aaaaaa, 0), frame_color=color.white, frame_width=2)
 var table scoreBox = table.new(position.top_left, 4, 24, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
 var bool scoreMerged = false
 if not scoreMerged
@@ -756,6 +757,15 @@ if barstate.islast
         float loadedDays = (time - firstBarTime) / 86400000.0
         string loadTxt = loadedDays >= 1.0 ? ("تم تحميل " + str.tostring(loadedDays, "#.#") + " يوم") : ("تم تحميل " + str.tostring(loadedDays * 24.0, "#.#") + " ساعة")
         loadTxt += "  (" + str.tostring(nBars) + " شمعة)"
+        color winBg = color.new(#0a2a0a, 0)
+        color lossBg = color.new(#2a0a0a, 0)
+        color openBg = color.new(#1a1a1a, 0)
+        table.cell(board, 0, 0, "ناجحة", text_color=color.lime, bgcolor=winBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(board, 1, 0, "فاشلة", text_color=color.red, bgcolor=lossBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(board, 2, 0, "مفتوحة", text_color=color.silver, bgcolor=openBg, text_size=size.normal, text_halign=text.align_center)
+        table.cell(board, 0, 1, str.tostring(wins), text_color=color.lime, bgcolor=winBg, text_size=size.large, text_halign=text.align_center)
+        table.cell(board, 1, 1, str.tostring(losses), text_color=color.red, bgcolor=lossBg, text_size=size.large, text_halign=text.align_center)
+        table.cell(board, 2, 1, str.tostring(array.size(pTime)), text_color=color.silver, bgcolor=openBg, text_size=size.large, text_halign=text.align_center)
         f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages) + "   |   " + loadTxt, color.white, hd)
         f_cell(scoreBox, 0, 1, "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "%  |  2س–4س ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "%", color.silver, bg)
         f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), scoreFg, bg)
@@ -782,6 +792,7 @@ if barstate.islast
                 f_cell(scoreBox, 2, row, "", color.white, bg)
                 f_cell(scoreBox, 3, row, "", color.white, bg)
     else
+        table.clear(board, 0, 0, 2, 1)
         table.clear(scoreBox, 0, 0, 3, 23)
 
 alertcondition(buyHit, title="شراء", message="Cascade شراء")
