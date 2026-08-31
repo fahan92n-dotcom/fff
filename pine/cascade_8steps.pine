@@ -10,7 +10,7 @@
 // ROC على الفريم الأساسي: خط المتوسط فوق 0 شراء | تحت 0 بيع.
 // شرط 6 RSI: تأكيد شراء 50–60 | تأكيد بيع 40–50. التأكيد أعلى من الرئيس بفرق 3–10 (الشراء والبيع).
 // Donchian بـ var حتى يثبت عبر استدعاءات security.
-// MACD: بعد أول تشبع انتظر. أقصى موجة من آخر 24س (فريم < 1س) أو 72س فعلية (1س فأعلى). شراء خط فوق الأحمر وتحت 20٪ | بيع تحت الأخضر وفوق 20٪. يثبت جاهز حتى الدخول أو نهاية التشبع.
+// MACD الرئيس: بعد أول تشبع انتظر حتى الخط فوق الهستوجرام (شراء) أو تحته (بيع). لا سقف 20٪ ولا شرط مقابل الصفر. يثبت جاهز حتى الدخول أو نهاية التشبع.
 // تنبيه تلقرام: أنشئ Alert → Any alert() function call → Webhook /tv?token=SECRET
 // النتائج على الشارت: عدّاد ناجحة/فاشلة + RSI وإغلاق الرئيس والتأكيد لكل صفقة.
 // صفحة النتائج من الإعدادات (20 صفقة في الصفحة، يُحفظ آخر 100).
@@ -36,7 +36,6 @@ obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
 macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
 macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
-macdPct = input.float(20.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
 rocLen = input.int(48, "ROC طول", minval=1, group=grpInd)
 dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
 emaLen = input.int(50, "EMA", minval=1, group=grpInd)
@@ -227,7 +226,7 @@ f_roc_ok(bool isLong) =>
     float ma = f_maroc()
     not na(ma) and (isLong ? ma > 0 : ma < 0)
 
-// بعد أول تشبع لا يُرفض فورًا. ينتظر حتى يصل الخط إلى 20٪ من أقصى موجة، ثم يثبت جاهز.
+// بعد أول تشبع ينتظر حتى الخط فوق الهستوجرام (شراء) أو تحته (بيع)، بأي مكان مقابل الصفر.
 f_macd_ok(bool isLong, float smi, float hist, float macd) =>
     var bool ready = false
     bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
@@ -240,27 +239,12 @@ f_macd_ok(bool isLong, float smi, float hist, float macd) =>
             if not still
                 break
             off := i
-        int barSec = int(math.max(1, (time - time[1]) / 1000))
-        int winHours = barSec < 3600 ? 24 : 72
-        int winBars = int(math.max(2, math.round(winHours * 3600.0 / barSec)))
-        if winBars > 300
-            winBars := 300
-        float bound = 0.0
-        for j = 1 to winBars
-            float v = macd[j]
-            if not na(v)
-                if isLong and v > 0 and v > bound
-                    bound := v
-                if not isLong and v < 0 and v < bound
-                    bound := v
-        float cap = bound * (macdPct / 100.0)
         for i = off to 1
             float h0 = hist[i]
             float m0 = macd[i]
             if not na(h0) and not na(m0)
-                bool sideOk = isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
-                bool distOk = isLong ? m0 <= cap : m0 >= cap
-                if sideOk and distOk
+                bool sideOk = isLong ? m0 >= h0 : m0 <= h0
+                if sideOk
                     ready := true
                     break
     ready
@@ -766,7 +750,7 @@ if showLog
     txt += f_row("3س B", L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8) + " " + f_row("S", S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8) + "\n"
     txt += f_row("210 B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
     txt += f_row("4س B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8)
-    txt += "\nشرط 2: MACD الرئيس + ROC الأساسي >0 شراء <0 بيع | شرط 5: MACD التأكيد | شرط 6: RSI تأكيد 50–60 / 40–50 وفرق 3–10 | تسلسل: 6 ثم 7 ثم 8 | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س"
+    txt += "\nشرط 2: MACD خط≥هستو شراء / خط≤هستو بيع (بدون 20٪ وبدون مقابل 0) + ROC >0 شراء <0 بيع | شرط 5: MACD التأكيد هستو | شرط 6: RSI تأكيد 50–60 / 40–50 وفرق 3–10 | تسلسل: 6 ثم 7 ثم 8 | إلغاء: 30←15 · 45←30 · 1س←45 · 90←1س · 2س←90 · 150←2س · 3س←150 · 210←3س · 4س←210 · 5س←4س"
     if chartTooHigh
         txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
     label.set_xy(logLbl, bar_index, high)
