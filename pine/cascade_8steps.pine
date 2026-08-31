@@ -36,21 +36,11 @@ macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
 macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
 rocLen = input.int(48, "ROC طول", minval=1, group=grpInd)
 dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
-emaLen = input.int(50, "EMA", minval=1, group=grpInd)
 rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
 stKlen = input.int(15, "Stoch K", minval=1, group=grpInd)
 stKsm  = input.int(3,  "Stoch K Smooth", minval=1, group=grpInd)
 rsiOs  = input.float(35, "لمس RSI شراء", group=grpInd)
 rsiOb  = input.float(65, "لمس RSI بيع", group=grpInd)
-rsiConfOs = input.float(30, "RSI تأكيد ممنوع <=", group=grpInd)
-rsiConfOb = input.float(70, "RSI تأكيد ممنوع >=", group=grpInd)
-rsiLook   = input.int(30, "RSI تأكيد شموع", minval=1, group=grpInd)
-rsiCfBuyLo  = input.float(50.0, "RSI تأكيد شراء من", group=grpInd)
-rsiCfBuyHi  = input.float(60.0, "RSI تأكيد شراء إلى", group=grpInd)
-rsiCfSellLo = input.float(40.0, "RSI تأكيد بيع من", group=grpInd)
-rsiCfSellHi = input.float(50.0, "RSI تأكيد بيع إلى", group=grpInd)
-rsiSpreadMin = input.float(3.0, "فرق RSI رئيس من", group=grpInd)
-rsiSpreadMax = input.float(10.0, "فرق RSI رئيس إلى", group=grpInd)
 stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
 stochSell = input.float(80, "Stoch بيع <", group=grpInd)
 stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
@@ -224,48 +214,6 @@ f_roc_ok(bool isLong) =>
     float ma = f_maroc()
     not na(ma) and (isLong ? ma > 0 : ma < 0)
 
-// أول وقت (أقدم شمعة) أغلق ضد EMA50 داخل موجة تشبع الرئيس الحالية.
-f_ema_ok(bool isLong, float smi, float ema, float cl) =>
-    var int hit = na
-    bool satNow = isLong ? smi[1] <= osLvl : smi[1] >= obLvl
-    if not satNow
-        hit := na
-    else if na(hit)
-        int off = 1
-        for i = 2 to 50
-            bool sat = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
-            if not sat
-                break
-            off := i
-        for i = off to 1
-            if isLong and cl[i] < ema[i]
-                hit := time[i]
-                break
-            if not isLong and cl[i] > ema[i]
-                hit := time[i]
-                break
-    hit
-
-f_rsi_conf(bool isLong, float rsi) =>
-    bool bad = false
-    for i = 0 to rsiLook - 1
-        if not na(rsi[i])
-            if isLong and rsi[i] <= rsiConfOs
-                bad := true
-                break
-            if not isLong and rsi[i] >= rsiConfOb
-                bad := true
-                break
-    not bad
-
-// تأكيد شراء 50.00–60.00 | بيع 40.00–50.00 (50.01 و 39.99 مرفوضان للبيع).
-f_rsi_band(bool isLong, float rsiC) =>
-    not na(rsiC) and (isLong ? (rsiC >= rsiCfBuyLo and rsiC <= rsiCfBuyHi) : (rsiC >= rsiCfSellLo and rsiC <= rsiCfSellHi))
-
-// التأكيد أعلى من الرئيس بـ 3–10 في الشراء والبيع. شراء: الرئيس أدنى. بيع: التأكيد أعلى.
-f_rsi_gap(float rsiM, float rsiC) =>
-    not na(rsiM) and not na(rsiC) and (rsiC - rsiM >= rsiSpreadMin and rsiC - rsiM <= rsiSpreadMax)
-
 f_block(bool isLong, float smi) =>
     isLong ? smi <= osLvl : smi >= obLvl
 
@@ -341,14 +289,13 @@ f_snap_confirm() =>
     don = f_don()
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
-    [don, hist2, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), rsi, close[1]]
+    [don, hist2, true, true, rsi, close[1]]
 
 f_snap_base() =>
     smi = f_smi()
     don = f_don()
-    ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
-    [smi[1], don[1], f_roc_ok(true), f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_block(true, smi), f_block(false, smi), rsi, close[1]]
+    [smi[1], don[1], f_roc_ok(true), f_roc_ok(false), na, na, f_block(true, smi), f_block(false, smi), rsi, close[1]]
 
 f_snap_cancel() =>
     smi = f_smi()
@@ -357,20 +304,18 @@ f_snap_cancel() =>
 f_snap_base_entry() =>
     smi = f_smi()
     don = f_don()
-    ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     rsiMa = ta.sma(rsi, rsiLen)
     k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-    [smi[1], don[1], f_roc_ok(true), f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time[1], close[1]]
+    [smi[1], don[1], f_roc_ok(true), f_roc_ok(false), na, na, f_step8(true, smi, rsi, rsiMa, k), f_step8(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time[1], close[1]]
 
 f_snap_htf() =>
     smi = f_smi()
     [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
     don = f_don()
-    ema = ta.ema(close, emaLen)
     rsi = ta.rsi(close, rsiLen)
     hist2 = hist + nz(sigLine) * 0.0
-    [smi[1], don, don[1], hist2, f_roc_ok(true), f_roc_ok(false), f_ema_ok(true, smi, ema, close), f_ema_ok(false, smi, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), rsi, close[1]]
+    [smi[1], don, don[1], hist2, f_roc_ok(true), f_roc_ok(false), na, na, true, true, f_block(true, smi), f_block(false, smi), rsi, close[1]]
 
 f_req_entry(simple string tf) =>
     request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
