@@ -81,19 +81,22 @@ grpV = "عرض"
 showTbl   = input.bool(true, "لوحة التسلسل", group=grpV)
 showLbl   = input.bool(true, "ملصقات الدخول", group=grpV)
 showScore = input.bool(true, "لوحة نتائج الصفقات", group=grpV)
-scorePage = input.int(1, "صفحة النتائج", minval=1, group=grpV)
-histKeep  = 100
-pageSize  = 15
+scorePage = input.int(1, "صفحة النتائج 1–4", minval=1, maxval=4, group=grpV)
+histKeep  = 40
+pageSize  = 10
+pageCount = 4
 
 var array<int>    pTime = array.new_int()
 var array<float>  pPx   = array.new_float()
 var array<int>    pSide = array.new_int()
 var array<string> pTag  = array.new_string()
+var array<float>  pRsiM = array.new_float()
+var array<float>  pRsiC = array.new_float()
 var array<int>    hTime = array.new_int()
 var array<string> hTag  = array.new_string()
 var array<int>    hSide = array.new_int()
-var array<int>    hWin  = array.new_int()
-var array<float>  hPx   = array.new_float()
+var array<float>  hRsiM = array.new_float()
+var array<float>  hRsiC = array.new_float()
 var array<int>    tally = array.new_int(2, 0)
 
 f_smi() =>
@@ -131,44 +134,54 @@ f_req(simple string tf) =>
 f_closed(int t) =>
     not na(t) and t != t[1]
 
-f_store(int et, string tag, int side, int win, float px) =>
+f_rsi_txt(float v) =>
+    na(v) ? "—" : str.tostring(v, "#.#")
+
+f_store_win(int et, string tag, int side, float rsiM, float rsiC) =>
     array.push(hTime, et)
     array.push(hTag, tag)
     array.push(hSide, side)
-    array.push(hWin, win)
-    array.push(hPx, px)
+    array.push(hRsiM, rsiM)
+    array.push(hRsiC, rsiC)
     if array.size(hTime) > histKeep
         array.shift(hTime)
         array.shift(hTag)
         array.shift(hSide)
-        array.shift(hWin)
-        array.shift(hPx)
-    array.set(tally, win == 1 ? 0 : 1, array.get(tally, win == 1 ? 0 : 1) + 1)
+        array.shift(hRsiM)
+        array.shift(hRsiC)
 
 f_resolve_one(int i) =>
     int et = array.get(pTime, i)
     float px = array.get(pPx, i)
     int side = array.get(pSide, i)
     string tag = array.get(pTag, i)
+    float rsiM = array.get(pRsiM, i)
+    float rsiC = array.get(pRsiC, i)
     float tp = side == 1 ? px * (1.0 + tpPct / 100.0) : px * (1.0 - tpPct / 100.0)
     float sl = side == 1 ? px * (1.0 - slPct / 100.0) : px * (1.0 + slPct / 100.0)
     bool slHit = side == 1 ? low <= sl : high >= sl
     bool tpHit = side == 1 ? high >= tp : low <= tp
     int result = slHit ? 0 : tpHit ? 1 : -1
     if result >= 0
-        f_store(et, tag, side, result, px)
+        array.set(tally, result == 1 ? 0 : 1, array.get(tally, result == 1 ? 0 : 1) + 1)
+        if result == 1
+            f_store_win(et, tag, side, rsiM, rsiC)
         array.remove(pTime, i)
         array.remove(pPx, i)
         array.remove(pSide, i)
         array.remove(pTag, i)
+        array.remove(pRsiM, i)
+        array.remove(pRsiC, i)
     result
 
-f_track(bool hit, int side, string tag) =>
+f_track(bool hit, int side, string tag, float rsiM, float rsiC) =>
     if hit
         array.push(pTime, time)
         array.push(pPx, close)
         array.push(pSide, side)
         array.push(pTag, tag)
+        array.push(pRsiM, rsiM)
+        array.push(pRsiC, rsiC)
         true
     else
         false
@@ -364,26 +377,26 @@ if nPend > 0
     for i = nPend - 1 to 0
         int ignRes = f_resolve_one(i)
 
-ok15L = f_track(hit15L, 1, "15/5")
-ok30L = f_track(hit30L, 1, "30/10")
-ok45L = f_track(hit45L, 1, "45/15")
-ok60L = f_track(hit60L, 1, "1س/20")
-ok90L = f_track(hit90L, 1, "90/30")
-ok120L = f_track(hit120L, 1, "2س/2س")
-ok150L = f_track(hit150L, 1, "150/50")
-ok180L = f_track(hit180L, 1, "3س/1س")
-ok210L = f_track(hit210L, 1, "210/70")
-ok240L = f_track(hit240L, 1, "4س/80")
-ok15S = f_track(hit15S, -1, "15/5")
-ok30S = f_track(hit30S, -1, "30/10")
-ok45S = f_track(hit45S, -1, "45/15")
-ok60S = f_track(hit60S, -1, "1س/20")
-ok90S = f_track(hit90S, -1, "90/30")
-ok120S = f_track(hit120S, -1, "2س/2س")
-ok150S = f_track(hit150S, -1, "150/50")
-ok180S = f_track(hit180S, -1, "3س/1س")
-ok210S = f_track(hit210S, -1, "210/70")
-ok240S = f_track(hit240S, -1, "4س/80")
+ok15L = f_track(hit15L, 1, "15/5", rsi15, rsi45)
+ok30L = f_track(hit30L, 1, "30/10", rsi30, rsi90)
+ok45L = f_track(hit45L, 1, "45/15", rsi45, rsi135)
+ok60L = f_track(hit60L, 1, "1س/20", rsi60, rsi180)
+ok90L = f_track(hit90L, 1, "90/30", rsi90, rsi270)
+ok120L = f_track(hit120L, 1, "2س/2س", rsi120, rsi360)
+ok150L = f_track(hit150L, 1, "150/50", rsi150, rsi450)
+ok180L = f_track(hit180L, 1, "3س/1س", rsi180, rsi540)
+ok210L = f_track(hit210L, 1, "210/70", rsi210, rsi630)
+ok240L = f_track(hit240L, 1, "4س/80", rsi240, rsi720)
+ok15S = f_track(hit15S, -1, "15/5", rsi15, rsi45)
+ok30S = f_track(hit30S, -1, "30/10", rsi30, rsi90)
+ok45S = f_track(hit45S, -1, "45/15", rsi45, rsi135)
+ok60S = f_track(hit60S, -1, "1س/20", rsi60, rsi180)
+ok90S = f_track(hit90S, -1, "90/30", rsi90, rsi270)
+ok120S = f_track(hit120S, -1, "2س/2س", rsi120, rsi360)
+ok150S = f_track(hit150S, -1, "150/50", rsi150, rsi450)
+ok180S = f_track(hit180S, -1, "3س/1س", rsi180, rsi540)
+ok210S = f_track(hit210S, -1, "210/70", rsi210, rsi630)
+ok240S = f_track(hit240S, -1, "4س/80", rsi240, rsi720)
 
 var string liveId = ""
 var float longStop = na
@@ -530,7 +543,7 @@ if barstate.islast and showTbl
     table.cell(box, 3, 10, f_seq(S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, S240_9), text_color=hit240S ? color.red : color.silver, bgcolor=bg, text_size=size.small)
     table.cell(box, 0, 11, "1 SMI  2 MACD  3 Don  4 EMA50  5 MACDتأكيد  6 Donدخول  7 SMIدخول  8 RSI  9 Stoch>80  |  SMI5س " + str.tostring(smi300, "#.#"), text_color=color.white, bgcolor=hd, text_size=size.small)
 
-var table scoreBox = table.new(position.top_right, 4, 19, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
+var table scoreBox = table.new(position.top_right, 4, 14, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
 var bool scoreMerged = false
 if not scoreMerged
     table.merge_cells(scoreBox, 0, 0, 3, 0)
@@ -546,28 +559,24 @@ if barstate.islast and showScore
     int nHist = array.size(hTime)
     int nOpen = array.size(pTime)
     color scoreFg = wins > losses ? color.lime : losses > wins ? color.red : color.silver
-    int pages = int(math.max(1, math.ceil(nHist / float(pageSize))))
-    int page = math.min(scorePage, pages)
+    int page = math.min(scorePage, pageCount)
     int skip = (page - 1) * pageSize
-    f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages) + (timeframe.in_seconds() > 300 ? "   ⚠ ضع الشارت 1د" : ""), color.white, hdS)
+    f_cell(scoreBox, 0, 0, "الصفقات الناجحة   صفحة " + str.tostring(page) + " / 4" + (timeframe.in_seconds() > 300 ? "   ⚠ ضع الشارت 1د" : ""), color.white, hdS)
     f_cell(scoreBox, 0, 1, "كل الفريمات  ربح " + str.tostring(tpPct, "#.##") + "%   خسارة " + str.tostring(slPct, "#.##") + "%", color.silver, bgS)
     f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "   |   فاشلة " + str.tostring(losses) + "   |   مفتوحة " + str.tostring(nOpen), scoreFg, bgS)
     f_cell(scoreBox, 0, 3, "الصفقة", color.white, hdS)
-    f_cell(scoreBox, 1, 3, "النتيجة", color.white, hdS)
-    f_cell(scoreBox, 2, 3, "سعر الدخول", color.white, hdS)
+    f_cell(scoreBox, 1, 3, "RSI رئيس", color.white, hdS)
+    f_cell(scoreBox, 2, 3, "RSI تأكيد", color.white, hdS)
     f_cell(scoreBox, 3, 3, "الوقت", color.white, hdS)
     for k = 0 to pageSize - 1
         int row = 4 + k
         int src = nHist - 1 - skip - k
         if src >= 0
-            int win = array.get(hWin, src)
             int side = array.get(hSide, src)
             string sideAr = side == 1 ? "شراء " : "بيع "
-            string resTxt = win == 1 ? "ناجحة" : "فاشلة"
-            color resFg = win == 1 ? color.lime : color.red
-            f_cell(scoreBox, 0, row, sideAr + array.get(hTag, src), color.white, bgS)
-            f_cell(scoreBox, 1, row, resTxt, resFg, bgS)
-            f_cell(scoreBox, 2, row, str.tostring(array.get(hPx, src), format.mintick), color.silver, bgS)
+            f_cell(scoreBox, 0, row, sideAr + array.get(hTag, src), color.lime, bgS)
+            f_cell(scoreBox, 1, row, f_rsi_txt(array.get(hRsiM, src)), color.silver, bgS)
+            f_cell(scoreBox, 2, row, f_rsi_txt(array.get(hRsiC, src)), color.silver, bgS)
             f_cell(scoreBox, 3, row, str.format("{0,date,dd/MM HH:mm}", array.get(hTime, src)), color.silver, bgS)
         else
             f_cell(scoreBox, 0, row, "", color.white, bgS)
@@ -575,7 +584,7 @@ if barstate.islast and showScore
             f_cell(scoreBox, 2, row, "", color.white, bgS)
             f_cell(scoreBox, 3, row, "", color.white, bgS)
 else
-    table.clear(scoreBox, 0, 0, 3, 18)
+    table.clear(scoreBox, 0, 0, 3, 13)
 
 alertcondition(buyHit,  title="شراء", message="S6 شراء")
 alertcondition(sellHit, title="بيع",  message="S6 بيع")
