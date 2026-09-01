@@ -549,7 +549,7 @@ if barstate.islast and showScore
     int pages = int(math.max(1, math.ceil(nHist / float(pageSize))))
     int page = math.min(scorePage, pages)
     int skip = (page - 1) * pageSize
-    f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages), color.white, hdS)
+    f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages) + (timeframe.in_seconds() > 300 ? "   ⚠ ضع الشارت 1د" : ""), color.white, hdS)
     f_cell(scoreBox, 0, 1, "كل الفريمات  ربح " + str.tostring(tpPct, "#.##") + "%   خسارة " + str.tostring(slPct, "#.##") + "%", color.silver, bgS)
     f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "   |   فاشلة " + str.tostring(losses) + "   |   مفتوحة " + str.tostring(nOpen), scoreFg, bgS)
     f_cell(scoreBox, 0, 3, "الصفقة", color.white, hdS)
