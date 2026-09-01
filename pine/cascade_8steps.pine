@@ -2,8 +2,8 @@
 // استراتيجية جديدة — 6 مؤشرات على فريم الشارت. شمعة مغلقة فقط.
 // MACD: إغلاق، 12/26/9، EMA/EMA، انتظر إغلاق الفريم.
 // SMI / Stoch_MTM (surjithctly): K=10، D=3، إشارة EMA=10، تمهيد=1، تشبع +40 / −40.
-// Stochastic: 14 / 3 / 3 (الإعداد الافتراضي في TradingView — غيّره من المدخلات).
-// RSI: 14.
+// Stochastic: %K=15، تنعيم %K=3، تنعيم %D=3، فريم الشارت، انتظر الإغلاق.
+// RSI: طول 14 على الإغلاق، متوسط SMA 14. بدون تباعد.
 // Donchian Trend Ribbon (LonesomeTheBlue): فترة 20. الاتجاه = العمود الرئيسي.
 // EMA 50.
 //
@@ -38,12 +38,14 @@ smiOb    = input.float(40,  "تشبع شرائي", group=grpSmi)
 smiOs    = input.float(-40, "تشبع بيعي", group=grpSmi)
 
 grpSt = "Stochastic"
-stKlen = input.int(14, "%K Length", minval=1, group=grpSt)
+stKlen = input.int(15, "%K Length", minval=1, group=grpSt)
 stKsm  = input.int(3,  "%K Smoothing", minval=1, group=grpSt)
 stDsm  = input.int(3,  "%D Smoothing", minval=1, group=grpSt)
 
 grpR = "RSI"
 rsiLen = input.int(14, "RSI Length", minval=2, group=grpR)
+rsiSrc = input.source(close, "مصدر RSI", group=grpR)
+rsiMaLen = input.int(14, "SMA على RSI", minval=1, group=grpR)
 rsiMid = input.float(50, "خط المنتصف", group=grpR)
 
 grpD = "Donchian Trend Ribbon"
@@ -85,8 +87,9 @@ f_smi() =>
 stochK = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
 stochD = ta.sma(stochK, stDsm)
 
-// 4) RSI.
-rsi = ta.rsi(close, rsiLen)
+// 4) RSI 14 على الإغلاق + SMA 14.
+rsi = ta.rsi(rsiSrc, rsiLen)
+rsiMa = ta.sma(rsi, rsiMaLen)
 
 // 5) Donchian Trend Ribbon — نفس dchannel في سكربت LonesomeTheBlue.
 f_don(int len) =>
@@ -184,7 +187,7 @@ if barstate.islast and showTbl
     table.cell(box, 0, 6, "EMA50", text_color=color.silver, bgcolor=bg, text_size=size.small)
     table.cell(box, 1, 6, f_mark(emaBuy), text_color=emaBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
     table.cell(box, 2, 6, f_mark(emaSell), text_color=emaSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 7, "SMI " + str.tostring(smi, "#.#") + "  RSI " + str.tostring(rsi, "#.#") + "  K " + str.tostring(stochK, "#.#"), text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 0, 7, "SMI " + str.tostring(smi, "#.#") + "  RSI " + str.tostring(rsi, "#.#") + "  SMA " + str.tostring(rsiMa, "#.#") + "  K " + str.tostring(stochK, "#.#"), text_color=color.white, bgcolor=hd, text_size=size.small)
 
 alertcondition(buyHit,  title="شراء", message="S6 شراء")
 alertcondition(sellHit, title="بيع",  message="S6 بيع")
