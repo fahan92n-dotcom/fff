@@ -1,203 +1,72 @@
 //@version=5
-// Cascade تسلسل 7 — استراتيجية جديدة. من الكود القديم نقتبس فقط إعدادات المؤشرات وعدد الفريمات.
-// الشارت 5م أو أقل (الدقيقة أفضل). زوج 15د ملغى.
-// وقف/هدف: أقل من 2س = 2٪/2٪ | من 2س إلى اليوم = وقف 3٪ هدف 4٪.
-// الإلغاء: الفريم الأكبر يلغي الأصغر. الحظر يرتفع فور خروج SMI الأب من ±40.
-// التسلسل داخل موجة تشبع واحدة (لا يُحسب شرط قبل الذي قبله):
-// 1 SMI ±40 → 2 MACD 20٪ → 3 Donchian الرئيس مع الصفقة → 4 EMA50
-// → 5 MACD التأكيد ثم RSI التأكيد → 6 Donchian الدخول معاكس → 7 دخول: SMI ثم RSI+Stoch (أيّهما أولاً، فرق 3 شموع).
-// MACD رئيس: شراء خط فوق الأحمر وضمن 20٪ من أعلى موجة | بيع خط تحت الأخضر وضمن 20٪ من أدنى موجة.
-// RSI تأكيد: آخر 30 شمعة يجب أن يلمس ≤30 شراء / ≥70 بيع، ثم الآن 50–60 / 40–50، والتأكيد أعلى من الرئيس 3–10.
-// RSI الرئيس والتأكيد يظهران على الشارت (لوحة حية + نتائج الصفقات).
-strategy("Cascade 7 — تسلسل",
-     overlay                  = true,
-     pyramiding               = 0,
-     initial_capital          = 100000,
-     currency                 = currency.USD,
-     default_qty_type         = strategy.percent_of_equity,
-     default_qty_value        = 2,
-     commission_type          = strategy.commission.percent,
-     commission_value         = 0.04,
-     process_orders_on_close  = true,
-     calc_on_every_tick       = false,
-     max_labels_count         = 500,
-     max_bars_back            = 1000)
+// استراتيجية جديدة — 6 مؤشرات على فريم الشارت. شمعة مغلقة فقط.
+// MACD: إغلاق، 12/26/9، EMA/EMA، انتظر إغلاق الفريم.
+// SMI / Stoch_MTM (surjithctly): K=10، D=3، إشارة EMA=10، تمهيد=1، تشبع +40 / −40.
+// Stochastic: 14 / 3 / 3 (الإعداد الافتراضي في TradingView — غيّره من المدخلات).
+// RSI: 14.
+// Donchian Trend Ribbon (LonesomeTheBlue): فترة 20. الاتجاه = العمود الرئيسي.
+// EMA 50.
+//
+// شراء (كلّها على إغلاق): Donchian أخضر + إغلاق فوق EMA50 + هستوجرام MACD > 0
+//   + SMI يقطع إشارته للأعلى بعد لمس −40 + RSI > 50 + Stoch %K يقطع %D للأعلى.
+// بيع: العكس (+40، تحت EMA50، هستوجرام < 0، RSI < 50، %K يقطع %D للأسفل).
+strategy("S6 — 6 مؤشرات",
+     overlay                 = true,
+     pyramiding              = 0,
+     initial_capital         = 100000,
+     currency                = currency.USD,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 2,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.04,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     max_labels_count        = 200)
 
-grpInd = "المؤشرات"
-smiK   = input.int(10, "SMI K", minval=1, group=grpInd)
-smiD   = input.int(3,  "SMI D", minval=1, group=grpInd)
-osLvl  = input.float(-40, "تشبع بيعي SMI", group=grpInd)
-obLvl  = input.float(40,  "تشبع شرائي SMI", group=grpInd)
-macdF  = input.int(12, "MACD Fast", minval=1, group=grpInd)
-macdS  = input.int(26, "MACD Slow", minval=1, group=grpInd)
-macdG  = input.int(9,  "MACD Sig",  minval=1, group=grpInd)
-macdPct = input.float(20.0, "سقف/أرضية خط MACD ٪", minval=0, maxval=100, step=1, group=grpInd)
-dlen   = input.int(20, "Donchian Length", minval=2, group=grpInd)
-emaLen = input.int(50, "EMA", minval=1, group=grpInd)
-rsiLen = input.int(14, "RSI", minval=2, group=grpInd)
-stKlen = input.int(15, "Stoch K", minval=1, group=grpInd)
-stKsm  = input.int(3,  "Stoch K Smooth", minval=1, group=grpInd)
-rsiOs  = input.float(35, "لمس RSI شراء", group=grpInd)
-rsiOb  = input.float(65, "لمس RSI بيع", group=grpInd)
-rsiConfOs = input.float(30, "RSI تأكيد لمس شراء <=", group=grpInd)
-rsiConfOb = input.float(70, "RSI تأكيد لمس بيع >=", group=grpInd)
-rsiLook   = input.int(30, "RSI تأكيد شموع", minval=1, group=grpInd)
-rsiCfBuyLo  = input.float(50.0, "RSI تأكيد شراء من", group=grpInd)
-rsiCfBuyHi  = input.float(60.0, "RSI تأكيد شراء إلى", group=grpInd)
-rsiCfSellLo = input.float(40.0, "RSI تأكيد بيع من", group=grpInd)
-rsiCfSellHi = input.float(50.0, "RSI تأكيد بيع إلى", group=grpInd)
-rsiSpreadMin = input.float(3.0, "فرق RSI رئيس من", group=grpInd)
-rsiSpreadMax = input.float(10.0, "فرق RSI رئيس إلى", group=grpInd)
-stochBuy  = input.float(20, "Stoch شراء >", group=grpInd)
-stochSell = input.float(80, "Stoch بيع <", group=grpInd)
-stochGap  = input.int(3, "Stoch بعد التقاطع", minval=0, group=grpInd)
+grpM = "MACD"
+macdSrc = input.source(close, "مصدر", group=grpM)
+macdF   = input.int(12, "طول الخط السريع", minval=1, group=grpM)
+macdS   = input.int(26, "بطيء", minval=1, group=grpM)
+macdG   = input.int(9,  "طول الإشارة", minval=1, group=grpM)
 
-grpP = "الأزواج"
-use15  = input.bool(false, "15د / 45د / 5د — ملغى", group=grpP)
-use30  = input.bool(true, "30د / 90د / 10د", group=grpP)
-use45  = input.bool(true, "45د / 135د / 15د", group=grpP)
-use60  = input.bool(true, "1س / 3س / 20د", group=grpP)
-use90  = input.bool(true, "90د / 270د / 30د", group=grpP)
-use120 = input.bool(true, "2س / 6س / 40د", group=grpP)
-use150 = input.bool(true, "150د / 450د / 50د", group=grpP)
-use180 = input.bool(true, "3س / 9س / 1س", group=grpP)
-use210 = input.bool(true, "210د / 630د / 70د", group=grpP)
-use240 = input.bool(true, "4س / 12س / 80د", group=grpP)
-useD1  = input.bool(true, "1ي / 3ي / 2س", group=grpP)
-useD2  = input.bool(true, "2ي / 6ي / 4س", group=grpP)
-useD3  = input.bool(true, "3ي / 9ي / 1ي", group=grpP)
+grpSmi = "SMI / Stoch_MTM"
+smiK     = input.int(10, "Percent K Length", minval=1, group=grpSmi)
+smiD     = input.int(3,  "Percent D Length", minval=1, group=grpSmi)
+smiEma   = input.int(10, "EMA Signal Length", minval=1, group=grpSmi)
+smiSm    = input.int(1,  "Smoothing Period", minval=1, group=grpSmi)
+smiOb    = input.float(40,  "تشبع شرائي", group=grpSmi)
+smiOs    = input.float(-40, "تشبع بيعي", group=grpSmi)
 
-grpRisk = "إغلاق"
-useLong = input.bool(true, "شراء", group=grpRisk)
-useShrt = input.bool(true, "بيع", group=grpRisk)
-usePct  = input.bool(true, "وقف/هدف %", group=grpRisk)
-exitOpp = input.bool(true, "إغلاق عكسي", group=grpRisk)
+grpSt = "Stochastic"
+stKlen = input.int(14, "%K Length", minval=1, group=grpSt)
+stKsm  = input.int(3,  "%K Smoothing", minval=1, group=grpSt)
+stDsm  = input.int(3,  "%D Smoothing", minval=1, group=grpSt)
 
-grpVis = "العرض"
-showBg  = input.bool(true, "تظليل", group=grpVis)
-showLog = input.bool(true, "لوحة كل الفريمات", group=grpVis)
-showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
-showScore = input.bool(true, "نتائج الصفقات + RSI", group=grpVis)
-scorePage = input.int(1, "صفحة النتائج", minval=1, group=grpVis)
-histWin  = input.float(2.00, "ربح أقل من 2س %", step=0.01, group=grpVis)
-histLoss = input.float(2.00, "خسارة أقل من 2س %", step=0.01, group=grpVis)
-htfWin   = input.float(4.00, "ربح 2س–يوم %", step=0.01, group=grpVis)
-htfLoss  = input.float(3.00, "خسارة 2س–يوم %", step=0.01, group=grpVis)
-histKeep = 100
-pageSize = 20
+grpR = "RSI"
+rsiLen = input.int(14, "RSI Length", minval=2, group=grpR)
+rsiMid = input.float(50, "خط المنتصف", group=grpR)
 
-var array<int>    pTime = array.new_int()
-var array<float>  pPx   = array.new_float()
-var array<int>    pSide = array.new_int()
-var array<string> pTag  = array.new_string()
-var array<float>  pRsiM = array.new_float()
-var array<float>  pRsiC = array.new_float()
-var array<float>  pClM  = array.new_float()
-var array<float>  pClC  = array.new_float()
-var array<float>  pTpPct = array.new_float()
-var array<float>  pSlPct = array.new_float()
-var array<int>    hTime = array.new_int()
-var array<string> hTag  = array.new_string()
-var array<int>    hSide = array.new_int()
-var array<int>    hWin  = array.new_int()
-var array<float>  hRsiM = array.new_float()
-var array<float>  hRsiC = array.new_float()
-var array<float>  hClM  = array.new_float()
-var array<float>  hClC  = array.new_float()
-var array<int>    tally = array.new_int(2, 0)
-var int firstBarTime = time
+grpD = "Donchian Trend Ribbon"
+dlen = input.int(20, "Donchian Channel Period", minval=10, group=grpD)
 
-f_rsi_txt(float v) =>
-    na(v) ? "—" : str.tostring(v, "#.#")
+grpE = "EMA"
+emaLen = input.int(50, "EMA", minval=1, group=grpE)
 
-f_px_txt(float v) =>
-    na(v) ? "—" : str.tostring(v, format.mintick)
+grpX = "إغلاق"
+useLong = input.bool(true, "شراء", group=grpX)
+useShrt = input.bool(true, "بيع", group=grpX)
+usePct  = input.bool(true, "وقف/هدف %", group=grpX)
+tpPct   = input.float(2.0, "هدف %", step=0.1, group=grpX)
+slPct   = input.float(2.0, "وقف %", step=0.1, group=grpX)
 
-f_pair_txt(float rsi, float cl) =>
-    "RSI " + f_rsi_txt(rsi) + "\nإغلاق " + f_px_txt(cl)
+grpV = "عرض"
+showEma  = input.bool(true, "رسم EMA", group=grpV)
+showTbl  = input.bool(true, "لوحة الشروط", group=grpV)
 
-// 2س / 150د / 3س / 210د / 4س / 1ي / 2ي / 3ي → ربح 4٪ وقف 3٪
-f_wide_tf(string tag) =>
-    tag == "2س/40" or tag == "150/50" or tag == "3س/1س" or tag == "210/70" or tag == "4س/80" or tag == "1ي/2س" or tag == "2ي/4س" or tag == "3ي/1ي"
+// 1) MACD — EMA / EMA على الإغلاق.
+[macdLine, macdSig, macdHist] = ta.macd(macdSrc, macdF, macdS, macdG)
 
-f_tp_pct(string tag) => f_wide_tf(tag) ? htfWin : histWin
-f_sl_pct(string tag) => f_wide_tf(tag) ? htfLoss : histLoss
-
-f_score_json() =>
-    '"wins":' + str.tostring(array.get(tally, 0)) + ',"losses":' + str.tostring(array.get(tally, 1)) + ',"open":' + str.tostring(array.size(pTime))
-
-f_store(int et, string tag, int side, int win, float px, float rsiM, float rsiC, float clM, float clC) =>
-    array.push(hTime, et)
-    array.push(hTag, tag)
-    array.push(hSide, side)
-    array.push(hWin, win)
-    array.push(hRsiM, rsiM)
-    array.push(hRsiC, rsiC)
-    array.push(hClM, clM)
-    array.push(hClC, clC)
-    if array.size(hTime) > histKeep
-        array.shift(hTime)
-        array.shift(hTag)
-        array.shift(hSide)
-        array.shift(hWin)
-        array.shift(hRsiM)
-        array.shift(hRsiC)
-        array.shift(hClM)
-        array.shift(hClC)
-    int tIdx = win == 1 ? 0 : 1
-    array.set(tally, tIdx, array.get(tally, tIdx) + 1)
-    string sideTxt = side == 1 ? "buy" : "sell"
-    string winTxt = win == 1 ? "true" : "false"
-    alert('{"src":"cascade","event":"result","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(px) + ',"win":' + winTxt + ',"rsi_main":' + str.tostring(rsiM) + ',"rsi_confirm":' + str.tostring(rsiC) + ',"close_main":' + str.tostring(clM) + ',"close_confirm":' + str.tostring(clC) + ',' + f_score_json() + '}', alert.freq_all)
-
-f_resolve_one(int i) =>
-    int et = array.get(pTime, i)
-    float px = array.get(pPx, i)
-    int side = array.get(pSide, i)
-    string tag = array.get(pTag, i)
-    float rsiM = array.get(pRsiM, i)
-    float rsiC = array.get(pRsiC, i)
-    float clM = array.get(pClM, i)
-    float clC = array.get(pClC, i)
-    float tpPct = array.get(pTpPct, i)
-    float slPct = array.get(pSlPct, i)
-    float tp = side == 1 ? px * (1.0 + tpPct / 100.0) : px * (1.0 - tpPct / 100.0)
-    float sl = side == 1 ? px * (1.0 - slPct / 100.0) : px * (1.0 + slPct / 100.0)
-    bool slHit = side == 1 ? low <= sl : high >= sl
-    bool tpHit = side == 1 ? high >= tp : low <= tp
-    int result = slHit ? 0 : tpHit ? 1 : -1
-    if result >= 0
-        f_store(et, tag, side, result, px, rsiM, rsiC, clM, clC)
-        array.remove(pTime, i)
-        array.remove(pPx, i)
-        array.remove(pSide, i)
-        array.remove(pTag, i)
-        array.remove(pRsiM, i)
-        array.remove(pRsiC, i)
-        array.remove(pClM, i)
-        array.remove(pClC, i)
-        array.remove(pTpPct, i)
-        array.remove(pSlPct, i)
-    result
-
-f_track(bool hit, int side, string tag, float rsiM, float rsiC, float clM, float clC) =>
-    bool done = false
-    if hit
-        array.push(pTime, time)
-        array.push(pPx, close)
-        array.push(pSide, side)
-        array.push(pTag, tag)
-        array.push(pRsiM, rsiM)
-        array.push(pRsiC, rsiC)
-        array.push(pClM, clM)
-        array.push(pClC, clC)
-        array.push(pTpPct, f_tp_pct(tag))
-        array.push(pSlPct, f_sl_pct(tag))
-        string sideTxt = side == 1 ? "buy" : "sell"
-        alert('{"src":"cascade","event":"entry","side":"' + sideTxt + '","tag":"' + tag + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"rsi_main":' + str.tostring(rsiM) + ',"rsi_confirm":' + str.tostring(rsiC) + ',"close_main":' + str.tostring(clM) + ',"close_confirm":' + str.tostring(clC) + '}', alert.freq_all)
-        done := true
-    done
-
+// 2) SMI / Stoch_MTM — ويليام بلاو + تمهيد ثم إشارة EMA.
 f_smi() =>
     ll = ta.lowest(low, smiK)
     hh = ta.highest(high, smiK)
@@ -205,713 +74,117 @@ f_smi() =>
     rdiff = close - (hh + ll) / 2.0
     avgrel = ta.ema(ta.ema(rdiff, smiD), smiD)
     avgdiff = ta.ema(ta.ema(diff, smiD), smiD)
-    avgdiff != 0 ? (avgrel / (avgdiff / 2.0)) * 100.0 : 0.0
+    raw = avgdiff != 0 ? (avgrel / (avgdiff / 2.0)) * 100.0 : 0.0
+    sm = ta.sma(raw, smiSm)
+    sig = ta.ema(sm, smiEma)
+    [sm, sig]
 
-f_don() =>
-    var float trend = 0.0
-    hh = ta.highest(high, dlen)
-    ll = ta.lowest(low, dlen)
-    trend := close > hh[1] ? 1.0 : close < ll[1] ? -1.0 : trend
+[smi, smiSig] = f_smi()
+
+// 3) Stochastic البطيء.
+stochK = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
+stochD = ta.sma(stochK, stDsm)
+
+// 4) RSI.
+rsi = ta.rsi(close, rsiLen)
+
+// 5) Donchian Trend Ribbon — نفس dchannel في سكربت LonesomeTheBlue.
+f_don(int len) =>
+    hh = ta.highest(high, len)
+    ll = ta.lowest(low, len)
+    var int trend = 0
+    trend := close > hh[1] ? 1 : close < ll[1] ? -1 : trend
     trend
 
-// بعد أول تشبع لا يُرفض فورًا. ينتظر حتى يصل الخط إلى 20٪ من أقصى موجة، ثم يثبت جاهز.
-// Cond 2 MACD: على آخر شمعة مغلقة داخل security (lookahead_off). لا نأخذ [1] مرة ثانية.
-f_macd_ok(bool isLong, float smi, float hist, float macd) =>
-    var bool ready = false
-    bool satNow = isLong ? smi <= osLvl : smi >= obLvl
-    if not satNow
-        ready := false
-    else if not ready
-        int off = 0
-        for i = 1 to 200
-            bool still = isLong ? smi[i] <= osLvl : smi[i] >= obLvl
-            if not still
-                break
-            off := i
-        int barSec = int(math.max(1, (time - time[1]) / 1000))
-        int winHours = barSec < 3600 ? 24 : 72
-        int winBars = int(math.max(2, math.round(winHours * 3600.0 / barSec)))
-        if winBars > 300
-            winBars := 300
-        float bound = 0.0
-        for j = 0 to winBars
-            float v = macd[j]
-            if not na(v)
-                if isLong and v > 0 and v > bound
-                    bound := v
-                if not isLong and v < 0 and v < bound
-                    bound := v
-        float cap = bound * (macdPct / 100.0)
-        for i = off to 0
-            float h0 = hist[i]
-            float m0 = macd[i]
-            if not na(h0) and not na(m0)
-                bool sideOk = isLong ? (h0 < 0 and m0 >= h0) : (h0 > 0 and m0 <= h0)
-                bool distOk = isLong ? m0 <= cap : m0 >= cap
-                if sideOk and distOk
-                    ready := true
-                    break
-    ready
+don = f_don(dlen)
 
-// Cond 4: الشراء تحت EMA50 | البيع فوق EMA50 (شمعة مغلقة).
-f_ema_now(bool isLong, float ema, float cl) =>
-    not na(ema) and not na(cl) and (isLong ? cl < ema : cl > ema)
+// 6) EMA 50.
+ema = ta.ema(close, emaLen)
 
-// Cond RSI التأكيد: آخر 30 شمعة لمس ≤30 شراء / ≥70 بيع (هبوط ثم صعود إلى 50–60).
-f_rsi_conf(bool isLong, float rsi) =>
-    bool hit = false
-    for i = 0 to rsiLook - 1
-        if not na(rsi[i])
-            if isLong and rsi[i] <= rsiConfOs
-                hit := true
-                break
-            if not isLong and rsi[i] >= rsiConfOb
-                hit := true
-                break
-    hit
+// process_orders_on_close = true → هذه الشمعة مغلقة. لا نأخذ [1].
+macdBuy  = macdHist > 0
+macdSell = macdHist < 0
+smiCrossUp   = smi > smiSig and smi[1] <= smiSig[1]
+smiCrossDown = smi < smiSig and smi[1] >= smiSig[1]
+smiOsTouch = ta.lowest(smi, 8) <= smiOs
+smiObTouch = ta.highest(smi, 8) >= smiOb
+smiBuy  = smiCrossUp and smiOsTouch
+smiSell = smiCrossDown and smiObTouch
+stochBuy  = stochK > stochD and stochK[1] <= stochD[1]
+stochSell = stochK < stochD and stochK[1] >= stochD[1]
+rsiBuy  = rsi > rsiMid
+rsiSell = rsi < rsiMid
+donBuy  = don == 1
+donSell = don == -1
+emaBuy  = close > ema
+emaSell = close < ema
 
-// تأكيد شراء 50.00–60.00 | بيع 40.00–50.00 (50.01 و 39.99 مرفوضان للبيع).
-f_rsi_band(bool isLong, float rsiC) =>
-    not na(rsiC) and (isLong ? (rsiC >= rsiCfBuyLo and rsiC <= rsiCfBuyHi) : (rsiC >= rsiCfSellLo and rsiC <= rsiCfSellHi))
-
-// التأكيد أعلى من الرئيس بـ 3–10 في الشراء والبيع. شراء: الرئيس أدنى. بيع: التأكيد أعلى.
-f_rsi_gap(float rsiM, float rsiC) =>
-    not na(rsiM) and not na(rsiC) and (rsiC - rsiM >= rsiSpreadMin and rsiC - rsiM <= rsiSpreadMax)
-
-f_block(bool isLong, float smi) =>
-    isLong ? smi <= osLvl : smi >= obLvl
-
-// Cond 7 على فريم الدخول: أولاً تشبع SMI، ثم RSI (لمس 35/65 ثم قطع SMA14) وStoch. أيّهما أولاً، فرق ≤ 3 شموع.
-f_entry7(bool isLong, float smi, float rsi, float rsiMa, float k) =>
-    float smiTh = isLong ? osLvl : obLvl
-    float rsiTh = isLong ? rsiOs : rsiOb
-    float stTh  = isLong ? stochBuy : stochSell
-    int done = na
-    bool sat0 = isLong ? smi <= smiTh : smi >= smiTh
-    if sat0
-        int smiIdx = 0
-        for i = 1 to 200
-            bool satI = isLong ? smi[i] <= smiTh : smi[i] >= smiTh
-            if not satI
-                break
-            smiIdx := i
-        int best = 100000
-        for rsiIdx = 0 to smiIdx
-            bool rHit = isLong ? rsi[rsiIdx] <= rsiTh : rsi[rsiIdx] >= rsiTh
-            if not rHit
-                continue
-            int crossIdx = -1
-            for i = rsiIdx to 0
-                float prevR = rsi[i + 1]
-                float prevM = rsiMa[i + 1]
-                float curR  = rsi[i]
-                float curM  = rsiMa[i]
-                if not na(prevR) and not na(prevM) and not na(curR) and not na(curM)
-                    bool crossed = isLong ? (prevR < prevM and curR >= curM) : (prevR > prevM and curR <= curM)
-                    if crossed
-                        crossIdx := i
-                        break
-            if crossIdx < 0
-                continue
-            int lo = math.max(0, crossIdx - stochGap)
-            int hi = math.min(smiIdx, crossIdx + stochGap)
-            for j = lo to hi
-                if not na(k[j])
-                    bool st = isLong ? k[j] > stTh : k[j] < stTh
-                    if st
-                        int laterIdx = math.min(crossIdx, j)
-                        if laterIdx < best
-                            best := laterIdx
-        if best < 100000
-            done := time[best]
-    done
-
-// security على فريم أدنى من الشارت ترجع آخر شمعة فقط (مو كل na).
-// security_lower_tf تلقط كل الشموع داخل الساعة، لكن تنهار مع 36 فريم (حد 40 طلب) وتفشل إذا الشارت أصغر من المطلوب.
-f_snap_entry() =>
-    smi = f_smi()
-    don = f_don()
-    rsi = ta.rsi(close, rsiLen)
-    rsiMa = ta.sma(rsi, rsiLen)
-    k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-    [don, f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), time]
-
-f_snap_confirm() =>
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
-    don = f_don()
-    rsi = ta.rsi(close, rsiLen)
-    hist2 = hist + nz(sigLine) * 0.0 + nz(macdLine) * 0.0
-    [don, hist2, f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), rsi, close]
-
-f_snap_base() =>
-    smi = f_smi()
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
-    don = f_don()
-    ema = ta.ema(close, emaLen)
-    rsi = ta.rsi(close, rsiLen)
-    hist2 = hist + nz(sigLine) * 0.0
-    [smi, don, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema, close), f_ema_now(false, ema, close), f_block(true, smi), f_block(false, smi), rsi, close]
-
-f_snap_cancel() =>
-    smi = f_smi()
-    [f_block(true, smi), f_block(false, smi)]
-
-f_snap_base_entry() =>
-    smi = f_smi()
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
-    don = f_don()
-    ema = ta.ema(close, emaLen)
-    rsi = ta.rsi(close, rsiLen)
-    rsiMa = ta.sma(rsi, rsiLen)
-    k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-    hist2 = hist + nz(sigLine) * 0.0
-    [smi, don, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema, close), f_ema_now(false, ema, close), f_entry7(true, smi, rsi, rsiMa, k), f_entry7(false, smi, rsi, rsiMa, k), f_block(true, smi), f_block(false, smi), rsi, time, close]
-
-f_snap_htf() =>
-    smi = f_smi()
-    [macdLine, sigLine, hist] = ta.macd(close, macdF, macdS, macdG)
-    don = f_don()
-    ema = ta.ema(close, emaLen)
-    rsi = ta.rsi(close, rsiLen)
-    hist2 = hist + nz(sigLine) * 0.0
-    [smi, don, don, hist2, f_macd_ok(true, smi, hist2, macdLine), f_macd_ok(false, smi, hist2, macdLine), f_ema_now(true, ema, close), f_ema_now(false, ema, close), f_rsi_conf(true, rsi), f_rsi_conf(false, rsi), f_block(true, smi), f_block(false, smi), rsi, close]
-
-// الشارت 1د وكل الفريمات أعلى: lookahead_off يعطي آخر شمعة مغلقة. لا نأخذ [1] مرة ثانية (هذا كان يأخّر كل شرط شمعة فريم كاملة).
-f_req_entry(simple string tf) =>
-    request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
-
-f_req_confirm(simple string tf) =>
-    request.security(syminfo.tickerid, tf, f_snap_confirm(), barmerge.gaps_off, barmerge.lookahead_off)
-
-f_req_base(simple string tf) =>
-    request.security(syminfo.tickerid, tf, f_snap_base(), barmerge.gaps_off, barmerge.lookahead_off)
-
-f_req_cancel(simple string tf) =>
-    request.security(syminfo.tickerid, tf, f_snap_cancel(), barmerge.gaps_off, barmerge.lookahead_off)
-
-f_req_base_entry(simple string tf) =>
-    request.security(syminfo.tickerid, tf, f_snap_base_entry(), barmerge.gaps_off, barmerge.lookahead_off)
-
-f_req_htf(simple string tf) =>
-    request.security(syminfo.tickerid, tf, f_snap_htf(), barmerge.gaps_off, barmerge.lookahead_off)
-
-[dC5, s8L5, s8S5, t5] = f_req_entry("5")
-[dC10, s8L10, s8S10, t10] = f_req_entry("10")
-[dC20, s8L20, s8S20, t20] = f_req_entry("20")
-[dC40, s8L40, s8S40, t40] = f_req_entry("40")
-[dC50, s8L50, s8S50, t50] = f_req_entry("50")
-[dC70, s8L70, s8S70, t70] = f_req_entry("70")
-[dC80, s8L80, s8S80, t80] = f_req_entry("80")
-[smi15, dC15, mL15, mS15, eL15, eS15, s8L15, s8S15, bL15, bS15, rsi15, t15, cl15] = f_req_base_entry("15")
-[smi30, dC30, mL30, mS30, eL30, eS30, s8L30, s8S30, bL30, bS30, rsi30, t30, cl30] = f_req_base_entry("30")
-[smi45, dL45, dC45, h45, mL45, mS45, eL45, eS45, rL45, rS45, bL45, bS45, rsi45, cl45] = f_req_htf("45")
-[smi60, dC60, mL60, mS60, eL60, eS60, s8L60, s8S60, bL60, bS60, rsi60, t60, cl60] = f_req_base_entry("60")
-[smi90, dL90, dC90, h90, mL90, mS90, eL90, eS90, rL90, rS90, bL90, bS90, rsi90, cl90] = f_req_htf("90")
-[smi120, dC120, mL120, mS120, eL120, eS120, s8L120, s8S120, bL120, bS120, rsi120, t120, cl120] = f_req_base_entry("120")
-[smi150, dC150, mL150, mS150, eL150, eS150, bL150, bS150, rsi150, cl150] = f_req_base("150")
-[smi180, dL180, dC180, h180, mL180, mS180, eL180, eS180, rL180, rS180, bL180, bS180, rsi180, cl180] = f_req_htf("180")
-[smi210, dC210, mL210, mS210, eL210, eS210, bL210, bS210, rsi210, cl210] = f_req_base("210")
-[smi240, dC240, mL240, mS240, eL240, eS240, s8L240, s8S240, bL240, bS240, rsi240, t240, cl240] = f_req_base_entry("240")
-[smiD1, dCD1, mLD1, mSD1, eLD1, eSD1, s8LD1, s8SD1, bLD1, bSD1, rsiD1, tD1, clD1] = f_req_base_entry("D")
-[smiD2, dCD2, mLD2, mSD2, eLD2, eSD2, bLD2, bSD2, rsiD2, clD2] = f_req_base("2D")
-[smiD3, dLD3, dCD3, hD3, mLD3, mSD3, eLD3, eSD3, rLD3, rSD3, bLD3, bSD3, rsiD3, clD3] = f_req_htf("3D")
-[dL135, h135, rL135, rS135, rsi135, cl135] = f_req_confirm("135")
-[dL270, h270, rL270, rS270, rsi270, cl270] = f_req_confirm("270")
-[dL360, h360, rL360, rS360, rsi360, cl360] = f_req_confirm("360")
-[dL450, h450, rL450, rS450, rsi450, cl450] = f_req_confirm("450")
-[dL540, h540, rL540, rS540, rsi540, cl540] = f_req_confirm("540")
-[dL630, h630, rL630, rS630, rsi630, cl630] = f_req_confirm("630")
-[dL720, h720, rL720, rS720, rsi720, cl720] = f_req_confirm("720")
-[dL6D, h6D, rL6D, rS6D, rsi6D, cl6D] = f_req_confirm("6D")
-[dL9D, h9D, rL9D, rS9D, rsi9D, cl9D] = f_req_confirm("9D")
-[bL300, bS300] = f_req_cancel("300")
-[bL4D, bS4D] = f_req_cancel("4D")
-
-f_side(bool isLong, bool blk, float smiC, bool mOk, float donB, float donCf, float histCf, bool emaOk, bool rsiCf, float rsiM, float rsiC, float donT, int s7T, int entT) =>
-    bool satNow = not na(smiC) and (isLong ? smiC <= osLvl : smiC >= obLvl)
-    bool now1 = not blk and satNow
-    bool now2 = mOk == true
-    bool now3 = isLong ? donB > 0 : donB < 0
-    bool now4 = emaOk == true
-    bool now5 = isLong ? (not na(histCf) and histCf > 0) : (not na(histCf) and histCf < 0)
-    bool now6 = rsiCf == true and f_rsi_band(isLong, rsiC) and f_rsi_gap(rsiM, rsiC)
-    bool now7 = (isLong ? donT < 0 : donT > 0) and not na(entT)
-    bool now8 = not na(s7T)
-    var bool wasSat = false
-    var bool l1 = false
-    var bool l2 = false
-    var bool l3 = false
-    var bool l4 = false
-    var bool l5 = false
-    var bool l6 = false
-    var bool l7 = false
-    var bool l8 = false
-    if satNow and not wasSat
-        l1 := false
-        l2 := false
-        l3 := false
-        l4 := false
-        l5 := false
-        l6 := false
-        l7 := false
-        l8 := false
-    wasSat := satNow
-    if now1
-        l1 := true
-    if l1 and now2
-        l2 := true
-    if l2 and now3
-        l3 := true
-    if l3 and now4
-        l4 := true
-    if l4 and now5
-        l5 := true
-    if l5 and now6
-        l6 := true
-    if l6 and now7
-        l7 := true
-    if l7 and now8
-        l8 := true
-    bool setup = l1 and l2 and l3 and l4 and l5 and l6 and l7
-    bool all8 = setup and l8 and not blk
-    [l1, l2, l3, l4, l5, l6, l7, l8, setup, all8]
-
-[L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, set15L, all15L] = f_side(true,  bL30, smi15, mL15, dC15, dL45, h45, eL15, rL45, rsi15, rsi45, dC5, s8L5, t5)
-[S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, set15S, all15S] = f_side(false, bS30, smi15, mS15, dC15, dL45, h45, eS15, rS45, rsi15, rsi45, dC5, s8S5, t5)
-[L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8, set30L, all30L] = f_side(true,  bL45, smi30, mL30, dC30, dL90, h90, eL30, rL90, rsi30, rsi90, dC10, s8L10, t10)
-[S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8, set30S, all30S] = f_side(false, bS45, smi30, mS30, dC30, dL90, h90, eS30, rS90, rsi30, rsi90, dC10, s8S10, t10)
-[L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8, set45L, all45L] = f_side(true,  bL60, smi45, mL45, dC45, dL135, h135, eL45, rL135, rsi45, rsi135, dC15, s8L15, t15)
-[S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8, set45S, all45S] = f_side(false, bS60, smi45, mS45, dC45, dL135, h135, eS45, rS135, rsi45, rsi135, dC15, s8S15, t15)
-[L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8, set60L, all60L] = f_side(true,  bL90, smi60, mL60, dC60, dL180, h180, eL60, rL180, rsi60, rsi180, dC20, s8L20, t20)
-[S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8, set60S, all60S] = f_side(false, bS90, smi60, mS60, dC60, dL180, h180, eS60, rS180, rsi60, rsi180, dC20, s8S20, t20)
-[L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8, set90L, all90L] = f_side(true,  bL120, smi90, mL90, dC90, dL270, h270, eL90, rL270, rsi90, rsi270, dC30, s8L30, t30)
-[S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8, set90S, all90S] = f_side(false, bS120, smi90, mS90, dC90, dL270, h270, eS90, rS270, rsi90, rsi270, dC30, s8S30, t30)
-[L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8, set120L, all120L] = f_side(true,  bL150, smi120, mL120, dC120, dL360, h360, eL120, rL360, rsi120, rsi360, dC40, s8L40, t40)
-[S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8, set120S, all120S] = f_side(false, bS150, smi120, mS120, dC120, dL360, h360, eS120, rS360, rsi120, rsi360, dC40, s8S40, t40)
-[L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8, set150L, all150L] = f_side(true,  bL180, smi150, mL150, dC150, dL450, h450, eL150, rL450, rsi150, rsi450, dC50, s8L50, t50)
-[S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8, set150S, all150S] = f_side(false, bS180, smi150, mS150, dC150, dL450, h450, eS150, rS450, rsi150, rsi450, dC50, s8S50, t50)
-[L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8, set180L, all180L] = f_side(true,  bL210, smi180, mL180, dC180, dL540, h540, eL180, rL540, rsi180, rsi540, dC60, s8L60, t60)
-[S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8, set180S, all180S] = f_side(false, bS210, smi180, mS180, dC180, dL540, h540, eS180, rS540, rsi180, rsi540, dC60, s8S60, t60)
-[L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8, set210L, all210L] = f_side(true,  bL240, smi210, mL210, dC210, dL630, h630, eL210, rL630, rsi210, rsi630, dC70, s8L70, t70)
-[S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8, set210S, all210S] = f_side(false, bS240, smi210, mS210, dC210, dL630, h630, eS210, rS630, rsi210, rsi630, dC70, s8S70, t70)
-[L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, set240L, all240L] = f_side(true,  bL300, smi240, mL240, dC240, dL720, h720, eL240, rL720, rsi240, rsi720, dC80, s8L80, t80)
-[S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, set240S, all240S] = f_side(false, bS300, smi240, mS240, dC240, dL720, h720, eS240, rS720, rsi240, rsi720, dC80, s8S80, t80)
-[LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8, setD1L, allD1L] = f_side(true,  bLD2, smiD1, mLD1, dCD1, dLD3, hD3, eLD1, rLD3, rsiD1, rsiD3, dC120, s8L120, t120)
-[SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8, setD1S, allD1S] = f_side(false, bSD2, smiD1, mSD1, dCD1, dLD3, hD3, eSD1, rSD3, rsiD1, rsiD3, dC120, s8S120, t120)
-[LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8, setD2L, allD2L] = f_side(true,  bLD3, smiD2, mLD2, dCD2, dL6D, h6D, eLD2, rL6D, rsiD2, rsi6D, dC240, s8L240, t240)
-[SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8, setD2S, allD2S] = f_side(false, bSD3, smiD2, mSD2, dCD2, dL6D, h6D, eSD2, rS6D, rsiD2, rsi6D, dC240, s8S240, t240)
-[LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8, setD3L, allD3L] = f_side(true,  bL4D, smiD3, mLD3, dCD3, dL9D, h9D, eLD3, rL9D, rsiD3, rsi9D, dCD1, s8LD1, tD1)
-[SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8, setD3S, allD3S] = f_side(false, bS4D, smiD3, mSD3, dCD3, dL9D, h9D, eSD3, rS9D, rsiD3, rsi9D, dCD1, s8SD1, tD1)
-
-var bool a15L = true
-var bool a15S = true
-var bool a30L = true
-var bool a30S = true
-var bool a45L = true
-var bool a45S = true
-var bool a60L = true
-var bool a60S = true
-var bool a90L = true
-var bool a90S = true
-var bool a120L = true
-var bool a120S = true
-var bool a150L = true
-var bool a150S = true
-var bool a180L = true
-var bool a180S = true
-var bool a210L = true
-var bool a210S = true
-var bool a240L = true
-var bool a240S = true
-var bool aD1L = true
-var bool aD1S = true
-var bool aD2L = true
-var bool aD2S = true
-var bool aD3L = true
-var bool aD3S = true
-
-if not set15L
-    a15L := true
-if not set15S
-    a15S := true
-if not set30L
-    a30L := true
-if not set30S
-    a30S := true
-if not set45L
-    a45L := true
-if not set45S
-    a45S := true
-if not set60L
-    a60L := true
-if not set60S
-    a60S := true
-if not set90L
-    a90L := true
-if not set90S
-    a90S := true
-if not set120L
-    a120L := true
-if not set120S
-    a120S := true
-if not set150L
-    a150L := true
-if not set150S
-    a150S := true
-if not set180L
-    a180L := true
-if not set180S
-    a180S := true
-if not set210L
-    a210L := true
-if not set210S
-    a210S := true
-if not set240L
-    a240L := true
-if not set240S
-    a240S := true
-if not setD1L
-    aD1L := true
-if not setD1S
-    aD1S := true
-if not setD2L
-    aD2L := true
-if not setD2S
-    aD2S := true
-if not setD3L
-    aD3L := true
-if not setD3S
-    aD3S := true
-
-hit15L = use15 and useLong and all15L and a15L
-hit30L = use30 and useLong and all30L and a30L
-hit45L = use45 and useLong and all45L and a45L
-hit60L = use60 and useLong and all60L and a60L
-hit90L = use90 and useLong and all90L and a90L
-hit120L = use120 and useLong and all120L and a120L
-hit150L = use150 and useLong and all150L and a150L
-hit180L = use180 and useLong and all180L and a180L
-hit210L = use210 and useLong and all210L and a210L
-hit240L = use240 and useLong and all240L and a240L
-hitD1L = useD1 and useLong and allD1L and aD1L
-hitD2L = useD2 and useLong and allD2L and aD2L
-hitD3L = useD3 and useLong and allD3L and aD3L
-hit15S = use15 and useShrt and all15S and a15S
-hit30S = use30 and useShrt and all30S and a30S
-hit45S = use45 and useShrt and all45S and a45S
-hit60S = use60 and useShrt and all60S and a60S
-hit90S = use90 and useShrt and all90S and a90S
-hit120S = use120 and useShrt and all120S and a120S
-hit150S = use150 and useShrt and all150S and a150S
-hit180S = use180 and useShrt and all180S and a180S
-hit210S = use210 and useShrt and all210S and a210S
-hit240S = use240 and useShrt and all240S and a240S
-hitD1S = useD1 and useShrt and allD1S and aD1S
-hitD2S = useD2 and useShrt and allD2S and aD2S
-hitD3S = useD3 and useShrt and allD3S and aD3S
-
-if hit15L
-    a15L := false
-if hit30L
-    a30L := false
-if hit45L
-    a45L := false
-if hit60L
-    a60L := false
-if hit90L
-    a90L := false
-if hit120L
-    a120L := false
-if hit150L
-    a150L := false
-if hit180L
-    a180L := false
-if hit210L
-    a210L := false
-if hit240L
-    a240L := false
-if hitD1L
-    aD1L := false
-if hitD2L
-    aD2L := false
-if hitD3L
-    aD3L := false
-if hit15S
-    a15S := false
-if hit30S
-    a30S := false
-if hit45S
-    a45S := false
-if hit60S
-    a60S := false
-if hit90S
-    a90S := false
-if hit120S
-    a120S := false
-if hit150S
-    a150S := false
-if hit180S
-    a180S := false
-if hit210S
-    a210S := false
-if hit240S
-    a240S := false
-if hitD1S
-    aD1S := false
-if hitD2S
-    aD2S := false
-if hitD3S
-    aD3S := false
-
-int nPend = array.size(pTime)
-if nPend > 0
-    for i = nPend - 1 to 0
-        int ignRes = f_resolve_one(i)
-
-ok15L = f_track(hit15L, 1, "15/5", rsi15, rsi45, cl15, cl45)
-ok30L = f_track(hit30L, 1, "30/10", rsi30, rsi90, cl30, cl90)
-ok45L = f_track(hit45L, 1, "45/15", rsi45, rsi135, cl45, cl135)
-ok60L = f_track(hit60L, 1, "1س/20", rsi60, rsi180, cl60, cl180)
-ok90L = f_track(hit90L, 1, "90/30", rsi90, rsi270, cl90, cl270)
-ok120L = f_track(hit120L, 1, "2س/40", rsi120, rsi360, cl120, cl360)
-ok150L = f_track(hit150L, 1, "150/50", rsi150, rsi450, cl150, cl450)
-ok180L = f_track(hit180L, 1, "3س/1س", rsi180, rsi540, cl180, cl540)
-ok210L = f_track(hit210L, 1, "210/70", rsi210, rsi630, cl210, cl630)
-ok240L = f_track(hit240L, 1, "4س/80", rsi240, rsi720, cl240, cl720)
-okD1L = f_track(hitD1L, 1, "1ي/2س", rsiD1, rsiD3, clD1, clD3)
-okD2L = f_track(hitD2L, 1, "2ي/4س", rsiD2, rsi6D, clD2, cl6D)
-okD3L = f_track(hitD3L, 1, "3ي/1ي", rsiD3, rsi9D, clD3, cl9D)
-ok15S = f_track(hit15S, -1, "15/5", rsi15, rsi45, cl15, cl45)
-ok30S = f_track(hit30S, -1, "30/10", rsi30, rsi90, cl30, cl90)
-ok45S = f_track(hit45S, -1, "45/15", rsi45, rsi135, cl45, cl135)
-ok60S = f_track(hit60S, -1, "1س/20", rsi60, rsi180, cl60, cl180)
-ok90S = f_track(hit90S, -1, "90/30", rsi90, rsi270, cl90, cl270)
-ok120S = f_track(hit120S, -1, "2س/40", rsi120, rsi360, cl120, cl360)
-ok150S = f_track(hit150S, -1, "150/50", rsi150, rsi450, cl150, cl450)
-ok180S = f_track(hit180S, -1, "3س/1س", rsi180, rsi540, cl180, cl540)
-ok210S = f_track(hit210S, -1, "210/70", rsi210, rsi630, cl210, cl630)
-ok240S = f_track(hit240S, -1, "4س/80", rsi240, rsi720, cl240, cl720)
-okD1S = f_track(hitD1S, -1, "1ي/2س", rsiD1, rsiD3, clD1, clD3)
-okD2S = f_track(hitD2S, -1, "2ي/4س", rsiD2, rsi6D, clD2, cl6D)
-okD3S = f_track(hitD3S, -1, "3ي/1ي", rsiD3, rsi9D, clD3, cl9D)
-
-buyHit = hitD3L or hitD2L or hitD1L or hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L
-sellHit = hitD3S or hitD2S or hitD1S or hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S
-buyTag = hitD3L ? "3ي/1ي" : hitD2L ? "2ي/4س" : hitD1L ? "1ي/2س" : hit240L ? "4س/80" : hit210L ? "210/70" : hit180L ? "3س/1س" : hit150L ? "150/50" : hit120L ? "2س/40" : hit90L ? "90/30" : hit60L ? "1س/20" : hit45L ? "45/15" : "30/10"
-sellTag = hitD3S ? "3ي/1ي" : hitD2S ? "2ي/4س" : hitD1S ? "1ي/2س" : hit240S ? "4س/80" : hit210S ? "210/70" : hit180S ? "3س/1س" : hit150S ? "150/50" : hit120S ? "2س/40" : hit90S ? "90/30" : hit60S ? "1س/20" : hit45S ? "45/15" : "30/10"
-tpBuy = f_tp_pct(buyTag)
-slBuy = f_sl_pct(buyTag)
-tpSel = f_tp_pct(sellTag)
-slSel = f_sl_pct(sellTag)
+buyHit  = useLong and macdBuy and smiBuy and stochBuy and rsiBuy and donBuy and emaBuy
+sellHit = useShrt and macdSell and smiSell and stochSell and rsiSell and donSell and emaSell
 
 var float longStop = na
-var float longLim = na
+var float longLim  = na
 var float shortStop = na
-var float shortLim = na
+var float shortLim  = na
 
 if buyHit
-    if exitOpp and strategy.position_size < 0
+    if strategy.position_size < 0
         strategy.close("Short", comment="عكس")
     if strategy.position_size <= 0
-        strategy.entry("Long", strategy.long, comment="شراء " + buyTag)
-        longStop := close * (1.0 - slBuy / 100.0)
-        longLim := close * (1.0 + tpBuy / 100.0)
+        strategy.entry("Long", strategy.long, comment="شراء")
+        longStop := close * (1.0 - slPct / 100.0)
+        longLim  := close * (1.0 + tpPct / 100.0)
 
 if sellHit
-    if exitOpp and strategy.position_size > 0
+    if strategy.position_size > 0
         strategy.close("Long", comment="عكس")
     if strategy.position_size >= 0
-        strategy.entry("Short", strategy.short, comment="بيع " + sellTag)
-        shortStop := close * (1.0 + slSel / 100.0)
-        shortLim := close * (1.0 - tpSel / 100.0)
+        strategy.entry("Short", strategy.short, comment="بيع")
+        shortStop := close * (1.0 + slPct / 100.0)
+        shortLim  := close * (1.0 - tpPct / 100.0)
 
 if usePct and strategy.position_size > 0
     strategy.exit("L-Exit", from_entry="Long", stop=longStop, limit=longLim)
 if usePct and strategy.position_size < 0
     strategy.exit("S-Exit", from_entry="Short", stop=shortStop, limit=shortLim)
 
-f_mark(bool v) => v ? "1" : ""
+plot(showEma ? ema : na, "EMA50", color=color.orange, linewidth=2)
+barcolor(don == 1 ? color.new(color.green, 70) : don == -1 ? color.new(color.red, 70) : na)
+plotshape(buyHit,  title="شراء", style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small)
+plotshape(sellHit, title="بيع",  style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small)
 
-f_row(string nm, bool s1, bool s2, bool s3, bool s4, bool s5, bool s6, bool s7, bool s8) =>
-    nm + f_mark(s1) + f_mark(s2) + f_mark(s3) + f_mark(s4) + f_mark(s5) + f_mark(s6) + f_mark(s7) + f_mark(s8)
+f_mark(bool v) => v ? "✓" : "—"
 
-if showLbl
-    if hit15L
-        label.new(bar_index, low, "شراء\n15/5", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
-    if hit30L
-        label.new(bar_index, low, "شراء\n30/10", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
-    if hit45L
-        label.new(bar_index, low, "شراء\n45/15", style=label.style_label_up, color=color.new(color.teal, 0), textcolor=color.white, size=size.tiny)
-    if hit60L
-        label.new(bar_index, low, "شراء\n1س/20", style=label.style_label_up, color=color.new(color.teal, 0), textcolor=color.white, size=size.tiny)
-    if hit90L
-        label.new(bar_index, low, "شراء\n90/30", style=label.style_label_up, color=color.new(color.teal, 0), textcolor=color.white, size=size.tiny)
-    if hit120L
-        label.new(bar_index, low, "شراء\n2س/40", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
-    if hit150L
-        label.new(bar_index, low, "شراء\n150/50", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
-    if hit180L
-        label.new(bar_index, low, "شراء\n3س/1س", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
-    if hit210L
-        label.new(bar_index, low, "شراء\n210/70", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
-    if hit240L
-        label.new(bar_index, low, "شراء\n4س/80", style=label.style_label_up, color=color.new(color.navy, 0), textcolor=color.white, size=size.tiny)
-    if hitD1L
-        label.new(bar_index, low, "شراء\n1ي/2س", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
-    if hitD2L
-        label.new(bar_index, low, "شراء\n2ي/4س", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
-    if hitD3L
-        label.new(bar_index, low, "شراء\n3ي/1ي", style=label.style_label_up, color=color.new(color.purple, 0), textcolor=color.white, size=size.tiny)
+var table box = table.new(position.top_left, 3, 8, bgcolor=color.new(#141414, 8), border_width=1, border_color=color.new(#555555, 0))
+var bool boxMerged = false
+if not boxMerged
+    table.merge_cells(box, 0, 7, 2, 7)
+    boxMerged := true
+if barstate.islast and showTbl
+    hd = color.new(#1b3a5c, 0)
+    bg = color.new(#1a1a1a, 0)
+    table.cell(box, 0, 0, "المؤشر", text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 1, 0, "شراء", text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 2, 0, "بيع", text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 0, 1, "MACD", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 1, 1, f_mark(macdBuy), text_color=macdBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 1, f_mark(macdSell), text_color=macdSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 0, 2, "SMI", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 1, 2, f_mark(smiBuy), text_color=smiBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 2, f_mark(smiSell), text_color=smiSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 0, 3, "Stoch", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 1, 3, f_mark(stochBuy), text_color=stochBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 3, f_mark(stochSell), text_color=stochSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 0, 4, "RSI", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 1, 4, f_mark(rsiBuy), text_color=rsiBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 4, f_mark(rsiSell), text_color=rsiSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 0, 5, "Donchian", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 1, 5, f_mark(donBuy), text_color=donBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 5, f_mark(donSell), text_color=donSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 0, 6, "EMA50", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 1, 6, f_mark(emaBuy), text_color=emaBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 6, f_mark(emaSell), text_color=emaSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
+    table.cell(box, 0, 7, "SMI " + str.tostring(smi, "#.#") + "  RSI " + str.tostring(rsi, "#.#") + "  K " + str.tostring(stochK, "#.#"), text_color=color.white, bgcolor=hd, text_size=size.small)
 
-    if hit15S
-        label.new(bar_index, high, "بيع\n15/5", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
-    if hit30S
-        label.new(bar_index, high, "بيع\n30/10", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.tiny)
-    if hit45S
-        label.new(bar_index, high, "بيع\n45/15", style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
-    if hit60S
-        label.new(bar_index, high, "بيع\n1س/20", style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
-    if hit90S
-        label.new(bar_index, high, "بيع\n90/30", style=label.style_label_down, color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny)
-    if hit120S
-        label.new(bar_index, high, "بيع\n2س/40", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
-    if hit150S
-        label.new(bar_index, high, "بيع\n150/50", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
-    if hit180S
-        label.new(bar_index, high, "بيع\n3س/1س", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
-    if hit210S
-        label.new(bar_index, high, "بيع\n210/70", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
-    if hit240S
-        label.new(bar_index, high, "بيع\n4س/80", style=label.style_label_down, color=color.new(color.maroon, 0), textcolor=color.white, size=size.tiny)
-    if hitD1S
-        label.new(bar_index, high, "بيع\n1ي/2س", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
-    if hitD2S
-        label.new(bar_index, high, "بيع\n2ي/4س", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
-    if hitD3S
-        label.new(bar_index, high, "بيع\n3ي/1ي", style=label.style_label_down, color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny)
-
-anySetup = set15L or set30L or set45L or set60L or set90L or set120L or set150L or set180L or set210L or set240L or setD1L or setD2L or setD3L or set15S or set30S or set45S or set60S or set90S or set120S or set150S or set180S or set210S or set240S or setD1S or setD2S or setD3S
-bgcolor(showBg and anySetup ? color.new(color.gray, 92) : na)
-plotshape(buyHit, title="شراء", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny)
-plotshape(sellHit, title="بيع", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
-
-var label logLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(#111111, 5), textcolor=color.white, size=size.small, textalign=text.align_left)
-
-chartTooHigh = timeframe.in_seconds() > 5 * 60
-ltfNa = na(dC5) or na(dC20)
-var label warnLbl = label.new(bar_index, high, "", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.black, size=size.normal, textalign=text.align_left)
-if chartTooHigh or ltfNa
-    label.set_xy(warnLbl, bar_index, high)
-    string wtxt = chartTooHigh ? "حط الشارت على 5 دقائق أو أقل\nيفضّل الدقيقة حتى تظهر كل المداخل" : ""
-    if ltfNa
-        wtxt := (wtxt == "" ? "" : wtxt + "\n") + "فريم الدخول رجع na — صغّر الشارت"
-    label.set_text(warnLbl, wtxt)
-else
-    label.set_text(warnLbl, "")
-
-if showLog
-    string txt = "Cascade | ناجحة " + str.tostring(array.get(tally, 0)) + " | فاشلة " + str.tostring(array.get(tally, 1)) + " | مفتوحة " + str.tostring(array.size(pTime)) + "\n"
-    txt += "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "% | 2س–يوم ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "% | الشارت: 5د أو أقل\n"
-    txt += f_row("30 B", L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8) + " " + f_row("S", S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8) + "\n"
-    txt += f_row("45 B", L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8) + " " + f_row("S", S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8) + "\n"
-    txt += f_row("1س B", L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8) + " " + f_row("S", S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8) + "\n"
-    txt += f_row("90 B", L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8) + " " + f_row("S", S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8) + "\n"
-    txt += f_row("2س B", L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8) + " " + f_row("S", S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8) + "\n"
-    txt += f_row("150 B", L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8) + " " + f_row("S", S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8) + "\n"
-    txt += f_row("3س B", L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8) + " " + f_row("S", S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8) + "\n"
-    txt += f_row("210 B", L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8) + " " + f_row("S", S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8) + "\n"
-    txt += f_row("4س B", L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8) + " " + f_row("S", S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8) + "\n"
-    txt += f_row("1ي B", LD1_1, LD1_2, LD1_3, LD1_4, LD1_5, LD1_6, LD1_7, LD1_8) + " " + f_row("S", SD1_1, SD1_2, SD1_3, SD1_4, SD1_5, SD1_6, SD1_7, SD1_8) + "\n"
-    txt += f_row("2ي B", LD2_1, LD2_2, LD2_3, LD2_4, LD2_5, LD2_6, LD2_7, LD2_8) + " " + f_row("S", SD2_1, SD2_2, SD2_3, SD2_4, SD2_5, SD2_6, SD2_7, SD2_8) + "\n"
-    txt += f_row("3ي B", LD3_1, LD3_2, LD3_3, LD3_4, LD3_5, LD3_6, LD3_7, LD3_8) + " " + f_row("S", SD3_1, SD3_2, SD3_3, SD3_4, SD3_5, SD3_6, SD3_7, SD3_8)
-    txt += "\nتسلسل: 1SMI 2MACD 3Don 4EMA50 5MACDتأكيد 6RSI(لمس30 ثم 50–60) 7Donدخول 8دخول | الأكبر يلغي الأصغر | الدخول عند اكتمال السجل"
-    if chartTooHigh
-        txt += "\nحط الشارت على 5د أو أقل حتى تظهر الأسهم"
-    label.set_xy(logLbl, bar_index, high)
-    label.set_text(logLbl, txt)
-else
-    label.set_text(logLbl, "")
-
-f_cell(table t, int col, int row, string txt, color fg, color bg) =>
-    table.cell(t, col, row, txt, text_color=fg, bgcolor=bg, text_size=size.small, text_halign=text.align_center)
-
-f_rsi_fg(float v) =>
-    na(v) ? color.gray : v >= 70 ? color.red : v <= 30 ? color.lime : color.white
-
-var table rsiLive = table.new(position.top_right, 3, 14, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
-
-f_rsi_line(int row, string nm, float rM, float rC) =>
-    color bgR = color.new(#1a1a1a, 0)
-    f_cell(rsiLive, 0, row, nm, color.silver, bgR)
-    f_cell(rsiLive, 1, row, f_rsi_txt(rM), f_rsi_fg(rM), bgR)
-    f_cell(rsiLive, 2, row, f_rsi_txt(rC), f_rsi_fg(rC), bgR)
-
-var table scoreBox = table.new(position.top_left, 4, 24, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
-var bool scoreMerged = false
-if not scoreMerged
-    table.merge_cells(scoreBox, 0, 0, 3, 0)
-    table.merge_cells(scoreBox, 0, 1, 3, 1)
-    table.merge_cells(scoreBox, 0, 2, 3, 2)
-    scoreMerged := true
-
-if barstate.islast
-    color hdR = color.new(#1b3a5c, 0)
-    f_cell(rsiLive, 0, 0, "زوج", color.white, hdR)
-    f_cell(rsiLive, 1, 0, "RSI رئيس", color.white, hdR)
-    f_cell(rsiLive, 2, 0, "RSI تأكيد", color.white, hdR)
-    f_rsi_line(1, "30/10", rsi30, rsi90)
-    f_rsi_line(2, "45/15", rsi45, rsi135)
-    f_rsi_line(3, "1س/20", rsi60, rsi180)
-    f_rsi_line(4, "90/30", rsi90, rsi270)
-    f_rsi_line(5, "2س/40", rsi120, rsi360)
-    f_rsi_line(6, "150/50", rsi150, rsi450)
-    f_rsi_line(7, "3س/1س", rsi180, rsi540)
-    f_rsi_line(8, "210/70", rsi210, rsi630)
-    f_rsi_line(9, "4س/80", rsi240, rsi720)
-    f_rsi_line(10, "1ي/2س", rsiD1, rsiD3)
-    f_rsi_line(11, "2ي/4س", rsiD2, rsi6D)
-    f_rsi_line(12, "3ي/1ي", rsiD3, rsi9D)
-    if showScore
-        int wins = array.get(tally, 0)
-        int losses = array.get(tally, 1)
-        color scoreFg = wins > losses ? color.lime : losses > wins ? color.red : color.silver
-        color hd = color.new(#1b3a5c, 0)
-        color bg = color.new(#1a1a1a, 0)
-        int nHist = array.size(hTime)
-        int pages = int(math.max(1, math.ceil(nHist / float(pageSize))))
-        int page = math.min(scorePage, pages)
-        int skip = (page - 1) * pageSize
-        int nBars = bar_index + 1
-        float loadedDays = (time - firstBarTime) / 86400000.0
-        string loadTxt = loadedDays >= 1.0 ? ("تم تحميل " + str.tostring(loadedDays, "#.#") + " يوم") : ("تم تحميل " + str.tostring(loadedDays * 24.0, "#.#") + " ساعة")
-        loadTxt += "  (" + str.tostring(nBars) + " شمعة)"
-        f_cell(scoreBox, 0, 0, "نتائج الصفقات   صفحة " + str.tostring(page) + " / " + str.tostring(pages) + "   |   " + loadTxt, color.white, hd)
-        f_cell(scoreBox, 0, 1, "أقل من 2س ربح " + str.tostring(histWin, "#.##") + "% خسارة " + str.tostring(histLoss, "#.##") + "%  |  2س–يوم ربح " + str.tostring(htfWin, "#.##") + "% خسارة " + str.tostring(htfLoss, "#.##") + "%", color.silver, bg)
-        f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "  |  فاشلة " + str.tostring(losses) + "  |  مفتوحة " + str.tostring(array.size(pTime)), scoreFg, bg)
-        f_cell(scoreBox, 0, 3, "الصفقة", color.white, hd)
-        f_cell(scoreBox, 1, 3, "النتيجة", color.white, hd)
-        f_cell(scoreBox, 2, 3, "رئيس", color.white, hd)
-        f_cell(scoreBox, 3, 3, "تأكيد", color.white, hd)
-        for k = 0 to pageSize - 1
-            int src = nHist - 1 - skip - k
-            int row = 4 + k
-            if src >= 0
-                int side = array.get(hSide, src)
-                int win = array.get(hWin, src)
-                string sideAr = side == 1 ? "شراء " : "بيع "
-                string resTxt = win == 1 ? "ناجحة" : "فاشلة"
-                color resFg = win == 1 ? color.lime : color.red
-                f_cell(scoreBox, 0, row, sideAr + array.get(hTag, src), color.white, bg)
-                f_cell(scoreBox, 1, row, resTxt, resFg, bg)
-                f_cell(scoreBox, 2, row, f_pair_txt(array.get(hRsiM, src), array.get(hClM, src)), color.silver, bg)
-                f_cell(scoreBox, 3, row, f_pair_txt(array.get(hRsiC, src), array.get(hClC, src)), color.silver, bg)
-            else
-                f_cell(scoreBox, 0, row, "", color.white, bg)
-                f_cell(scoreBox, 1, row, "", color.white, bg)
-                f_cell(scoreBox, 2, row, "", color.white, bg)
-                f_cell(scoreBox, 3, row, "", color.white, bg)
-    else
-        table.clear(scoreBox, 0, 0, 3, 23)
-
-alertcondition(buyHit, title="شراء", message="Cascade شراء")
-alertcondition(sellHit, title="بيع", message="Cascade بيع")
+alertcondition(buyHit,  title="شراء", message="S6 شراء")
+alertcondition(sellHit, title="بيع",  message="S6 بيع")
