@@ -254,7 +254,7 @@ f_wave(bool isLong, bool enabled, bool kill, bool mainCl, bool confCl, bool entC
                     l8 := true
                     crossAge := 0
                 else if l8 and not l9
-                    crossAge += 1
+                    crossAge := crossAge + 1
                     if crossAge > stochGap
                         l8 := false
                         crossAge := 99
