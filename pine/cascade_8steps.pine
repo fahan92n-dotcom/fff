@@ -1,18 +1,32 @@
 //@version=5
-// استراتيجية جديدة — 6 مؤشرات على فريم الشارت. شمعة مغلقة فقط.
-// MACD: إغلاق، 12/26/9، EMA/EMA، انتظر إغلاق الفريم.
-// SMI / Stoch_MTM (surjithctly): K=10، D=3، إشارة EMA=10، تمهيد=1، تشبع +40 / −40.
-// Stochastic: %K=15، تنعيم %K=3، تنعيم %D=3، فريم الشارت، انتظر الإغلاق.
-// RSI: طول 14 على الإغلاق، متوسط SMA 14. بدون تباعد.
-// Donchian Trend Ribbon (LonesomeTheBlue): فترة 20. الاتجاه = العمود الرئيسي.
+// استراتيجية جديدة — 6 مؤشرات × 10 أزواج (رئيس / تأكيد / دخول).
+// الشارت 1د (أو 5د كحد أقصى). lookahead_off = آخر شمعة مغلقة. لا نأخذ [1] على قيم security.
+//
+// MACD: إغلاق، 12/26/9، EMA/EMA.
+// SMI / Stoch_MTM: K=10، D=3، إشارة EMA=10، تمهيد=1، تشبع ±40.
+// Stochastic: %K=15، تنعيم 3، %D=3.
+// RSI: 14 على الإغلاق + SMA 14.
+// Donchian Trend Ribbon: 20.
 // EMA 50.
 //
-// شراء (كلّها على إغلاق): Donchian أخضر + إغلاق فوق EMA50 + هستوجرام MACD > 0
-//   + SMI يقطع إشارته للأعلى بعد لمس −40 + RSI > 50 + Stoch %K يقطع %D للأعلى.
-// بيع: العكس (+40، تحت EMA50، هستوجرام < 0، RSI < 50، %K يقطع %D للأسفل).
-strategy("S6 — 6 مؤشرات",
+// الأزواج — رئيس | تأكيد | دخول:
+//  1) 15د | 45د | 5د
+//  2) 30د | 90د | 10د
+//  3) 45د | 135د | 15د
+//  4) 1س  | 3س  | 20د
+//  5) 90د | 270د | 30د
+//  6) 2س  | 6س  | 2س
+//  7) 150د | 450د | 50د
+//  8) 3س  | 9س  | 1س
+//  9) 210د | 630د | 70د
+// 10) 4س  | 12س | 80د
+//
+// الإلغاء عند إغلاق الفريم الأكبر (الرئيس): كل فريم يلغي كل ما أصغر منه.
+// 30د يلغي 15د، 45د يلغي 30د و15د، …، 5س (300د) يلغي 4س وكل الأصغر.
+// شروط الشراء/البيع تُركَّب بعد شرح الاستراتيجية.
+strategy("S6 — 10 أزواج",
      overlay                 = true,
-     pyramiding              = 0,
+     pyramiding              = 10,
      initial_capital         = 100000,
      currency                = currency.USD,
      default_qty_type        = strategy.percent_of_equity,
@@ -21,21 +35,21 @@ strategy("S6 — 6 مؤشرات",
      commission_value        = 0.04,
      process_orders_on_close = true,
      calc_on_every_tick      = false,
-     max_labels_count        = 200)
+     max_labels_count        = 200,
+     max_bars_back           = 1000)
 
 grpM = "MACD"
-macdSrc = input.source(close, "مصدر", group=grpM)
-macdF   = input.int(12, "طول الخط السريع", minval=1, group=grpM)
-macdS   = input.int(26, "بطيء", minval=1, group=grpM)
-macdG   = input.int(9,  "طول الإشارة", minval=1, group=grpM)
+macdF = input.int(12, "طول الخط السريع", minval=1, group=grpM)
+macdS = input.int(26, "بطيء", minval=1, group=grpM)
+macdG = input.int(9,  "طول الإشارة", minval=1, group=grpM)
 
 grpSmi = "SMI / Stoch_MTM"
-smiK     = input.int(10, "Percent K Length", minval=1, group=grpSmi)
-smiD     = input.int(3,  "Percent D Length", minval=1, group=grpSmi)
-smiEma   = input.int(10, "EMA Signal Length", minval=1, group=grpSmi)
-smiSm    = input.int(1,  "Smoothing Period", minval=1, group=grpSmi)
-smiOb    = input.float(40,  "تشبع شرائي", group=grpSmi)
-smiOs    = input.float(-40, "تشبع بيعي", group=grpSmi)
+smiK   = input.int(10, "Percent K Length", minval=1, group=grpSmi)
+smiD   = input.int(3,  "Percent D Length", minval=1, group=grpSmi)
+smiEma = input.int(10, "EMA Signal Length", minval=1, group=grpSmi)
+smiSm  = input.int(1,  "Smoothing Period", minval=1, group=grpSmi)
+smiOb  = input.float(40,  "تشبع شرائي", group=grpSmi)
+smiOs  = input.float(-40, "تشبع بيعي", group=grpSmi)
 
 grpSt = "Stochastic"
 stKlen = input.int(15, "%K Length", minval=1, group=grpSt)
@@ -43,10 +57,8 @@ stKsm  = input.int(3,  "%K Smoothing", minval=1, group=grpSt)
 stDsm  = input.int(3,  "%D Smoothing", minval=1, group=grpSt)
 
 grpR = "RSI"
-rsiLen = input.int(14, "RSI Length", minval=2, group=grpR)
-rsiSrc = input.source(close, "مصدر RSI", group=grpR)
+rsiLen   = input.int(14, "RSI Length", minval=2, group=grpR)
 rsiMaLen = input.int(14, "SMA على RSI", minval=1, group=grpR)
-rsiMid = input.float(50, "خط المنتصف", group=grpR)
 
 grpD = "Donchian Trend Ribbon"
 dlen = input.int(20, "Donchian Channel Period", minval=10, group=grpD)
@@ -54,21 +66,21 @@ dlen = input.int(20, "Donchian Channel Period", minval=10, group=grpD)
 grpE = "EMA"
 emaLen = input.int(50, "EMA", minval=1, group=grpE)
 
-grpX = "إغلاق"
-useLong = input.bool(true, "شراء", group=grpX)
-useShrt = input.bool(true, "بيع", group=grpX)
-usePct  = input.bool(true, "وقف/هدف %", group=grpX)
-tpPct   = input.float(2.0, "هدف %", step=0.1, group=grpX)
-slPct   = input.float(2.0, "وقف %", step=0.1, group=grpX)
+grpP = "الأزواج"
+use15  = input.bool(true, "1) 15د / 45د / 5د", group=grpP)
+use30  = input.bool(true, "2) 30د / 90د / 10د", group=grpP)
+use45  = input.bool(true, "3) 45د / 135د / 15د", group=grpP)
+use60  = input.bool(true, "4) 1س / 3س / 20د", group=grpP)
+use90  = input.bool(true, "5) 90د / 270د / 30د", group=grpP)
+use120 = input.bool(true, "6) 2س / 6س / 2س", group=grpP)
+use150 = input.bool(true, "7) 150د / 450د / 50د", group=grpP)
+use180 = input.bool(true, "8) 3س / 9س / 1س", group=grpP)
+use210 = input.bool(true, "9) 210د / 630د / 70د", group=grpP)
+use240 = input.bool(true, "10) 4س / 12س / 80د", group=grpP)
 
 grpV = "عرض"
-showEma  = input.bool(true, "رسم EMA", group=grpV)
-showTbl  = input.bool(true, "لوحة الشروط", group=grpV)
+showTbl = input.bool(true, "لوحة الأزواج", group=grpV)
 
-// 1) MACD — EMA / EMA على الإغلاق.
-[macdLine, macdSig, macdHist] = ta.macd(macdSrc, macdF, macdS, macdG)
-
-// 2) SMI / Stoch_MTM — ويليام بلاو + تمهيد ثم إشارة EMA.
 f_smi() =>
     ll = ta.lowest(low, smiK)
     hh = ta.highest(high, smiK)
@@ -81,113 +93,171 @@ f_smi() =>
     sig = ta.ema(sm, smiEma)
     [sm, sig]
 
-[smi, smiSig] = f_smi()
-
-// 3) Stochastic البطيء.
-stochK = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-stochD = ta.sma(stochK, stDsm)
-
-// 4) RSI 14 على الإغلاق + SMA 14.
-rsi = ta.rsi(rsiSrc, rsiLen)
-rsiMa = ta.sma(rsi, rsiMaLen)
-
-// 5) Donchian Trend Ribbon — نفس dchannel في سكربت LonesomeTheBlue.
-f_don(int len) =>
-    hh = ta.highest(high, len)
-    ll = ta.lowest(low, len)
+f_don() =>
     var int trend = 0
+    hh = ta.highest(high, dlen)
+    ll = ta.lowest(low, dlen)
     trend := close > hh[1] ? 1 : close < ll[1] ? -1 : trend
     trend
 
-don = f_don(dlen)
+// حزمة المؤشرات على فريم الطلب. تُحسب داخل security على شموع ذلك الفريم.
+f_snap() =>
+    [_, _, hist] = ta.macd(close, macdF, macdS, macdG)
+    [smi, sig] = f_smi()
+    k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
+    d = ta.sma(k, stDsm)
+    rsi = ta.rsi(close, rsiLen)
+    rsiMa = ta.sma(rsi, rsiMaLen)
+    don = f_don()
+    ema = ta.ema(close, emaLen)
+    [time, close, hist, smi, sig, k, d, rsi, rsiMa, don, ema]
 
-// 6) EMA 50.
-ema = ta.ema(close, emaLen)
+f_req(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap(), barmerge.gaps_off, barmerge.lookahead_off)
 
-// process_orders_on_close = true → هذه الشمعة مغلقة. لا نأخذ [1].
-macdBuy  = macdHist > 0
-macdSell = macdHist < 0
-smiCrossUp   = smi > smiSig and smi[1] <= smiSig[1]
-smiCrossDown = smi < smiSig and smi[1] >= smiSig[1]
-smiOsTouch = ta.lowest(smi, 8) <= smiOs
-smiObTouch = ta.highest(smi, 8) >= smiOb
-smiBuy  = smiCrossUp and smiOsTouch
-smiSell = smiCrossDown and smiObTouch
-stochBuy  = stochK > stochD and stochK[1] <= stochD[1]
-stochSell = stochK < stochD and stochK[1] >= stochD[1]
-rsiBuy  = rsi > rsiMid
-rsiSell = rsi < rsiMid
-donBuy  = don == 1
-donSell = don == -1
-emaBuy  = close > ema
-emaSell = close < ema
+// إغلاق الفريم = تغيّر وقت شمعة security (آخر مغلقة). لا [1] على القيم نفسها.
+f_closed(int t) =>
+    not na(t) and t != t[1]
 
-buyHit  = useLong and macdBuy and smiBuy and stochBuy and rsiBuy and donBuy and emaBuy
-sellHit = useShrt and macdSell and smiSell and stochSell and rsiSell and donSell and emaSell
+[t5,   cl5,   h5,   smi5,   sig5,   k5,   d5,   rsi5,   rma5,   don5,   ema5]   = f_req("5")
+[t10,  cl10,  h10,  smi10,  sig10,  k10,  d10,  rsi10,  rma10,  don10,  ema10]  = f_req("10")
+[t15,  cl15,  h15,  smi15,  sig15,  k15,  d15,  rsi15,  rma15,  don15,  ema15]  = f_req("15")
+[t20,  cl20,  h20,  smi20,  sig20,  k20,  d20,  rsi20,  rma20,  don20,  ema20]  = f_req("20")
+[t30,  cl30,  h30,  smi30,  sig30,  k30,  d30,  rsi30,  rma30,  don30,  ema30]  = f_req("30")
+[t45,  cl45,  h45,  smi45,  sig45,  k45,  d45,  rsi45,  rma45,  don45,  ema45]  = f_req("45")
+[t50,  cl50,  h50,  smi50,  sig50,  k50,  d50,  rsi50,  rma50,  don50,  ema50]  = f_req("50")
+[t60,  cl60,  h60,  smi60,  sig60,  k60,  d60,  rsi60,  rma60,  don60,  ema60]  = f_req("60")
+[t70,  cl70,  h70,  smi70,  sig70,  k70,  d70,  rsi70,  rma70,  don70,  ema70]  = f_req("70")
+[t80,  cl80,  h80,  smi80,  sig80,  k80,  d80,  rsi80,  rma80,  don80,  ema80]  = f_req("80")
+[t90,  cl90,  h90,  smi90,  sig90,  k90,  d90,  rsi90,  rma90,  don90,  ema90]  = f_req("90")
+[t120, cl120, h120, smi120, sig120, k120, d120, rsi120, rma120, don120, ema120] = f_req("120")
+[t135, cl135, h135, smi135, sig135, k135, d135, rsi135, rma135, don135, ema135] = f_req("135")
+[t150, cl150, h150, smi150, sig150, k150, d150, rsi150, rma150, don150, ema150] = f_req("150")
+[t180, cl180, h180, smi180, sig180, k180, d180, rsi180, rma180, don180, ema180] = f_req("180")
+[t210, cl210, h210, smi210, sig210, k210, d210, rsi210, rma210, don210, ema210] = f_req("210")
+[t240, cl240, h240, smi240, sig240, k240, d240, rsi240, rma240, don240, ema240] = f_req("240")
+[t270, cl270, h270, smi270, sig270, k270, d270, rsi270, rma270, don270, ema270] = f_req("270")
+[t300, cl300, h300, smi300, sig300, k300, d300, rsi300, rma300, don300, ema300] = f_req("300")
+[t360, cl360, h360, smi360, sig360, k360, d360, rsi360, rma360, don360, ema360] = f_req("360")
+[t450, cl450, h450, smi450, sig450, k450, d450, rsi450, rma450, don450, ema450] = f_req("450")
+[t540, cl540, h540, smi540, sig540, k540, d540, rsi540, rma540, don540, ema540] = f_req("540")
+[t630, cl630, h630, smi630, sig630, k630, d630, rsi630, rma630, don630, ema630] = f_req("630")
+[t720, cl720, h720, smi720, sig720, k720, d720, rsi720, rma720, don720, ema720] = f_req("720")
 
-var float longStop = na
-var float longLim  = na
-var float shortStop = na
-var float shortLim  = na
+c30  = f_closed(t30)
+c45  = f_closed(t45)
+c60  = f_closed(t60)
+c90  = f_closed(t90)
+c120 = f_closed(t120)
+c150 = f_closed(t150)
+c180 = f_closed(t180)
+c210 = f_closed(t210)
+c240 = f_closed(t240)
+c300 = f_closed(t300)
 
-if buyHit
-    if strategy.position_size < 0
-        strategy.close("Short", comment="عكس")
-    if strategy.position_size <= 0
-        strategy.entry("Long", strategy.long, comment="شراء")
-        longStop := close * (1.0 - slPct / 100.0)
-        longLim  := close * (1.0 + tpPct / 100.0)
+// أي إغلاق لفريم أكبر يلغي كل الأزواج الأصغر.
+kill15  = c30 or c45 or c60 or c90 or c120 or c150 or c180 or c210 or c240 or c300
+kill30  = c45 or c60 or c90 or c120 or c150 or c180 or c210 or c240 or c300
+kill45  = c60 or c90 or c120 or c150 or c180 or c210 or c240 or c300
+kill60  = c90 or c120 or c150 or c180 or c210 or c240 or c300
+kill90  = c120 or c150 or c180 or c210 or c240 or c300
+kill120 = c150 or c180 or c210 or c240 or c300
+kill150 = c180 or c210 or c240 or c300
+kill180 = c210 or c240 or c300
+kill210 = c240 or c300
+kill240 = c300
 
-if sellHit
-    if strategy.position_size > 0
-        strategy.close("Long", comment="عكس")
-    if strategy.position_size >= 0
-        strategy.entry("Short", strategy.short, comment="بيع")
-        shortStop := close * (1.0 + slPct / 100.0)
-        shortLim  := close * (1.0 - tpPct / 100.0)
+f_kill(bool hit, string id, string note) =>
+    if hit
+        strategy.close(id, comment=note)
 
-if usePct and strategy.position_size > 0
-    strategy.exit("L-Exit", from_entry="Long", stop=longStop, limit=longLim)
-if usePct and strategy.position_size < 0
-    strategy.exit("S-Exit", from_entry="Short", stop=shortStop, limit=shortLim)
+f_kill(kill15,  "P15",  "إلغاء 15د ← إغلاق أكبر")
+f_kill(kill30,  "P30",  "إلغاء 30د ← إغلاق أكبر")
+f_kill(kill45,  "P45",  "إلغاء 45د ← إغلاق أكبر")
+f_kill(kill60,  "P60",  "إلغاء 1س ← إغلاق أكبر")
+f_kill(kill90,  "P90",  "إلغاء 90د ← إغلاق أكبر")
+f_kill(kill120, "P120", "إلغاء 2س ← إغلاق أكبر")
+f_kill(kill150, "P150", "إلغاء 150د ← إغلاق أكبر")
+f_kill(kill180, "P180", "إلغاء 3س ← إغلاق أكبر")
+f_kill(kill210, "P210", "إلغاء 210د ← إغلاق أكبر")
+f_kill(kill240, "P240", "إلغاء 4س ← إغلاق 5س")
 
-plot(showEma ? ema : na, "EMA50", color=color.orange, linewidth=2)
-barcolor(don == 1 ? color.new(color.green, 70) : don == -1 ? color.new(color.red, 70) : na)
-plotshape(buyHit,  title="شراء", style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small)
-plotshape(sellHit, title="بيع",  style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small)
+f_on(bool on) => on ? "✓" : "—"
 
-f_mark(bool v) => v ? "✓" : "—"
-
-var table box = table.new(position.top_left, 3, 8, bgcolor=color.new(#141414, 8), border_width=1, border_color=color.new(#555555, 0))
+var table box = table.new(position.top_left, 5, 12, bgcolor=color.new(#141414, 8), border_width=1, border_color=color.new(#555555, 0))
 var bool boxMerged = false
 if not boxMerged
-    table.merge_cells(box, 0, 7, 2, 7)
+    table.merge_cells(box, 0, 11, 4, 11)
     boxMerged := true
+
 if barstate.islast and showTbl
     hd = color.new(#1b3a5c, 0)
     bg = color.new(#1a1a1a, 0)
-    table.cell(box, 0, 0, "المؤشر", text_color=color.white, bgcolor=hd, text_size=size.small)
-    table.cell(box, 1, 0, "شراء", text_color=color.white, bgcolor=hd, text_size=size.small)
-    table.cell(box, 2, 0, "بيع", text_color=color.white, bgcolor=hd, text_size=size.small)
-    table.cell(box, 0, 1, "MACD", text_color=color.silver, bgcolor=bg, text_size=size.small)
-    table.cell(box, 1, 1, f_mark(macdBuy), text_color=macdBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 2, 1, f_mark(macdSell), text_color=macdSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 2, "SMI", text_color=color.silver, bgcolor=bg, text_size=size.small)
-    table.cell(box, 1, 2, f_mark(smiBuy), text_color=smiBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 2, 2, f_mark(smiSell), text_color=smiSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 3, "Stoch", text_color=color.silver, bgcolor=bg, text_size=size.small)
-    table.cell(box, 1, 3, f_mark(stochBuy), text_color=stochBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 2, 3, f_mark(stochSell), text_color=stochSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 4, "RSI", text_color=color.silver, bgcolor=bg, text_size=size.small)
-    table.cell(box, 1, 4, f_mark(rsiBuy), text_color=rsiBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 2, 4, f_mark(rsiSell), text_color=rsiSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 5, "Donchian", text_color=color.silver, bgcolor=bg, text_size=size.small)
-    table.cell(box, 1, 5, f_mark(donBuy), text_color=donBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 2, 5, f_mark(donSell), text_color=donSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 6, "EMA50", text_color=color.silver, bgcolor=bg, text_size=size.small)
-    table.cell(box, 1, 6, f_mark(emaBuy), text_color=emaBuy ? color.lime : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 2, 6, f_mark(emaSell), text_color=emaSell ? color.red : color.gray, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 7, "SMI " + str.tostring(smi, "#.#") + "  RSI " + str.tostring(rsi, "#.#") + "  SMA " + str.tostring(rsiMa, "#.#") + "  K " + str.tostring(stochK, "#.#"), text_color=color.white, bgcolor=hd, text_size=size.small)
+    kBg = color.new(#5a1a1a, 0)
+    table.cell(box, 0, 0, "#", text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 1, 0, "رئيس", text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 2, 0, "تأكيد", text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 3, 0, "دخول", text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 4, 0, "يلغيه", text_color=color.white, bgcolor=hd, text_size=size.small)
 
-alertcondition(buyHit,  title="شراء", message="S6 شراء")
-alertcondition(sellHit, title="بيع",  message="S6 بيع")
+    table.cell(box, 0, 1, "1 " + f_on(use15), text_color=color.silver, bgcolor=kill15 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 1, "15د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 1, "45د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 1, "5د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 1, "30د+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 2, "2 " + f_on(use30), text_color=color.silver, bgcolor=kill30 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 2, "30د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 2, "90د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 2, "10د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 2, "45د+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 3, "3 " + f_on(use45), text_color=color.silver, bgcolor=kill45 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 3, "45د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 3, "135د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 3, "15د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 3, "1س+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 4, "4 " + f_on(use60), text_color=color.silver, bgcolor=kill60 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 4, "1س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 4, "3س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 4, "20د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 4, "90د+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 5, "5 " + f_on(use90), text_color=color.silver, bgcolor=kill90 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 5, "90د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 5, "270د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 5, "30د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 5, "2س+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 6, "6 " + f_on(use120), text_color=color.silver, bgcolor=kill120 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 6, "2س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 6, "6س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 6, "2س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 6, "150د+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 7, "7 " + f_on(use150), text_color=color.silver, bgcolor=kill150 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 7, "150د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 7, "450د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 7, "50د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 7, "3س+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 8, "8 " + f_on(use180), text_color=color.silver, bgcolor=kill180 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 8, "3س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 8, "9س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 8, "1س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 8, "210د+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 9, "9 " + f_on(use210), text_color=color.silver, bgcolor=kill210 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 9, "210د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 9, "630د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 9, "70د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 9, "4س+", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 10, "10 " + f_on(use240), text_color=color.silver, bgcolor=kill240 ? kBg : bg, text_size=size.small)
+    table.cell(box, 1, 10, "4س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 2, 10, "12س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 3, 10, "80د", text_color=color.silver, bgcolor=bg, text_size=size.small)
+    table.cell(box, 4, 10, "5س", text_color=color.silver, bgcolor=bg, text_size=size.small)
+
+    table.cell(box, 0, 11, "بانتظار شروط الدخول  |  SMI 15د " + str.tostring(smi15, "#.#") + "  45د " + str.tostring(smi45, "#.#") + "  5د " + str.tostring(smi5, "#.#") + "  |  5س " + str.tostring(smi300, "#.#"), text_color=color.white, bgcolor=hd, text_size=size.small)
