@@ -98,6 +98,9 @@ var array<int>    hSide = array.new_int()
 var array<float>  hRsiM = array.new_float()
 var array<float>  hRsiC = array.new_float()
 var array<int>    tally = array.new_int(2, 0)
+var int firstBarTime = time
+histDays = math.max(0.0, (time - firstBarTime) / 86400000.0)
+histDaysTxt = "محمّل " + str.tostring(histDays, "#.#") + " يوم  من " + str.format("{0,date,dd/MM/yyyy}", firstBarTime)
 
 f_smi() =>
     ll = ta.lowest(low, smiK)
@@ -541,7 +544,7 @@ if barstate.islast and showTbl
     table.cell(box, 1, 10, "4س / 12س / 80", text_color=color.silver, bgcolor=bg, text_size=size.small)
     table.cell(box, 2, 10, f_seq(L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, L240_9), text_color=hit240L ? color.lime : color.silver, bgcolor=bg, text_size=size.small)
     table.cell(box, 3, 10, f_seq(S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, S240_9), text_color=hit240S ? color.red : color.silver, bgcolor=bg, text_size=size.small)
-    table.cell(box, 0, 11, "1 SMI  2 MACD  3 Don  4 EMA50  5 MACDتأكيد  6 Donدخول  7 SMIدخول  8 RSI  9 Stoch>80  |  SMI5س " + str.tostring(smi300, "#.#"), text_color=color.white, bgcolor=hd, text_size=size.small)
+    table.cell(box, 0, 11, histDaysTxt + "  |  1 SMI  2 MACD  3 Don  4 EMA50  5 تأكيد  6–9 دخول", text_color=color.white, bgcolor=hd, text_size=size.small)
 
 var table scoreBox = table.new(position.top_right, 4, 14, bgcolor=color.new(#141414, 4), border_width=1, border_color=color.new(#555555, 0), frame_color=color.new(#777777, 25), frame_width=1)
 var bool scoreMerged = false
@@ -562,7 +565,7 @@ if barstate.islast and showScore
     int page = math.min(scorePage, pageCount)
     int skip = (page - 1) * pageSize
     f_cell(scoreBox, 0, 0, "الصفقات الناجحة   صفحة " + str.tostring(page) + " / 4" + (timeframe.in_seconds() > 300 ? "   ⚠ ضع الشارت 1د" : ""), color.white, hdS)
-    f_cell(scoreBox, 0, 1, "كل الفريمات  ربح " + str.tostring(tpPct, "#.##") + "%   خسارة " + str.tostring(slPct, "#.##") + "%", color.silver, bgS)
+    f_cell(scoreBox, 0, 1, histDaysTxt + "   |   ربح " + str.tostring(tpPct, "#.##") + "%   خسارة " + str.tostring(slPct, "#.##") + "%", color.silver, bgS)
     f_cell(scoreBox, 0, 2, "ناجحة " + str.tostring(wins) + "   |   فاشلة " + str.tostring(losses) + "   |   مفتوحة " + str.tostring(nOpen), scoreFg, bgS)
     f_cell(scoreBox, 0, 3, "الصفقة", color.white, hdS)
     f_cell(scoreBox, 1, 3, "RSI رئيس", color.white, hdS)
