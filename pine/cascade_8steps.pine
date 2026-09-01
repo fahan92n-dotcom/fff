@@ -9,7 +9,7 @@
 //          → 8 RSI يلمس 35/65 ثم أول تقاطع مع SMA14
 //          → 9 Stoch %K فوق 80 خلال 3 شموع من تقاطع RSI (شراء وبيع)
 //
-// الإلغاء: إغلاق فريم رئيس أكبر يلغي كل الأصغر. 5س يلغي 4س.
+// الإلغاء: تشبّع يُغلق على فريم رئيس أكبر يلغي الأصغر. ليس كل إغلاق. 5س يلغي 4س.
 // كل الفريمات: ربح 1.00٪ | خسارة 0.75٪. شراء: صعود 1٪ ناجح، هبوط 0.75٪ فاشل. بيع: العكس.
 strategy("S6 — تسلسل 9",
      overlay                 = true,
@@ -226,19 +226,27 @@ c540 = f_closed(t540)
 c630 = f_closed(t630)
 c720 = f_closed(t720)
 
-kill15  = c30 or c45 or c60 or c90 or c120 or c150 or c180 or c210 or c240 or c300
-kill30  = c45 or c60 or c90 or c120 or c150 or c180 or c210 or c240 or c300
-kill45  = c60 or c90 or c120 or c150 or c180 or c210 or c240 or c300
-kill60  = c90 or c120 or c150 or c180 or c210 or c240 or c300
-kill90  = c120 or c150 or c180 or c210 or c240 or c300
-kill120 = c150 or c180 or c210 or c240 or c300
-kill150 = c180 or c210 or c240 or c300
-kill180 = c210 or c240 or c300
-kill210 = c240 or c300
-kill240 = c300
+f_sat(float smi) =>
+    not na(smi) and (smi <= smiOs or smi >= smiOb)
+
+f_satClose(bool cl, float smi) =>
+    cl and f_sat(smi)
+
+// إلغاء الأصغر فقط إذا أغلق الفريم الأكبر على تشبّع SMI ±40 — لا عند كل إغلاق.
+kill15  = f_satClose(c30, smi30) or f_satClose(c45, smi45) or f_satClose(c60, smi60) or f_satClose(c90, smi90) or f_satClose(c120, smi120) or f_satClose(c150, smi150) or f_satClose(c180, smi180) or f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill30  = f_satClose(c45, smi45) or f_satClose(c60, smi60) or f_satClose(c90, smi90) or f_satClose(c120, smi120) or f_satClose(c150, smi150) or f_satClose(c180, smi180) or f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill45  = f_satClose(c60, smi60) or f_satClose(c90, smi90) or f_satClose(c120, smi120) or f_satClose(c150, smi150) or f_satClose(c180, smi180) or f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill60  = f_satClose(c90, smi90) or f_satClose(c120, smi120) or f_satClose(c150, smi150) or f_satClose(c180, smi180) or f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill90  = f_satClose(c120, smi120) or f_satClose(c150, smi150) or f_satClose(c180, smi180) or f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill120 = f_satClose(c150, smi150) or f_satClose(c180, smi180) or f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill150 = f_satClose(c180, smi180) or f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill180 = f_satClose(c210, smi210) or f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill210 = f_satClose(c240, smi240) or f_satClose(c300, smi300)
+kill240 = f_satClose(c300, smi300)
 
 // كل استدعاء من موقع مختلف له var مستقل.
-f_wave(bool isLong, bool enabled, bool kill, bool mainCl, bool confCl, bool entCl, float smiM, float histM, float macdM, float donM, float clM, float emaM, float histC, float smiE, float donE, float rsiE, float rmaE, float kE) =>
+// الشروط 1–7 على آخر شمعة مغلقة (قيم security). عدّ شموع RSI/Stoch على إغلاق فريم الدخول فقط.
+f_wave(bool isLong, bool enabled, bool kill, bool entCl, float smiM, float histM, float macdM, float donM, float clM, float emaM, float histC, float smiE, float donE, float rsiE, float rmaE, float kE) =>
     var bool l1 = false
     var bool l2 = false
     var bool l3 = false
@@ -252,7 +260,7 @@ f_wave(bool isLong, bool enabled, bool kill, bool mainCl, bool confCl, bool entC
     var int crossAge = 99
     var bool wasSat = false
     var bool fired = false
-    if kill or not enabled
+    if not enabled or kill
         l1 := false
         l2 := false
         l3 := false
@@ -266,86 +274,83 @@ f_wave(bool isLong, bool enabled, bool kill, bool mainCl, bool confCl, bool entC
         crossAge := 99
         wasSat := false
         fired := false
-    else
+    if enabled and not kill
         bool satM = not na(smiM) and (isLong ? smiM <= smiOs : smiM >= smiOb)
-        if mainCl
-            if satM and not wasSat
-                l1 := false
-                l2 := false
-                l3 := false
-                l4 := false
-                l5 := false
-                l6 := false
-                l7 := false
-                l8 := false
-                l9 := false
-                rsiTouch := false
-                crossAge := 99
-                fired := false
-            wasSat := satM
-            if satM
-                l1 := true
-            bool macdOk = not na(histM) and not na(macdM) and (isLong ? (histM < 0 and macdM > histM) : (histM > 0 and macdM < histM))
-            if l1 and macdOk
-                l2 := true
-            bool donOk = isLong ? donM > 0 : donM < 0
-            if l2 and donOk
-                l3 := true
-            bool emaOk = not na(clM) and not na(emaM) and (isLong ? clM < emaM : clM > emaM)
-            if l3 and emaOk
-                l4 := true
-        if confCl
-            bool confOk = not na(histC) and (isLong ? histC > 0 : histC < 0)
-            if l4 and confOk
-                l5 := true
-        if entCl
-            bool donEok = isLong ? donE < 0 : donE > 0
-            if l5 and donEok
-                l6 := true
-            bool smiEok = not na(smiE) and (isLong ? smiE <= smiOs : smiE >= smiOb)
-            if l6 and smiEok
-                l7 := true
-            if l7
-                if isLong and not na(rsiE) and rsiE <= rsiOs
-                    rsiTouch := true
-                if not isLong and not na(rsiE) and rsiE >= rsiOb
-                    rsiTouch := true
-                bool crossed = rsiTouch and not na(rsiE) and not na(rmaE) and not na(rsiE[1]) and not na(rmaE[1]) and (isLong ? (rsiE[1] < rmaE[1] and rsiE >= rmaE) : (rsiE[1] > rmaE[1] and rsiE <= rmaE))
-                if crossed
-                    l8 := true
-                    crossAge := 0
-                else if l8 and not l9
-                    crossAge := crossAge + 1
-                    if crossAge > stochGap
-                        l8 := false
-                        crossAge := 99
-            if l8 and not na(kE) and kE > stochLvl and crossAge <= stochGap
-                l9 := true
+        if satM and not wasSat
+            l1 := false
+            l2 := false
+            l3 := false
+            l4 := false
+            l5 := false
+            l6 := false
+            l7 := false
+            l8 := false
+            l9 := false
+            rsiTouch := false
+            crossAge := 99
+            fired := false
+        wasSat := satM
+        if satM
+            l1 := true
+        bool macdOk = not na(histM) and not na(macdM) and (isLong ? (histM < 0 and macdM > histM) : (histM > 0 and macdM < histM))
+        if l1 and macdOk
+            l2 := true
+        bool donOk = isLong ? donM > 0 : donM < 0
+        if l2 and donOk
+            l3 := true
+        bool emaOk = not na(clM) and not na(emaM) and (isLong ? clM < emaM : clM > emaM)
+        if l3 and emaOk
+            l4 := true
+        bool confOk = not na(histC) and (isLong ? histC > 0 : histC < 0)
+        if l4 and confOk
+            l5 := true
+        bool donEok = isLong ? donE < 0 : donE > 0
+        if l5 and donEok
+            l6 := true
+        bool smiEok = not na(smiE) and (isLong ? smiE <= smiOs : smiE >= smiOb)
+        if l6 and smiEok
+            l7 := true
+        if l7
+            if isLong and not na(rsiE) and rsiE <= rsiOs
+                rsiTouch := true
+            if not isLong and not na(rsiE) and rsiE >= rsiOb
+                rsiTouch := true
+            bool crossed = rsiTouch and not na(rsiE) and not na(rmaE) and not na(rsiE[1]) and not na(rmaE[1]) and (isLong ? (rsiE[1] < rmaE[1] and rsiE >= rmaE) : (rsiE[1] > rmaE[1] and rsiE <= rmaE))
+            if crossed
+                l8 := true
+                crossAge := 0
+            else if l8 and not l9 and entCl
+                crossAge := crossAge + 1
+                if crossAge > stochGap
+                    l8 := false
+                    crossAge := 99
+        if l8 and not na(kE) and kE > stochLvl and crossAge <= stochGap
+            l9 := true
     bool hit = enabled and not kill and l1 and l2 and l3 and l4 and l5 and l6 and l7 and l8 and l9 and not fired
     if hit
         fired := true
     [l1, l2, l3, l4, l5, l6, l7, l8, l9, hit]
 
-[L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, L15_9, hit15L] = f_wave(true,  use15 and useLong, kill15, c15, c45, c5, smi15, h15, m15, don15, cl15, ema15, h45, smi5, don5, rsi5, rma5, k5)
-[S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, S15_9, hit15S] = f_wave(false, use15 and useShrt, kill15, c15, c45, c5, smi15, h15, m15, don15, cl15, ema15, h45, smi5, don5, rsi5, rma5, k5)
-[L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8, L30_9, hit30L] = f_wave(true,  use30 and useLong, kill30, c30, c90, c10, smi30, h30, m30, don30, cl30, ema30, h90, smi10, don10, rsi10, rma10, k10)
-[S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8, S30_9, hit30S] = f_wave(false, use30 and useShrt, kill30, c30, c90, c10, smi30, h30, m30, don30, cl30, ema30, h90, smi10, don10, rsi10, rma10, k10)
-[L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8, L45_9, hit45L] = f_wave(true,  use45 and useLong, kill45, c45, c135, c15, smi45, h45, m45, don45, cl45, ema45, h135, smi15, don15, rsi15, rma15, k15)
-[S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8, S45_9, hit45S] = f_wave(false, use45 and useShrt, kill45, c45, c135, c15, smi45, h45, m45, don45, cl45, ema45, h135, smi15, don15, rsi15, rma15, k15)
-[L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8, L60_9, hit60L] = f_wave(true,  use60 and useLong, kill60, c60, c180, c20, smi60, h60, m60, don60, cl60, ema60, h180, smi20, don20, rsi20, rma20, k20)
-[S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8, S60_9, hit60S] = f_wave(false, use60 and useShrt, kill60, c60, c180, c20, smi60, h60, m60, don60, cl60, ema60, h180, smi20, don20, rsi20, rma20, k20)
-[L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8, L90_9, hit90L] = f_wave(true,  use90 and useLong, kill90, c90, c270, c30, smi90, h90, m90, don90, cl90, ema90, h270, smi30, don30, rsi30, rma30, k30)
-[S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8, S90_9, hit90S] = f_wave(false, use90 and useShrt, kill90, c90, c270, c30, smi90, h90, m90, don90, cl90, ema90, h270, smi30, don30, rsi30, rma30, k30)
-[L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8, L120_9, hit120L] = f_wave(true,  use120 and useLong, kill120, c120, c360, c120, smi120, h120, m120, don120, cl120, ema120, h360, smi120, don120, rsi120, rma120, k120)
-[S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8, S120_9, hit120S] = f_wave(false, use120 and useShrt, kill120, c120, c360, c120, smi120, h120, m120, don120, cl120, ema120, h360, smi120, don120, rsi120, rma120, k120)
-[L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8, L150_9, hit150L] = f_wave(true,  use150 and useLong, kill150, c150, c450, c50, smi150, h150, m150, don150, cl150, ema150, h450, smi50, don50, rsi50, rma50, k50)
-[S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8, S150_9, hit150S] = f_wave(false, use150 and useShrt, kill150, c150, c450, c50, smi150, h150, m150, don150, cl150, ema150, h450, smi50, don50, rsi50, rma50, k50)
-[L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8, L180_9, hit180L] = f_wave(true,  use180 and useLong, kill180, c180, c540, c60, smi180, h180, m180, don180, cl180, ema180, h540, smi60, don60, rsi60, rma60, k60)
-[S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8, S180_9, hit180S] = f_wave(false, use180 and useShrt, kill180, c180, c540, c60, smi180, h180, m180, don180, cl180, ema180, h540, smi60, don60, rsi60, rma60, k60)
-[L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8, L210_9, hit210L] = f_wave(true,  use210 and useLong, kill210, c210, c630, c70, smi210, h210, m210, don210, cl210, ema210, h630, smi70, don70, rsi70, rma70, k70)
-[S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8, S210_9, hit210S] = f_wave(false, use210 and useShrt, kill210, c210, c630, c70, smi210, h210, m210, don210, cl210, ema210, h630, smi70, don70, rsi70, rma70, k70)
-[L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, L240_9, hit240L] = f_wave(true,  use240 and useLong, kill240, c240, c720, c80, smi240, h240, m240, don240, cl240, ema240, h720, smi80, don80, rsi80, rma80, k80)
-[S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, S240_9, hit240S] = f_wave(false, use240 and useShrt, kill240, c240, c720, c80, smi240, h240, m240, don240, cl240, ema240, h720, smi80, don80, rsi80, rma80, k80)
+[L15_1, L15_2, L15_3, L15_4, L15_5, L15_6, L15_7, L15_8, L15_9, hit15L] = f_wave(true,  use15 and useLong, kill15, c5, smi15, h15, m15, don15, cl15, ema15, h45, smi5, don5, rsi5, rma5, k5)
+[S15_1, S15_2, S15_3, S15_4, S15_5, S15_6, S15_7, S15_8, S15_9, hit15S] = f_wave(false, use15 and useShrt, kill15, c5, smi15, h15, m15, don15, cl15, ema15, h45, smi5, don5, rsi5, rma5, k5)
+[L30_1, L30_2, L30_3, L30_4, L30_5, L30_6, L30_7, L30_8, L30_9, hit30L] = f_wave(true,  use30 and useLong, kill30, c10, smi30, h30, m30, don30, cl30, ema30, h90, smi10, don10, rsi10, rma10, k10)
+[S30_1, S30_2, S30_3, S30_4, S30_5, S30_6, S30_7, S30_8, S30_9, hit30S] = f_wave(false, use30 and useShrt, kill30, c10, smi30, h30, m30, don30, cl30, ema30, h90, smi10, don10, rsi10, rma10, k10)
+[L45_1, L45_2, L45_3, L45_4, L45_5, L45_6, L45_7, L45_8, L45_9, hit45L] = f_wave(true,  use45 and useLong, kill45, c15, smi45, h45, m45, don45, cl45, ema45, h135, smi15, don15, rsi15, rma15, k15)
+[S45_1, S45_2, S45_3, S45_4, S45_5, S45_6, S45_7, S45_8, S45_9, hit45S] = f_wave(false, use45 and useShrt, kill45, c15, smi45, h45, m45, don45, cl45, ema45, h135, smi15, don15, rsi15, rma15, k15)
+[L60_1, L60_2, L60_3, L60_4, L60_5, L60_6, L60_7, L60_8, L60_9, hit60L] = f_wave(true,  use60 and useLong, kill60, c20, smi60, h60, m60, don60, cl60, ema60, h180, smi20, don20, rsi20, rma20, k20)
+[S60_1, S60_2, S60_3, S60_4, S60_5, S60_6, S60_7, S60_8, S60_9, hit60S] = f_wave(false, use60 and useShrt, kill60, c20, smi60, h60, m60, don60, cl60, ema60, h180, smi20, don20, rsi20, rma20, k20)
+[L90_1, L90_2, L90_3, L90_4, L90_5, L90_6, L90_7, L90_8, L90_9, hit90L] = f_wave(true,  use90 and useLong, kill90, c30, smi90, h90, m90, don90, cl90, ema90, h270, smi30, don30, rsi30, rma30, k30)
+[S90_1, S90_2, S90_3, S90_4, S90_5, S90_6, S90_7, S90_8, S90_9, hit90S] = f_wave(false, use90 and useShrt, kill90, c30, smi90, h90, m90, don90, cl90, ema90, h270, smi30, don30, rsi30, rma30, k30)
+[L120_1, L120_2, L120_3, L120_4, L120_5, L120_6, L120_7, L120_8, L120_9, hit120L] = f_wave(true,  use120 and useLong, kill120, c120, smi120, h120, m120, don120, cl120, ema120, h360, smi120, don120, rsi120, rma120, k120)
+[S120_1, S120_2, S120_3, S120_4, S120_5, S120_6, S120_7, S120_8, S120_9, hit120S] = f_wave(false, use120 and useShrt, kill120, c120, smi120, h120, m120, don120, cl120, ema120, h360, smi120, don120, rsi120, rma120, k120)
+[L150_1, L150_2, L150_3, L150_4, L150_5, L150_6, L150_7, L150_8, L150_9, hit150L] = f_wave(true,  use150 and useLong, kill150, c50, smi150, h150, m150, don150, cl150, ema150, h450, smi50, don50, rsi50, rma50, k50)
+[S150_1, S150_2, S150_3, S150_4, S150_5, S150_6, S150_7, S150_8, S150_9, hit150S] = f_wave(false, use150 and useShrt, kill150, c50, smi150, h150, m150, don150, cl150, ema150, h450, smi50, don50, rsi50, rma50, k50)
+[L180_1, L180_2, L180_3, L180_4, L180_5, L180_6, L180_7, L180_8, L180_9, hit180L] = f_wave(true,  use180 and useLong, kill180, c60, smi180, h180, m180, don180, cl180, ema180, h540, smi60, don60, rsi60, rma60, k60)
+[S180_1, S180_2, S180_3, S180_4, S180_5, S180_6, S180_7, S180_8, S180_9, hit180S] = f_wave(false, use180 and useShrt, kill180, c60, smi180, h180, m180, don180, cl180, ema180, h540, smi60, don60, rsi60, rma60, k60)
+[L210_1, L210_2, L210_3, L210_4, L210_5, L210_6, L210_7, L210_8, L210_9, hit210L] = f_wave(true,  use210 and useLong, kill210, c70, smi210, h210, m210, don210, cl210, ema210, h630, smi70, don70, rsi70, rma70, k70)
+[S210_1, S210_2, S210_3, S210_4, S210_5, S210_6, S210_7, S210_8, S210_9, hit210S] = f_wave(false, use210 and useShrt, kill210, c70, smi210, h210, m210, don210, cl210, ema210, h630, smi70, don70, rsi70, rma70, k70)
+[L240_1, L240_2, L240_3, L240_4, L240_5, L240_6, L240_7, L240_8, L240_9, hit240L] = f_wave(true,  use240 and useLong, kill240, c80, smi240, h240, m240, don240, cl240, ema240, h720, smi80, don80, rsi80, rma80, k80)
+[S240_1, S240_2, S240_3, S240_4, S240_5, S240_6, S240_7, S240_8, S240_9, hit240S] = f_wave(false, use240 and useShrt, kill240, c80, smi240, h240, m240, don240, cl240, ema240, h720, smi80, don80, rsi80, rma80, k80)
 
 buyHit = hit240L or hit210L or hit180L or hit150L or hit120L or hit90L or hit60L or hit45L or hit30L or hit15L
 sellHit = hit240S or hit210S or hit180S or hit150S or hit120S or hit90S or hit60S or hit45S or hit30S or hit15S
