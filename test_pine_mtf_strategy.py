@@ -454,6 +454,20 @@ class TestHtfMapping(unittest.TestCase):
         self.assertEqual(list(mapped["smi"]), [-10.0, -10.0, -50.0, -50.0])
 
 
+class TestLiveDonchian(unittest.TestCase):
+    def test_keeps_prior_color_until_close_breaks_channel(self):
+        close = np.array([100.0, 100.0, 88.0])
+        hh = np.array([110.0, 110.0, 110.0])
+        ll = np.array([90.0, 90.0, 90.0])
+        prev = np.array([1.0, 1.0, 1.0])
+        live = pine._live_donchian(close, hh, ll, prev)
+        self.assertEqual(list(live), [1.0, 1.0, -1.0])
+
+    def test_turns_green_when_close_breaks_above(self):
+        live = pine._live_donchian([101.0], [100.0], [90.0], [-1.0])
+        self.assertEqual(float(live[0]), 1.0)
+
+
 class TestDonchianSettings(unittest.TestCase):
     def test_uses_lonesome_dchannel_period_20(self):
         self.assertEqual(pine.DONCHIAN_DLEN, 20)

@@ -8,8 +8,9 @@ Matches the user script defaults:
   true on that bar. Close at ±40 is still OK.
   Donchian is LonesomeTheBlue Trend Ribbon: maintrend = dchannel(20).
   After step 3 the ribbon must stay green (buy) or red (sell) on every
-  bar before entry and on the entry bar. After the fill the color is
-  ignored. The 10 plot columns only change opacity, not hue.
+  bar before entry and on the entry bar, using the *forming* main bar
+  (close vs hh[1]/ll[1] at that chart close — not the future HTF close
+  leaked onto earlier bars). After the fill the color is ignored.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -193,10 +194,15 @@ def _indicator_frame(raw_1m, minutes):
     trend.index = bars.index
     rsi = calc_rsi_tv(close, 14)
     bars = bars.copy()
+    don_hh = bars["high"].rolling(DONCHIAN_DLEN, min_periods=DONCHIAN_DLEN).max().shift(1)
+    don_ll = bars["low"].rolling(DONCHIAN_DLEN, min_periods=DONCHIAN_DLEN).min().shift(1)
     bars["smi"] = smi
     bars["macd"] = macd
     bars["hist"] = hist
     bars["trend"] = trend
+    bars["don_hh"] = don_hh
+    bars["don_ll"] = don_ll
+    bars["trend_prev"] = trend.shift(1)
     bars["ema50"] = calc_ema(close, 50)
     bars["rsi"] = rsi
     bars["rsi_ma"] = rsi.rolling(RSI_MA_LEN, min_periods=RSI_MA_LEN).mean()
@@ -219,6 +225,21 @@ def _map_htf(chart, htf, columns):
         direction="backward",
     )
     return mapped
+
+
+def _live_donchian(close, hh, ll, trend_prev):
+    """dchannel at this chart close: forming HTF close vs previous channel.
+
+    Pine security(..., lookahead_on) sees the *current* HTF bar, not the
+    future final close applied to every intra bar.
+    """
+    close = np.asarray(close, dtype=float)
+    hh = np.asarray(hh, dtype=float)
+    ll = np.asarray(ll, dtype=float)
+    prev = np.asarray(trend_prev, dtype=float)
+    green = np.isfinite(close) & np.isfinite(hh) & (close > hh)
+    red = np.isfinite(close) & np.isfinite(ll) & (close < ll)
+    return np.where(green, 1.0, np.where(red, -1.0, prev))
 
 
 def _map_closed_htf(chart, htf, columns, chart_minutes, htf_minutes):
@@ -264,14 +285,21 @@ def build_chart(
         return pd.DataFrame()
 
     main_map = _map_htf(
-        chart, main, ["smi", "macd", "hist", "trend", "ema50", "close", "rsi"]
+        chart,
+        main,
+        ["smi", "macd", "hist", "trend", "ema50", "close", "rsi", "don_hh", "don_ll", "trend_prev"],
     )
     confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi"])
     out = chart.copy()
     out["smi_main"] = main_map["smi"].to_numpy()
     out["macd_main"] = main_map["macd"].to_numpy()
     out["hist_main"] = main_map["hist"].to_numpy()
-    out["trend_main"] = main_map["trend"].to_numpy()
+    out["trend_main"] = _live_donchian(
+        out["close"],
+        main_map["don_hh"],
+        main_map["don_ll"],
+        main_map["trend_prev"],
+    )
     out["ema50_main"] = main_map["ema50"].to_numpy()
     out["close_main"] = main_map["close"].to_numpy()
     out["rsi_main"] = main_map["rsi"].to_numpy()
