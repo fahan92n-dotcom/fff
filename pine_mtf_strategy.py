@@ -47,6 +47,8 @@ RSI_SELL_TOUCH = 65.0
 STOCH_LEVEL = 80.0
 RSI_MA_LEN = 14
 WEEK_DAYS = 7
+MONTH_DAYS = 30
+WARMUP_1M_BARS = 25_000
 SMI_K = 10
 SMI_D = 3
 SMI_EMA_SIGNAL = 10
@@ -518,10 +520,15 @@ def scan_triple(raw_1m, main_tf, confirm_tf, entry_tf, start, end, frame_cache=N
     return summarize(week), len(signals)
 
 
+def _ohlcv_target(days):
+    return max(OHLCV_1M_BARS, int(days) * 1440 + WARMUP_1M_BARS)
+
+
 def scan_week(raw_1m=None, now=None, days=WEEK_DAYS, triples=None):
     if raw_1m is None:
-        log.info("Fetching BTCUSDT 1m from Binance Vision...")
-        raw_1m = fetch_btc_1m_vision(target=OHLCV_1M_BARS)
+        target = _ohlcv_target(days)
+        log.info("Fetching BTCUSDT 1m from Binance Vision (%s bars)...", target)
+        raw_1m = fetch_btc_1m_vision(target=target)
     if raw_1m is None or raw_1m.empty:
         raise RuntimeError("No OHLCV from Binance Vision")
     start, end = period_bounds(now=now, days=days)
@@ -562,7 +569,7 @@ def format_report(result):
     opens = result["opens"]
     lines = [
         f"BTCUSDT | 13 ثلاثي | SMI Stoch_MTM (EMA مرة + SMA 5)",
-        f"الفترة: {start} → {end} UTC",
+        f"الفترة: {start} → {end} UTC ({(result['end'] - result['start']).days} يوم)",
         f"إجمالي الصفقات: {len(result['trades'])}",
         f"ناجحة: {len(wins)}",
         f"فاشلة: {len(losses)}",
@@ -605,12 +612,15 @@ def format_report(result):
     return "\n".join(lines)
 
 
-def main():
+def main(days=WEEK_DAYS):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    result = scan_week()
+    result = scan_week(days=days)
     print(format_report(result))
     return result
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    days = int(sys.argv[1]) if len(sys.argv) > 1 else WEEK_DAYS
+    main(days=days)

@@ -109,6 +109,13 @@ class TestWeekFilter(unittest.TestCase):
         self.assertEqual(len(summary["opens"]), 1)
         self.assertEqual(len(summary["wins"]), 0)
 
+    def test_month_window_is_thirty_days(self):
+        now = datetime(2026, 9, 5, tzinfo=timezone.utc)
+        start, end = pine.period_bounds(now=now, days=pine.MONTH_DAYS)
+        self.assertEqual(end, now)
+        self.assertEqual(start, now - timedelta(days=30))
+        self.assertGreater(pine._ohlcv_target(30), pine.OHLCV_1M_BARS)
+
 
 def _blank_chart(rows, start):
     return pd.DataFrame(
