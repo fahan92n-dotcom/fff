@@ -1,15 +1,35 @@
 //@version=5
-// أساس استراتيجية 6 مؤشرات — حسابات المؤشرات بإعدادات صاحب الاستراتيجية فقط.
-// لا توجد أي قواعد دخول أو خروج هنا بعد: القواعد ستُضاف حرفياً حسب شرح صاحب الاستراتيجية.
+// استراتيجية 6 مؤشرات — تنفيذ حرفي لشرح صاحب الاستراتيجية (شراء وبيع).
 //
-// المؤشرات والإعدادات (كما وردت في الصور):
-//   1) MACD                 : مصدر إغلاق، سريع 12، بطيء 26، إشارة 9، Oscillator MA: EMA، Signal MA: EMA
-//   2) Stochastic SMI       : Stoch_MTM — Percent K = 10، Percent D = 3، EMA Signal = 10،
-//                             Smoothing Period = 1، تشبع شرائي +40، تشبع بيعي -40
-//   3) Stochastic           : طول %K = 15، تنعيم %K = 3، تنعيم %D = 3
-//   4) RSI                  : الطول 14، المصدر إغلاق، تنعيم SMA بطول 14
-//   5) Donchian Trend Ribbon: كود LonesomeTheBlue — Donchian Channel Period = 20 (أخضر/أحمر)
-//   6) EMA 50
+// الأزواج العشرة (الرئيس | التأكيد | الدخول) بالدقائق — التأكيد = 3× الرئيس، الدخول = ثلث الرئيس:
+//    1) 15  | 45  | 5        6) 120 | 360 | 40
+//    2) 30  | 90  | 10       7) 150 | 450 | 50
+//    3) 45  | 135 | 15       8) 180 | 540 | 60
+//    4) 60  | 180 | 20       9) 210 | 630 | 70
+//    5) 90  | 270 | 30      10) 240 | 720 | 80
+//
+// قاعدة الإلغاء: حينما يغلق تشبّع (بنفس الاتجاه) على الفريم الرئيس الأكبر يُلغى تسلسل
+// الفريم الرئيس الأصغر منه: إغلاق 30 يلغي 15، إغلاق 45 يلغي 30... وأكبر فريم (240=4س)
+// يُلغى بإغلاق تشبّع على 300 (5س).
+//
+// الشروط التسعة — تسلسلية: كل شرط «يعتبر تم» عند تحققه ويبقى محفوظاً، وننتظر الشرط التالي:
+//   1) SMI (الرئيس)     : شراء = إغلاق تشبّع بيعي تحت -40 | بيع = إغلاق تشبّع شرائي فوق +40
+//   2) MACD (الرئيس)    : شراء = الهستوجرام أحمر وخط الماكد أعلى منه ولا يكون تحته مطلقاً
+//                          بيع = الهستوجرام أخضر وخط الماكد أدنى منه ولا يكون فوقه مطلقاً
+//   3) Donchian (الرئيس): شراء = أخضر | بيع = أحمر
+//   4) EMA50 (الرئيس)   : شراء = شمعة تغلق أدنى من EMA50 | بيع = شمعة تجتاز (تغلق فوق) EMA50
+//                          حتى لو تغيّرت بعدها لا يهم — الشرط يبقى متحققاً
+//   5) MACD (التأكيد)   : شراء = هستوجرام التأكيد أخضر (الخط فوق متوسطه) | بيع = أحمر
+//   6) Donchian (الدخول): شراء = أحمر | بيع = أخضر
+//   7) SMI (الدخول)     : أول شمعة إغلاق تشبّع: شراء ≤ -40 | بيع ≥ +40
+//   8) RSI (الدخول)     : شراء = يصل 35 وتحت ثم أول تقاطع إيجابي مع متوسطه SMA-14
+//                          بيع = يصل 65 وفوق ثم أول تقاطع سلبي مع متوسطه SMA-14
+//   9) Stochastic 15/3/3 (الدخول): تحت 80 لا ندخل؛ لما يصبح فوق 80 وبينه وبين تقاطع RSI
+//                          3 شموع أو أقل → تتم الصفقة ويصدر إعلان. (كما ورد: للشراء وللبيع)
+//
+// ملاحظات تنفيذ: كل القيم تُقرأ من الشموع المغلقة فقط (لا إعادة رسم). الشارت يجب أن يكون
+// على 5 دقائق أو أقل حتى تعمل كل أزواج الفريمات. قواعد الخروج لم تُحدد بعد — يوجد
+// هدف/وقف % مؤقت قابل للتعطيل حتى يحددها صاحب الاستراتيجية.
 strategy("استراتيجية 6 مؤشرات — MACD+SMI+Stoch+RSI+Donchian+EMA50",
      overlay                  = true,
      pyramiding               = 0,
@@ -21,7 +41,8 @@ strategy("استراتيجية 6 مؤشرات — MACD+SMI+Stoch+RSI+Donchian+EM
      commission_value         = 0.04,
      process_orders_on_close  = true,
      calc_on_every_tick       = false,
-     max_labels_count         = 500)
+     max_labels_count         = 500,
+     max_bars_back            = 1000)
 
 // ============================ المدخلات ============================
 grpMacd  = "MACD"
@@ -35,7 +56,6 @@ macdSigT = input.string("EMA", "Signal MA type", options=["EMA", "SMA"], group=g
 grpSmi = "Stochastic SMI (Stoch_MTM)"
 smiK   = input.int(10, "Percent K Length", minval=1, group=grpSmi)
 smiD   = input.int(3,  "Percent D Length", minval=1, group=grpSmi)
-smiC   = input.int(10, "EMA Signal Length", minval=1, group=grpSmi)
 smiSm  = input.int(1,  "Smoothing Period", minval=1, group=grpSmi)
 obLvl  = input.float(40,  "تشبع شرائي", group=grpSmi)
 osLvl  = input.float(-40, "تشبع بيعي", group=grpSmi)
@@ -56,81 +76,327 @@ dlen   = input.int(20, "Donchian Channel Period", minval=10, group=grpDon)
 grpEma = "EMA"
 emaLen = input.int(50, "طول EMA", minval=1, group=grpEma)
 
-// ============================ الحسابات ============================
+grpLvl    = "مستويات الشروط"
+rsiTouchL = input.float(35, "لمس RSI شراء (وتحت)", group=grpLvl)
+rsiTouchS = input.float(65, "لمس RSI بيع (وفوق)", group=grpLvl)
+stochLvl  = input.float(80, "ستوكاستك: الدخول لما يصبح فوق", group=grpLvl)
+stochGap  = input.int(3, "أقصى شموع بين تقاطع RSI والستوكاستك", minval=0, group=grpLvl)
+
+grpP  = "أزواج الفريمات (رئيس/تأكيد/دخول)"
+use1  = input.bool(true, "15 / 45 / 5", group=grpP)
+use2  = input.bool(true, "30 / 90 / 10", group=grpP)
+use3  = input.bool(true, "45 / 135 / 15", group=grpP)
+use4  = input.bool(true, "60 / 180 / 20", group=grpP)
+use5  = input.bool(true, "90 / 270 / 30", group=grpP)
+use6  = input.bool(true, "120 / 360 / 40", group=grpP)
+use7  = input.bool(true, "150 / 450 / 50", group=grpP)
+use8  = input.bool(true, "180 / 540 / 60", group=grpP)
+use9  = input.bool(true, "210 / 630 / 70", group=grpP)
+use10 = input.bool(true, "240 / 720 / 80", group=grpP)
+
+grpRisk = "إدارة الصفقة (مؤقتة — قواعد الخروج لم تُحدد بعد)"
+useLong = input.bool(true, "شراء", group=grpRisk)
+useShrt = input.bool(true, "بيع", group=grpRisk)
+usePct  = input.bool(true, "وقف/هدف % (مؤقت)", group=grpRisk)
+tpPct   = input.float(1.00, "هدف %", step=0.01, minval=0.05, group=grpRisk)
+slPct   = input.float(0.75, "وقف %", step=0.01, minval=0.05, group=grpRisk)
+
+grpVis  = "العرض"
+showTbl = input.bool(true, "لوحة تقدم الخطوات", group=grpVis)
+showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
+
+// ============================ دوال المؤشرات ============================
 f_ma(float src, simple int len, simple string typ) =>
     s = ta.sma(src, len)
     e = ta.ema(src, len)
     typ == "SMA" ? s : e
 
-// 1) MACD
-macdLine = f_ma(macdSrc, macdF, macdOscT) - f_ma(macdSrc, macdS, macdOscT)
-sigLine  = f_ma(macdLine, macdG, macdSigT)
-macdHist = macdLine - sigLine
+f_macd() =>
+    m = f_ma(macdSrc, macdF, macdOscT) - f_ma(macdSrc, macdS, macdOscT)
+    sig = f_ma(m, macdG, macdSigT)
+    [m, m - sig]
 
-// 2) Stochastic SMI — نفس معادلة Stoch_MTM (surjithctly)
-ll      = ta.lowest(low, smiK)
-hh      = ta.highest(high, smiK)
-diff    = hh - ll
-rdiff   = close - (hh + ll) / 2.0
-avgrel  = ta.ema(ta.ema(rdiff, smiD), smiD)
-avgdiff = ta.ema(ta.ema(diff, smiD), smiD)
-smiRaw  = avgdiff != 0 ? (avgrel / (avgdiff / 2.0)) * 100.0 : 0.0
-smi     = ta.sma(smiRaw, smiSm)
-smiSig  = ta.ema(smi, smiC)
+f_smi() =>
+    ll = ta.lowest(low, smiK)
+    hh = ta.highest(high, smiK)
+    diff = hh - ll
+    rdiff = close - (hh + ll) / 2.0
+    avgrel = ta.ema(ta.ema(rdiff, smiD), smiD)
+    avgdiff = ta.ema(ta.ema(diff, smiD), smiD)
+    raw = avgdiff != 0 ? (avgrel / (avgdiff / 2.0)) * 100.0 : 0.0
+    ta.sma(raw, smiSm)
 
-// 3) Stochastic
-stK = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
-stD = ta.sma(stK, stDsm)
-
-// 4) RSI + تنعيم SMA
-rsi   = ta.rsi(rsiSrc, rsiLen)
-rsiMa = ta.sma(rsi, rsiMaLen)
-
-// 5) Donchian Trend Ribbon — نقل حرفي لكود LonesomeTheBlue (v4 → v5)
-//    dchannel(len): trend := close > hh[1] ? 1 : close < ll[1] ? -1 : nz(trend[1])
-f_dchannel(simple int len) =>
-    float dHH = ta.highest(high, len)
-    float dLL = ta.lowest(low, len)
+// Donchian Trend Ribbon — dchannel من كود LonesomeTheBlue (اللون الرئيسي)
+f_dchannel() =>
+    dHH = ta.highest(high, dlen)
+    dLL = ta.lowest(low, dlen)
     var int trend = 0
     trend := close > dHH[1] ? 1 : close < dLL[1] ? -1 : trend
     trend
 
-maintrend = f_dchannel(dlen)   // 1 = الشريط أخضر، -1 = الشريط أحمر
-// الأشرطة المساعدة dlen-1..dlen-9 — في المؤشر الأصلي تتحكم بدرجة اللون فقط
-// (غامق عند موافقة maintrend، فاتح عند المخالفة)
-donSub1 = f_dchannel(dlen - 1)
-donSub2 = f_dchannel(dlen - 2)
-donSub3 = f_dchannel(dlen - 3)
-donSub4 = f_dchannel(dlen - 4)
-donSub5 = f_dchannel(dlen - 5)
-donSub6 = f_dchannel(dlen - 6)
-donSub7 = f_dchannel(dlen - 7)
-donSub8 = f_dchannel(dlen - 8)
-donSub9 = f_dchannel(dlen - 9)
+// ============================ لقطات الفريمات ============================
+// كل القيم من آخر شمعة "مغلقة" على الفريم المطلوب ([1]) — بلا إعادة رسم.
 
-// 6) EMA 50
-ema50 = ta.ema(close, emaLen)
+// الفريم الرئيس: شروط 1 و2 و3 و4 (+ مصدر الإلغاء للفريم الأصغر)
+f_snap_main() =>
+    smi = f_smi()
+    [m, h] = f_macd()
+    don = f_dchannel()
+    ema50 = ta.ema(close, emaLen)
+    satL  = smi[1] <= osLvl
+    satS  = smi[1] >= obLvl
+    macdL = h[1] < 0 and m[1] >= h[1]
+    macdS = h[1] > 0 and m[1] <= h[1]
+    donL  = don[1] == 1
+    donS  = don[1] == -1
+    emaL  = close[1] < ema50[1]
+    emaS  = close[1] > ema50[1]
+    [satL, satS, macdL, macdS, donL, donS, emaL, emaS]
+
+// فريم التأكيد: شرط 5 — لون هستوجرام MACD
+f_snap_conf() =>
+    [m, h] = f_macd()
+    [h[1] > 0, h[1] < 0]
+
+// فريم الدخول: شروط 6 و7 و8 و9
+f_snap_entry() =>
+    smi = f_smi()
+    don = f_dchannel()
+    rsi = ta.rsi(rsiSrc, rsiLen)
+    rsiMa = ta.sma(rsi, rsiMaLen)
+    k = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
+    donRed  = don[1] == -1
+    donGrn  = don[1] == 1
+    satL    = smi[1] <= osLvl
+    satS    = smi[1] >= obLvl
+    touchL  = rsi[1] <= rsiTouchL
+    touchS  = rsi[1] >= rsiTouchS
+    crossUp = rsi[1] > rsiMa[1] and rsi[2] <= rsiMa[2]
+    crossDn = rsi[1] < rsiMa[1] and rsi[2] >= rsiMa[2]
+    stochHi = k[1] > stochLvl
+    [donRed, donGrn, satL, satS, touchL, touchS, crossUp, crossDn, stochHi]
+
+// فريم الإلغاء الأعلى (5س = 300): تشبع SMI فقط
+f_snap_sat() =>
+    smi = f_smi()
+    [smi[1] <= osLvl, smi[1] >= obLvl]
+
+f_req_main(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_main(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_conf(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_conf(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_entry(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_entry(), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_req_sat(simple string tf) =>
+    request.security(syminfo.tickerid, tf, f_snap_sat(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// إغلاق شمعة جديدة على الفريم (لحظة اكتمال شمعة الفريم الأعلى)
+f_new(simple string tf) =>
+    nz(ta.change(time(tf)), 0) != 0
+
+// ============================ محرك التسلسل ============================
+// st = عدد الشروط المكتملة (0..9). كل شرط يبقى «تم» حتى الإلغاء أو الدخول.
+f_engine(bool enabled, bool cancelEvt, bool mainNew, bool s1sat, bool s2macd, bool s3don, bool s4ema, bool s5hist, bool s6don, bool entryNew, bool s7sat, bool s8touch, bool s8cross, bool s9stoch) =>
+    var int st = 0
+    var int gap = 0
+    bool justCrossed = false
+    bool fire = false
+    if not enabled or cancelEvt
+        st := 0
+    if st == 0 and mainNew and s1sat
+        st := 1
+    if st == 1 and mainNew and s2macd
+        st := 2
+    if st == 2 and s3don
+        st := 3
+    if st == 3 and s4ema
+        st := 4
+    if st == 4 and s5hist
+        st := 5
+    if st == 5 and s6don
+        st := 6
+    if st == 6 and entryNew and s7sat
+        st := 7
+    if st == 7 and entryNew and s8touch
+        st := 8
+    if (st == 8 or st == 9) and entryNew and s8cross
+        st := 9
+        gap := 0
+        justCrossed := true
+    if st == 9 and entryNew
+        if not justCrossed
+            gap += 1
+        if gap > stochGap
+            st := 8
+        else if s9stoch
+            fire := true
+            st := 0
+    [fire, st]
+
+// ============================ جلب البيانات ============================
+[m1satL, m1satS, m1macdL, m1macdS, m1donL, m1donS, m1emaL, m1emaS] = f_req_main("15")
+[m2satL, m2satS, m2macdL, m2macdS, m2donL, m2donS, m2emaL, m2emaS] = f_req_main("30")
+[m3satL, m3satS, m3macdL, m3macdS, m3donL, m3donS, m3emaL, m3emaS] = f_req_main("45")
+[m4satL, m4satS, m4macdL, m4macdS, m4donL, m4donS, m4emaL, m4emaS] = f_req_main("60")
+[m5satL, m5satS, m5macdL, m5macdS, m5donL, m5donS, m5emaL, m5emaS] = f_req_main("90")
+[m6satL, m6satS, m6macdL, m6macdS, m6donL, m6donS, m6emaL, m6emaS] = f_req_main("120")
+[m7satL, m7satS, m7macdL, m7macdS, m7donL, m7donS, m7emaL, m7emaS] = f_req_main("150")
+[m8satL, m8satS, m8macdL, m8macdS, m8donL, m8donS, m8emaL, m8emaS] = f_req_main("180")
+[m9satL, m9satS, m9macdL, m9macdS, m9donL, m9donS, m9emaL, m9emaS] = f_req_main("210")
+[m10satL, m10satS, m10macdL, m10macdS, m10donL, m10donS, m10emaL, m10emaS] = f_req_main("240")
+
+[c1G, c1R] = f_req_conf("45")
+[c2G, c2R] = f_req_conf("90")
+[c3G, c3R] = f_req_conf("135")
+[c4G, c4R] = f_req_conf("180")
+[c5G, c5R] = f_req_conf("270")
+[c6G, c6R] = f_req_conf("360")
+[c7G, c7R] = f_req_conf("450")
+[c8G, c8R] = f_req_conf("540")
+[c9G, c9R] = f_req_conf("630")
+[c10G, c10R] = f_req_conf("720")
+
+[e1dR, e1dG, e1sL, e1sS, e1tL, e1tS, e1cU, e1cD, e1st] = f_req_entry("5")
+[e2dR, e2dG, e2sL, e2sS, e2tL, e2tS, e2cU, e2cD, e2st] = f_req_entry("10")
+[e3dR, e3dG, e3sL, e3sS, e3tL, e3tS, e3cU, e3cD, e3st] = f_req_entry("15")
+[e4dR, e4dG, e4sL, e4sS, e4tL, e4tS, e4cU, e4cD, e4st] = f_req_entry("20")
+[e5dR, e5dG, e5sL, e5sS, e5tL, e5tS, e5cU, e5cD, e5st] = f_req_entry("30")
+[e6dR, e6dG, e6sL, e6sS, e6tL, e6tS, e6cU, e6cD, e6st] = f_req_entry("40")
+[e7dR, e7dG, e7sL, e7sS, e7tL, e7tS, e7cU, e7cD, e7st] = f_req_entry("50")
+[e8dR, e8dG, e8sL, e8sS, e8tL, e8tS, e8cU, e8cD, e8st] = f_req_entry("60")
+[e9dR, e9dG, e9sL, e9sS, e9tL, e9tS, e9cU, e9cD, e9st] = f_req_entry("70")
+[e10dR, e10dG, e10sL, e10sS, e10tL, e10tS, e10cU, e10cD, e10st] = f_req_entry("80")
+
+[sat300L, sat300S] = f_req_sat("300")
+
+n15  = f_new("15")
+n30  = f_new("30")
+n45  = f_new("45")
+n60  = f_new("60")
+n90  = f_new("90")
+n120 = f_new("120")
+n150 = f_new("150")
+n180 = f_new("180")
+n210 = f_new("210")
+n240 = f_new("240")
+n300 = f_new("300")
+n5   = f_new("5")
+n10  = f_new("10")
+n20  = f_new("20")
+n40  = f_new("40")
+n50  = f_new("50")
+n70  = f_new("70")
+n80  = f_new("80")
+
+// ============================ تشغيل المحركات ============================
+// الإلغاء: إغلاق تشبّع بنفس الاتجاه على الفريم الرئيس الأكبر يلغي الأصغر.
+[f1L, st1L]  = f_engine(use1,  n30 and m2satL,   n15,  m1satL,  m1macdL,  m1donL,  m1emaL,  c1G,  e1dR,  n5,  e1sL,  e1tL,  e1cU,  e1st)
+[f1S, st1S]  = f_engine(use1,  n30 and m2satS,   n15,  m1satS,  m1macdS,  m1donS,  m1emaS,  c1R,  e1dG,  n5,  e1sS,  e1tS,  e1cD,  e1st)
+[f2L, st2L]  = f_engine(use2,  n45 and m3satL,   n30,  m2satL,  m2macdL,  m2donL,  m2emaL,  c2G,  e2dR,  n10, e2sL,  e2tL,  e2cU,  e2st)
+[f2S, st2S]  = f_engine(use2,  n45 and m3satS,   n30,  m2satS,  m2macdS,  m2donS,  m2emaS,  c2R,  e2dG,  n10, e2sS,  e2tS,  e2cD,  e2st)
+[f3L, st3L]  = f_engine(use3,  n60 and m4satL,   n45,  m3satL,  m3macdL,  m3donL,  m3emaL,  c3G,  e3dR,  n15, e3sL,  e3tL,  e3cU,  e3st)
+[f3S, st3S]  = f_engine(use3,  n60 and m4satS,   n45,  m3satS,  m3macdS,  m3donS,  m3emaS,  c3R,  e3dG,  n15, e3sS,  e3tS,  e3cD,  e3st)
+[f4L, st4L]  = f_engine(use4,  n90 and m5satL,   n60,  m4satL,  m4macdL,  m4donL,  m4emaL,  c4G,  e4dR,  n20, e4sL,  e4tL,  e4cU,  e4st)
+[f4S, st4S]  = f_engine(use4,  n90 and m5satS,   n60,  m4satS,  m4macdS,  m4donS,  m4emaS,  c4R,  e4dG,  n20, e4sS,  e4tS,  e4cD,  e4st)
+[f5L, st5L]  = f_engine(use5,  n120 and m6satL,  n90,  m5satL,  m5macdL,  m5donL,  m5emaL,  c5G,  e5dR,  n30, e5sL,  e5tL,  e5cU,  e5st)
+[f5S, st5S]  = f_engine(use5,  n120 and m6satS,  n90,  m5satS,  m5macdS,  m5donS,  m5emaS,  c5R,  e5dG,  n30, e5sS,  e5tS,  e5cD,  e5st)
+[f6L, st6L]  = f_engine(use6,  n150 and m7satL,  n120, m6satL,  m6macdL,  m6donL,  m6emaL,  c6G,  e6dR,  n40, e6sL,  e6tL,  e6cU,  e6st)
+[f6S, st6S]  = f_engine(use6,  n150 and m7satS,  n120, m6satS,  m6macdS,  m6donS,  m6emaS,  c6R,  e6dG,  n40, e6sS,  e6tS,  e6cD,  e6st)
+[f7L, st7L]  = f_engine(use7,  n180 and m8satL,  n150, m7satL,  m7macdL,  m7donL,  m7emaL,  c7G,  e7dR,  n50, e7sL,  e7tL,  e7cU,  e7st)
+[f7S, st7S]  = f_engine(use7,  n180 and m8satS,  n150, m7satS,  m7macdS,  m7donS,  m7emaS,  c7R,  e7dG,  n50, e7sS,  e7tS,  e7cD,  e7st)
+[f8L, st8L]  = f_engine(use8,  n210 and m9satL,  n180, m8satL,  m8macdL,  m8donL,  m8emaL,  c8G,  e8dR,  n60, e8sL,  e8tL,  e8cU,  e8st)
+[f8S, st8S]  = f_engine(use8,  n210 and m9satS,  n180, m8satS,  m8macdS,  m8donS,  m8emaS,  c8R,  e8dG,  n60, e8sS,  e8tS,  e8cD,  e8st)
+[f9L, st9L]  = f_engine(use9,  n240 and m10satL, n210, m9satL,  m9macdL,  m9donL,  m9emaL,  c9G,  e9dR,  n70, e9sL,  e9tL,  e9cU,  e9st)
+[f9S, st9S]  = f_engine(use9,  n240 and m10satS, n210, m9satS,  m9macdS,  m9donS,  m9emaS,  c9R,  e9dG,  n70, e9sS,  e9tS,  e9cD,  e9st)
+[f10L, st10L] = f_engine(use10, n300 and sat300L, n240, m10satL, m10macdL, m10donL, m10emaL, c10G, e10dR, n80, e10sL, e10tL, e10cU, e10st)
+[f10S, st10S] = f_engine(use10, n300 and sat300S, n240, m10satS, m10macdS, m10donS, m10emaS, c10R, e10dG, n80, e10sS, e10tS, e10cD, e10st)
+
+// ============================ الدخول والإعلان ============================
+buyHit  = useLong and (f1L or f2L or f3L or f4L or f5L or f6L or f7L or f8L or f9L or f10L)
+sellHit = useShrt and (f1S or f2S or f3S or f4S or f5S or f6S or f7S or f8S or f9S or f10S)
+buyTag  = f1L ? "15/45/5" : f2L ? "30/90/10" : f3L ? "45/135/15" : f4L ? "60/180/20" : f5L ? "90/270/30" : f6L ? "120/360/40" : f7L ? "150/450/50" : f8L ? "180/540/60" : f9L ? "210/630/70" : "240/720/80"
+sellTag = f1S ? "15/45/5" : f2S ? "30/90/10" : f3S ? "45/135/15" : f4S ? "60/180/20" : f5S ? "90/270/30" : f6S ? "120/360/40" : f7S ? "150/450/50" : f8S ? "180/540/60" : f9S ? "210/630/70" : "240/720/80"
+
+var float longStop  = na
+var float longLim   = na
+var float shortStop = na
+var float shortLim  = na
+
+if buyHit
+    strategy.entry("Long", strategy.long, comment="شراء " + buyTag)
+    longStop := close * (1.0 - slPct / 100.0)
+    longLim  := close * (1.0 + tpPct / 100.0)
+    alert("استراتيجية 6 مؤشرات: صفقة شراء " + buyTag + " — " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
+
+if sellHit
+    strategy.entry("Short", strategy.short, comment="بيع " + sellTag)
+    shortStop := close * (1.0 + slPct / 100.0)
+    shortLim  := close * (1.0 - tpPct / 100.0)
+    alert("استراتيجية 6 مؤشرات: صفقة بيع " + sellTag + " — " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
+
+if usePct and strategy.position_size > 0
+    strategy.exit("L-Exit", from_entry="Long", stop=longStop, limit=longLim)
+if usePct and strategy.position_size < 0
+    strategy.exit("S-Exit", from_entry="Short", stop=shortStop, limit=shortLim)
+
+alertcondition(buyHit,  title="شراء (أي زوج)", message="استراتيجية 6 مؤشرات: صفقة شراء")
+alertcondition(sellHit, title="بيع (أي زوج)",  message="استراتيجية 6 مؤشرات: صفقة بيع")
 
 // ============================ العرض ============================
-plot(ema50, "EMA50", color=color.new(color.blue, 0), linewidth=2)
+plotshape(buyHit,  title="شراء", style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small)
+plotshape(sellHit, title="بيع",  style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small)
 
-// ============================ الفريمات ============================
-// عشرة أزواج (الرئيس | التأكيد | الدخول) — بالدقائق:
-//    1) 15  | 45  | 5
-//    2) 30  | 90  | 10
-//    3) 45  | 135 | 15
-//    4) 60  | 180 | 20      (1س | 3س | 20د)
-//    5) 90  | 270 | 30
-//    6) 120 | 360 | 120     (2س | 6س | 2س — كما وردت حرفياً)
-//    7) 150 | 450 | 50
-//    8) 180 | 540 | 60      (3س | 9س | 1س)
-//    9) 210 | 630 | 70
-//   10) 240 | 720 | 80      (4س | 12س | 80د)
-//
-// قاعدة الإلغاء: حينما يغلق تشبّع بالفريم الرئيس الأكبر يُلغى الفريم الرئيس الأصغر منه:
-//   إغلاق 30 يلغي 15، إغلاق 45 يلغي 30، وهكذا — كل فريم يلغي الفريم الذي أصغر منه.
-//   أكبر فريم (4س = 240) يُلغى حينما يأتي إغلاق تشبّع 5س (300).
+if showLbl and buyHit
+    label.new(bar_index, low, "شراء\n" + buyTag, style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.small)
+if showLbl and sellHit
+    label.new(bar_index, high, "بيع\n" + sellTag, style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
 
-// ============================ قواعد الدخول والخروج ============================
-// بانتظار شرح صاحب الاستراتيجية — ستُضاف القواعد هنا كما يحددها بالضبط،
-// بدون أي افتراضات إضافية.
+// تحذير: الشارت يجب أن يكون أصغر من/يساوي أصغر فريم دخول مفعّل
+minEntrySec = use1 ? 300 : use2 ? 600 : use3 ? 900 : use4 ? 1200 : use5 ? 1800 : use6 ? 2400 : use7 ? 3000 : use8 ? 3600 : use9 ? 4200 : use10 ? 4800 : 4800
+var label warnLbl = label.new(bar_index, high, "", style=label.style_label_left, color=color.new(color.orange, 0), textcolor=color.black, size=size.normal)
+if timeframe.in_seconds() > minEntrySec
+    label.set_xy(warnLbl, bar_index, high)
+    label.set_text(warnLbl, "حط الشارت على " + str.tostring(minEntrySec / 60) + " دقيقة أو أقل\nحتى تعمل كل أزواج الفريمات المفعّلة")
+else
+    label.set_text(warnLbl, "")
+
+// لوحة تقدم الخطوات (الأرقام = الشروط المكتملة من 0 إلى 9)
+f_stCol(int st) => st == 0 ? color.new(color.gray, 80) : st < 5 ? color.new(color.teal, 60) : st < 9 ? color.new(color.olive, 40) : color.new(color.green, 20)
+var table panel = table.new(position.top_right, 3, 11, bgcolor=color.new(#111111, 15), border_width=1, border_color=color.new(color.gray, 60))
+if showTbl and barstate.islast
+    table.cell(panel, 0, 0, "زوج", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 0, "شراء", text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 0, "بيع", text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 1, "15/45/5", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 1, str.tostring(st1L), bgcolor=f_stCol(st1L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 1, str.tostring(st1S), bgcolor=f_stCol(st1S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 2, "30/90/10", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 2, str.tostring(st2L), bgcolor=f_stCol(st2L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 2, str.tostring(st2S), bgcolor=f_stCol(st2S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 3, "45/135/15", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 3, str.tostring(st3L), bgcolor=f_stCol(st3L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 3, str.tostring(st3S), bgcolor=f_stCol(st3S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 4, "60/180/20", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 4, str.tostring(st4L), bgcolor=f_stCol(st4L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 4, str.tostring(st4S), bgcolor=f_stCol(st4S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 5, "90/270/30", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 5, str.tostring(st5L), bgcolor=f_stCol(st5L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 5, str.tostring(st5S), bgcolor=f_stCol(st5S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 6, "120/360/40", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 6, str.tostring(st6L), bgcolor=f_stCol(st6L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 6, str.tostring(st6S), bgcolor=f_stCol(st6S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 7, "150/450/50", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 7, str.tostring(st7L), bgcolor=f_stCol(st7L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 7, str.tostring(st7S), bgcolor=f_stCol(st7S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 8, "180/540/60", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 8, str.tostring(st8L), bgcolor=f_stCol(st8L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 8, str.tostring(st8S), bgcolor=f_stCol(st8S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 9, "210/630/70", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 9, str.tostring(st9L), bgcolor=f_stCol(st9L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 9, str.tostring(st9S), bgcolor=f_stCol(st9S), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 10, "240/720/80", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 10, str.tostring(st10L), bgcolor=f_stCol(st10L), text_color=color.white, text_size=size.small)
+    table.cell(panel, 2, 10, str.tostring(st10S), bgcolor=f_stCol(st10S), text_color=color.white, text_size=size.small)
