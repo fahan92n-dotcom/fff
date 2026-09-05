@@ -7,8 +7,9 @@ Matches the user script defaults:
   leaving saturation (−40 / +40) kills the path unless MACD is already
   true on that bar. Close at ±40 is still OK.
   Donchian is LonesomeTheBlue Trend Ribbon: maintrend = dchannel(20).
-  After step 3 that maintrend must stay green (buy) / red (sell) through
-  entry. The 10 plot columns only change opacity, not hue.
+  After step 3 the path is not reset if the ribbon flips. At the entry
+  bar, maintrend must be green (buy) or red (sell). The 10 plot columns
+  only change opacity, not hue.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -379,12 +380,6 @@ def replay_signals(
                 short_c8 = True
                 short_rsi_cross_bar = i
 
-        # Main ribbon must stay its step-3 color through entry.
-        if long_step >= 3 and np.isfinite(trend_now) and trend_now != 1:
-            _reset_long()
-        if short_step >= 3 and np.isfinite(trend_now) and trend_now != -1:
-            _reset_short()
-
         # SMI persist only while waiting for MACD. Take step 2 first if
         # both fire on the same lookahead bar.
         if long_step == 0 and bool(c1_buy[i]):
@@ -435,6 +430,8 @@ def replay_signals(
                 bool(stoch_buy_cross[i])
                 and bars_since <= MAX_BARS_GAP
                 and buy_rsi_gate(rsi_confirm[i], rsi_main[i])
+                and np.isfinite(trend_now)
+                and trend_now == 1
             ):
                 long_entry = True
                 long_step = 0
@@ -446,6 +443,8 @@ def replay_signals(
                 bool(stoch_sell_cross[i])
                 and bars_since <= MAX_BARS_GAP
                 and sell_rsi_gate(rsi_confirm[i], rsi_main[i])
+                and np.isfinite(trend_now)
+                and trend_now == -1
             ):
                 short_entry = True
                 short_step = 0
