@@ -1,7 +1,7 @@
 """Replay of the TradingView sequential MTF Pine strategy on Binance OHLCV.
 
 Matches the user script defaults:
-  main=15m, confirm=45m, entry=5m
+  all 13 cascade triples (main ×3 confirm, main ÷3 entry)
   SMI = Stoch_MTM (single EMA D=3, then SMA 5; not double EMA)
   lookahead=barmerge.lookahead_on (HTF values leak the completed HTF bar)
   TP 1.00% / SL 0.80% (short SL in the Pine uses tpPct, so +1.00%)
@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
+from cascade_steps import TRIPLING_PAIRS
 from indicators import (
     _calc_macd_full,
     calc_donchian_trend_series,
@@ -53,6 +54,10 @@ BUY_CONFIRM_RSI = (50.0, 60.0)
 BUY_MAIN_DIFF = (3.0, 10.0)
 SELL_CONFIRM_RSI = (40.0, 50.0)
 SELL_MAIN_DIFF = (3.0, 10.0)
+OHLCV_1M_BARS = 45_000
+TRIPLE_WARMUP_BARS = 250
+
+PINE_TRIPLES = tuple((main, confirm, entry) for main, confirm, entry, *_ in TRIPLING_PAIRS)
 
 
 def _utc(ts):
@@ -178,10 +183,9 @@ def _indicator_frame(raw_1m, minutes):
     bars["trend"] = trend
     bars["ema50"] = calc_ema(close, 50)
     bars["rsi"] = rsi
-    if minutes == ENTRY_TF:
-        bars["rsi_ma"] = rsi.rolling(RSI_MA_LEN, min_periods=RSI_MA_LEN).mean()
-        k_stoch, _ = calc_stoch_tv(close, bars["high"], bars["low"])
-        bars["stoch_k"] = k_stoch
+    bars["rsi_ma"] = rsi.rolling(RSI_MA_LEN, min_periods=RSI_MA_LEN).mean()
+    k_stoch, _ = calc_stoch_tv(close, bars["high"], bars["low"])
+    bars["stoch_k"] = k_stoch
     return bars
 
 
@@ -197,11 +201,26 @@ def _map_htf(chart, htf, columns):
     return mapped
 
 
-def build_chart(raw_1m, chart_minutes=CHART_TF):
+def _cached_frame(raw_1m, minutes, cache):
+    frame = cache.get(minutes)
+    if frame is None:
+        frame = _indicator_frame(raw_1m, minutes)
+        cache[minutes] = frame
+    return frame
+
+
+def build_chart(
+    raw_1m,
+    chart_minutes=CHART_TF,
+    main_tf=MAIN_TF,
+    confirm_tf=CONFIRM_TF,
+    frame_cache=None,
+):
     """Attach lookahead HTF indicators onto closed chart bars."""
-    chart = _indicator_frame(raw_1m, chart_minutes)
-    main = _indicator_frame(raw_1m, MAIN_TF)
-    confirm = _indicator_frame(raw_1m, CONFIRM_TF)
+    cache = {} if frame_cache is None else frame_cache
+    chart = _cached_frame(raw_1m, chart_minutes, cache)
+    main = _cached_frame(raw_1m, main_tf, cache)
+    confirm = _cached_frame(raw_1m, confirm_tf, cache)
     if chart.empty or main.empty or confirm.empty:
         return pd.DataFrame()
 
@@ -236,7 +255,15 @@ def _entry_levels(signal_type, signal_close):
     )
 
 
-def replay_signals(chart, raw_1m):
+def replay_signals(
+    chart,
+    raw_1m,
+    *,
+    main_tf=MAIN_TF,
+    confirm_tf=CONFIRM_TF,
+    entry_tf=ENTRY_TF,
+    warmup_bars=None,
+):
     """Walk chart bars with the Pine sequential state machine."""
     if chart is None or chart.empty:
         return []
@@ -276,7 +303,7 @@ def replay_signals(chart, raw_1m):
     short_rsi_cross_bar = None
     signals = []
 
-    start_i = min(WARMUP_BARS, n)
+    start_i = min(WARMUP_BARS if warmup_bars is None else warmup_bars, n)
     ts_values = chart["ts"].tolist()
     close_values = chart["close"].to_numpy(dtype=float)
     rsi_confirm = chart["rsi_confirm"].to_numpy(dtype=float)
@@ -390,7 +417,9 @@ def replay_signals(chart, raw_1m):
                 "exit_ts": exit_ts,
                 "rsi_confirm": float(rsi_confirm[i]),
                 "rsi_main": float(rsi_main[i]),
-                "entry_tf": ENTRY_TF,
+                "main_tf": main_tf,
+                "confirm_tf": confirm_tf,
+                "entry_tf": entry_tf,
             }
         )
         if signal_type == "buy":
@@ -440,25 +469,61 @@ def summarize(trades):
     }
 
 
-def scan_week(raw_1m=None, now=None, days=WEEK_DAYS):
+def scan_triple(raw_1m, main_tf, confirm_tf, entry_tf, start, end, frame_cache=None):
+    chart = build_chart(
+        raw_1m,
+        chart_minutes=entry_tf,
+        main_tf=main_tf,
+        confirm_tf=confirm_tf,
+        frame_cache=frame_cache,
+    )
+    if chart.empty:
+        return summarize([]), 0
+    signals = replay_signals(
+        chart,
+        raw_1m,
+        main_tf=main_tf,
+        confirm_tf=confirm_tf,
+        entry_tf=entry_tf,
+        warmup_bars=TRIPLE_WARMUP_BARS,
+    )
+    week = filter_week(signals, start, end)
+    return summarize(week), len(signals)
+
+
+def scan_week(raw_1m=None, now=None, days=WEEK_DAYS, triples=None):
     if raw_1m is None:
         log.info("Fetching BTCUSDT 1m from Binance Vision...")
-        raw_1m = fetch_btc_1m_vision(target=22_000)
+        raw_1m = fetch_btc_1m_vision(target=OHLCV_1M_BARS)
     if raw_1m is None or raw_1m.empty:
         raise RuntimeError("No OHLCV from Binance Vision")
-    chart = build_chart(raw_1m, CHART_TF)
-    if chart.empty:
-        raise RuntimeError("Failed to build MTF chart")
-    signals = replay_signals(chart, raw_1m)
     start, end = period_bounds(now=now, days=days)
-    week = filter_week(signals, start, end)
-    result = summarize(week)
+    wanted = list(PINE_TRIPLES if triples is None else triples)
+    frame_cache = {}
+    by_triple = []
+    all_trades = []
+    for main_tf, confirm_tf, entry_tf in wanted:
+        log.info("Scanning %sm / %sm / %sm ...", main_tf, confirm_tf, entry_tf)
+        summary, all_count = scan_triple(
+            raw_1m, main_tf, confirm_tf, entry_tf, start, end, frame_cache
+        )
+        by_triple.append(
+            {
+                "main_tf": main_tf,
+                "confirm_tf": confirm_tf,
+                "entry_tf": entry_tf,
+                "all_signals": all_count,
+                **summary,
+            }
+        )
+        all_trades.extend(summary["trades"])
+    result = summarize(all_trades)
     result["start"] = start
     result["end"] = end
     result["symbol"] = SYMBOL
     result["bars_1m"] = len(raw_1m)
-    result["chart_bars"] = len(chart)
-    result["all_signals"] = len(signals)
+    result["by_triple"] = by_triple
+    result["all_signals"] = sum(item["all_signals"] for item in by_triple)
     return result
 
 
@@ -469,7 +534,7 @@ def format_report(result):
     losses = result["losses"]
     opens = result["opens"]
     lines = [
-        f"BTCUSDT | 15m → 45m → 5m | SMI Stoch_MTM (EMA مرة + SMA 5)",
+        f"BTCUSDT | 13 ثلاثي | SMI Stoch_MTM (EMA مرة + SMA 5)",
         f"الفترة: {start} → {end} UTC",
         f"إجمالي الصفقات: {len(result['trades'])}",
         f"ناجحة: {len(wins)}",
@@ -477,12 +542,22 @@ def format_report(result):
         f"مفتوحة: {len(opens)}",
         f"صافي تقديري (بدون رسوم): {result['net_pct']:+.2f}%",
         "",
-        "الصفقات:",
+        "حسب الثلاثي:",
     ]
+    for item in result.get("by_triple") or []:
+        lines.append(
+            f"{item['main_tf']}/{item['confirm_tf']}/{item['entry_tf']} | "
+            f"صفقات {len(item['trades'])} | "
+            f"ناجحة {len(item['wins'])} | "
+            f"فاشلة {len(item['losses'])} | "
+            f"مفتوحة {len(item['opens'])}"
+        )
+    lines.extend(["", "الصفقات:"])
     if not result["trades"]:
         lines.append("— لا توجد صفقات في هذه الفترة")
         return "\n".join(lines)
-    for trade in result["trades"]:
+    ordered = sorted(result["trades"], key=lambda trade: trade["fill_ts"])
+    for trade in ordered:
         side = "شراء" if trade["type"] == "buy" else "بيع"
         if trade["outcome"] == "win":
             mark = "رابحة"
@@ -491,8 +566,13 @@ def format_report(result):
         else:
             mark = "مفتوحة"
         when = trade["fill_ts"].strftime("%m-%d %H:%M")
+        frames = (
+            f"{trade.get('main_tf', MAIN_TF)}/"
+            f"{trade.get('confirm_tf', CONFIRM_TF)}/"
+            f"{trade.get('entry_tf', ENTRY_TF)}"
+        )
         lines.append(
-            f"{when} UTC | {side} @ {trade['price']:.2f} | {mark} | "
+            f"{when} UTC | {frames} | {side} @ {trade['price']:.2f} | {mark} | "
             f"RSI تأكيد {trade['rsi_confirm']:.2f} / رئيسي {trade['rsi_main']:.2f}"
         )
     return "\n".join(lines)

@@ -182,3 +182,30 @@ class TestReplaySequence(unittest.TestCase):
         self.assertEqual(trades[0]["type"], "buy")
         self.assertEqual(trades[0]["outcome"], "win")
         self.assertAlmostEqual(trades[0]["price"], 100.1)
+
+
+class TestThirteenTriples(unittest.TestCase):
+    def test_uses_all_cascade_triples(self):
+        self.assertEqual(len(pine.PINE_TRIPLES), 13)
+        self.assertEqual(pine.PINE_TRIPLES[0], (15, 45, 5))
+        self.assertEqual(pine.PINE_TRIPLES[-1], (240, 720, 80))
+
+    def test_report_lists_each_triple(self):
+        now = datetime(2026, 9, 5, tzinfo=timezone.utc)
+        result = pine.summarize([])
+        result["start"] = now - timedelta(days=7)
+        result["end"] = now
+        result["by_triple"] = [
+            {
+                "main_tf": 15,
+                "confirm_tf": 45,
+                "entry_tf": 5,
+                "trades": [],
+                "wins": [],
+                "losses": [],
+                "opens": [],
+            }
+        ]
+        text = pine.format_report(result)
+        self.assertIn("15/45/5", text)
+        self.assertIn("13 ثلاثي", text)
