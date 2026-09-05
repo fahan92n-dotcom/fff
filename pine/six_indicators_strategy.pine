@@ -8,7 +8,7 @@
 //                             Smoothing Period = 1، تشبع شرائي +40، تشبع بيعي -40
 //   3) Stochastic           : طول %K = 15، تنعيم %K = 3، تنعيم %D = 3
 //   4) RSI                  : الطول 14، المصدر إغلاق، تنعيم SMA بطول 14
-//   5) Donchian Trend Ribbon: الطول 20 (أخضر/أحمر)
+//   5) Donchian Trend Ribbon: كود LonesomeTheBlue — Donchian Channel Period = 20 (أخضر/أحمر)
 //   6) EMA 50
 strategy("استراتيجية 6 مؤشرات — MACD+SMI+Stoch+RSI+Donchian+EMA50",
      overlay                  = true,
@@ -51,7 +51,7 @@ rsiSrc   = input.source(close, "مصدر", group=grpRsi)
 rsiMaLen = input.int(14, "طول تنعيم SMA", minval=1, group=grpRsi)
 
 grpDon = "Donchian Trend Ribbon"
-dlen   = input.int(20, "الطول", minval=2, group=grpDon)
+dlen   = input.int(20, "Donchian Channel Period", minval=10, group=grpDon)
 
 grpEma = "EMA"
 emaLen = input.int(50, "طول EMA", minval=1, group=grpEma)
@@ -86,11 +86,27 @@ stD = ta.sma(stK, stDsm)
 rsi   = ta.rsi(rsiSrc, rsiLen)
 rsiMa = ta.sma(rsi, rsiMaLen)
 
-// 5) Donchian Trend Ribbon — لون الشريط الرئيسي dchannel(dlen)
-var float donTrend = 0.0
-donHH = ta.highest(high, dlen)
-donLL = ta.lowest(low, dlen)
-donTrend := close > donHH[1] ? 1.0 : close < donLL[1] ? -1.0 : donTrend
+// 5) Donchian Trend Ribbon — نقل حرفي لكود LonesomeTheBlue (v4 → v5)
+//    dchannel(len): trend := close > hh[1] ? 1 : close < ll[1] ? -1 : nz(trend[1])
+f_dchannel(simple int len) =>
+    float dHH = ta.highest(high, len)
+    float dLL = ta.lowest(low, len)
+    var int trend = 0
+    trend := close > dHH[1] ? 1 : close < dLL[1] ? -1 : trend
+    trend
+
+maintrend = f_dchannel(dlen)   // 1 = الشريط أخضر، -1 = الشريط أحمر
+// الأشرطة المساعدة dlen-1..dlen-9 — في المؤشر الأصلي تتحكم بدرجة اللون فقط
+// (غامق عند موافقة maintrend، فاتح عند المخالفة)
+donSub1 = f_dchannel(dlen - 1)
+donSub2 = f_dchannel(dlen - 2)
+donSub3 = f_dchannel(dlen - 3)
+donSub4 = f_dchannel(dlen - 4)
+donSub5 = f_dchannel(dlen - 5)
+donSub6 = f_dchannel(dlen - 6)
+donSub7 = f_dchannel(dlen - 7)
+donSub8 = f_dchannel(dlen - 8)
+donSub9 = f_dchannel(dlen - 9)
 
 // 6) EMA 50
 ema50 = ta.ema(close, emaLen)
