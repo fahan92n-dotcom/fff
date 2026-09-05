@@ -1,16 +1,15 @@
 //@version=5
-// استراتيجية 6 مؤشرات — تدخل فقط عندما تتفق المؤشرات الستة معاً:
-//   1) MACD (12/26/9 — EMA/EMA، المصدر: إغلاق)   : خط MACD فوق خط الإشارة = شراء، تحته = بيع
-//   2) Stochastic SMI (Stoch_MTM: K=10, D=3, EMA=10, تنعيم=1، تشبع ±40)
-//                                                : SMI فوق خط إشارته EMA = شراء، تحته = بيع
-//   3) Stochastic (15/3/3)                       : %K فوق %D = شراء، تحته = بيع
-//   4) RSI (14، مصدر إغلاق، تنعيم SMA-14)        : فوق 50 = شراء، تحت 50 = بيع (أو مقارنة بمتوسطه SMA اختيارياً)
-//   5) Donchian Trend Ribbon (20)                : الشريط أخضر = شراء، أحمر = بيع
-//   6) EMA 50                                    : الإغلاق فوق EMA50 = شراء، تحته = بيع
+// أساس استراتيجية 6 مؤشرات — حسابات المؤشرات بإعدادات صاحب الاستراتيجية فقط.
+// لا توجد أي قواعد دخول أو خروج هنا بعد: القواعد ستُضاف حرفياً حسب شرح صاحب الاستراتيجية.
 //
-// حارس التشبع (اختياري): يمنع الشراء إذا SMI >= +40 أو ستوكاستك >= 80 (والعكس للبيع)
-// حتى لا ندخل بعد فوات الحركة. الإشارة تظهر على الشمعة التي تكتمل فيها الشروط الستة
-// بعد أن كانت ناقصة. التنبيهات: أنشئ Alert واختر «شراء 6/6» أو «بيع 6/6».
+// المؤشرات والإعدادات (كما وردت في الصور):
+//   1) MACD                 : مصدر إغلاق، سريع 12، بطيء 26، إشارة 9، Oscillator MA: EMA، Signal MA: EMA
+//   2) Stochastic SMI       : Stoch_MTM — Percent K = 10، Percent D = 3، EMA Signal = 10،
+//                             Smoothing Period = 1، تشبع شرائي +40، تشبع بيعي -40
+//   3) Stochastic           : طول %K = 15، تنعيم %K = 3، تنعيم %D = 3
+//   4) RSI                  : الطول 14، المصدر إغلاق، تنعيم SMA بطول 14
+//   5) Donchian Trend Ribbon: الطول 20 (أخضر/أحمر)
+//   6) EMA 50
 strategy("استراتيجية 6 مؤشرات — MACD+SMI+Stoch+RSI+Donchian+EMA50",
      overlay                  = true,
      pyramiding               = 0,
@@ -41,19 +40,15 @@ smiSm  = input.int(1,  "Smoothing Period", minval=1, group=grpSmi)
 obLvl  = input.float(40,  "تشبع شرائي", group=grpSmi)
 osLvl  = input.float(-40, "تشبع بيعي", group=grpSmi)
 
-grpSt   = "Stochastic"
-stKlen  = input.int(15, "طول %K", minval=1, group=grpSt)
-stKsm   = input.int(3,  "تنعيم %K", minval=1, group=grpSt)
-stDsm   = input.int(3,  "تنعيم %D", minval=1, group=grpSt)
-stObLvl = input.float(80, "تشبع شرائي ستوكاستك", group=grpSt)
-stOsLvl = input.float(20, "تشبع بيعي ستوكاستك", group=grpSt)
+grpSt  = "Stochastic"
+stKlen = input.int(15, "طول %K", minval=1, group=grpSt)
+stKsm  = input.int(3,  "تنعيم %K", minval=1, group=grpSt)
+stDsm  = input.int(3,  "تنعيم %D", minval=1, group=grpSt)
 
-grpRsi = "RSI"
-rsiLen  = input.int(14, "طول مؤشر القوى النسبية", minval=2, group=grpRsi)
-rsiSrc  = input.source(close, "مصدر", group=grpRsi)
-rsiMode = input.string("خط الوسط 50", "شرط RSI", options=["خط الوسط 50", "متوسط SMA"], group=grpRsi)
-rsiMid  = input.float(50, "خط الوسط", group=grpRsi)
-rsiMaLen = input.int(14, "طول متوسط SMA", minval=1, group=grpRsi)
+grpRsi   = "RSI"
+rsiLen   = input.int(14, "طول مؤشر القوى النسبية", minval=2, group=grpRsi)
+rsiSrc   = input.source(close, "مصدر", group=grpRsi)
+rsiMaLen = input.int(14, "طول تنعيم SMA", minval=1, group=grpRsi)
 
 grpDon = "Donchian Trend Ribbon"
 dlen   = input.int(20, "الطول", minval=2, group=grpDon)
@@ -61,160 +56,48 @@ dlen   = input.int(20, "الطول", minval=2, group=grpDon)
 grpEma = "EMA"
 emaLen = input.int(50, "طول EMA", minval=1, group=grpEma)
 
-grpUse  = "تفعيل الشروط"
-useMacd = input.bool(true, "1- MACD", group=grpUse)
-useSmi  = input.bool(true, "2- Stochastic SMI", group=grpUse)
-useSt   = input.bool(true, "3- Stochastic", group=grpUse)
-useRsi  = input.bool(true, "4- RSI", group=grpUse)
-useDon  = input.bool(true, "5- Donchian Trend Ribbon", group=grpUse)
-useEma  = input.bool(true, "6- EMA 50", group=grpUse)
-useSat  = input.bool(true, "حارس التشبع (منع الدخول المتأخر)", group=grpUse)
-
-grpRisk  = "إدارة الصفقة"
-useLong  = input.bool(true, "شراء", group=grpRisk)
-useShrt  = input.bool(true, "بيع", group=grpRisk)
-usePct   = input.bool(true, "وقف/هدف %", group=grpRisk)
-tpPct    = input.float(1.00, "هدف %", step=0.01, minval=0.05, group=grpRisk)
-slPct    = input.float(0.75, "وقف %", step=0.01, minval=0.05, group=grpRisk)
-exitOpp  = input.bool(true, "إغلاق عكسي عند إشارة مضادة", group=grpRisk)
-
-grpVis   = "العرض"
-showTbl  = input.bool(true, "لوحة الشروط", group=grpVis)
-showBg   = input.bool(true, "تظليل عند اكتمال 6/6", group=grpVis)
-showEma  = input.bool(true, "رسم EMA50 بلون شريط Donchian", group=grpVis)
-
 // ============================ الحسابات ============================
 f_ma(float src, simple int len, simple string typ) =>
     s = ta.sma(src, len)
     e = ta.ema(src, len)
     typ == "SMA" ? s : e
 
-// MACD حسب إعدادات الصورة (نوع المتوسط قابل للتغيير)
+// 1) MACD
 macdLine = f_ma(macdSrc, macdF, macdOscT) - f_ma(macdSrc, macdS, macdOscT)
 sigLine  = f_ma(macdLine, macdG, macdSigT)
+macdHist = macdLine - sigLine
 
-// Stochastic SMI — نفس معادلة Stoch_MTM (surjithctly)
-ll     = ta.lowest(low, smiK)
-hh     = ta.highest(high, smiK)
-diff   = hh - ll
-rdiff  = close - (hh + ll) / 2.0
+// 2) Stochastic SMI — نفس معادلة Stoch_MTM (surjithctly)
+ll      = ta.lowest(low, smiK)
+hh      = ta.highest(high, smiK)
+diff    = hh - ll
+rdiff   = close - (hh + ll) / 2.0
 avgrel  = ta.ema(ta.ema(rdiff, smiD), smiD)
 avgdiff = ta.ema(ta.ema(diff, smiD), smiD)
 smiRaw  = avgdiff != 0 ? (avgrel / (avgdiff / 2.0)) * 100.0 : 0.0
 smi     = ta.sma(smiRaw, smiSm)
 smiSig  = ta.ema(smi, smiC)
 
-// Stochastic عادي
+// 3) Stochastic
 stK = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
 stD = ta.sma(stK, stDsm)
 
-// RSI — حسب إعدادات الصورة: طول 14، مصدر إغلاق، تنعيم SMA بطول 14
+// 4) RSI + تنعيم SMA
 rsi   = ta.rsi(rsiSrc, rsiLen)
 rsiMa = ta.sma(rsi, rsiMaLen)
-rsiBull = rsiMode == "متوسط SMA" ? rsi > rsiMa : rsi > rsiMid
-rsiBear = rsiMode == "متوسط SMA" ? rsi < rsiMa : rsi < rsiMid
 
-// Donchian Trend Ribbon — لون الشريط الرئيسي dchannel(dlen)
+// 5) Donchian Trend Ribbon — لون الشريط الرئيسي dchannel(dlen)
 var float donTrend = 0.0
 donHH = ta.highest(high, dlen)
 donLL = ta.lowest(low, dlen)
 donTrend := close > donHH[1] ? 1.0 : close < donLL[1] ? -1.0 : donTrend
 
-// EMA 50
+// 6) EMA 50
 ema50 = ta.ema(close, emaLen)
 
-// ============================ الشروط ============================
-// شراء
-c1L = not useMacd or macdLine > sigLine
-c2L = not useSmi  or smi > smiSig
-c3L = not useSt   or stK > stD
-c4L = not useRsi  or rsiBull
-c5L = not useDon  or donTrend == 1
-c6L = not useEma  or close > ema50
-cSatL = not useSat or (smi < obLvl and stK < stObLvl)
-
-// بيع
-c1S = not useMacd or macdLine < sigLine
-c2S = not useSmi  or smi < smiSig
-c3S = not useSt   or stK < stD
-c4S = not useRsi  or rsiBear
-c5S = not useDon  or donTrend == -1
-c6S = not useEma  or close < ema50
-cSatS = not useSat or (smi > osLvl and stK > stOsLvl)
-
-longOK  = c1L and c2L and c3L and c4L and c5L and c6L and cSatL
-shortOK = c1S and c2S and c3S and c4S and c5S and c6S and cSatS
-
-// الإشارة تظهر عند اكتمال الشروط بعد أن كانت ناقصة (حتى لا تتكرر كل شمعة)
-longSignal  = useLong and longOK  and not longOK[1]
-shortSignal = useShrt and shortOK and not shortOK[1]
-
-// ============================ التنفيذ ============================
-var float longStop  = na
-var float longLim   = na
-var float shortStop = na
-var float shortLim  = na
-
-if longSignal
-    if exitOpp and strategy.position_size < 0
-        strategy.close("Short", comment="عكس")
-    if strategy.position_size <= 0
-        strategy.entry("Long", strategy.long, comment="شراء 6/6")
-        longStop := close * (1.0 - slPct / 100.0)
-        longLim  := close * (1.0 + tpPct / 100.0)
-
-if shortSignal
-    if exitOpp and strategy.position_size > 0
-        strategy.close("Long", comment="عكس")
-    if strategy.position_size >= 0
-        strategy.entry("Short", strategy.short, comment="بيع 6/6")
-        shortStop := close * (1.0 + slPct / 100.0)
-        shortLim  := close * (1.0 - tpPct / 100.0)
-
-if usePct and strategy.position_size > 0
-    strategy.exit("L-Exit", from_entry="Long", stop=longStop, limit=longLim)
-if usePct and strategy.position_size < 0
-    strategy.exit("S-Exit", from_entry="Short", stop=shortStop, limit=shortLim)
-
 // ============================ العرض ============================
-plot(showEma ? ema50 : na, "EMA50", color=donTrend == 1 ? color.new(color.green, 0) : donTrend == -1 ? color.new(color.red, 0) : color.new(color.gray, 0), linewidth=2)
-bgcolor(showBg and longOK ? color.new(color.green, 88) : showBg and shortOK ? color.new(color.red, 88) : na)
-plotshape(longSignal,  title="شراء", style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small, text="شراء", textcolor=color.lime)
-plotshape(shortSignal, title="بيع",  style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small, text="بيع",  textcolor=color.red)
+plot(ema50, "EMA50", color=color.new(color.blue, 0), linewidth=2)
 
-f_mark(bool ok) => ok ? "✔" : "✖"
-f_col(bool ok) => ok ? color.new(color.green, 55) : color.new(color.red, 70)
-
-var table panel = table.new(position.top_right, 3, 9, bgcolor=color.new(#111111, 15), border_width=1, border_color=color.new(color.gray, 60))
-if showTbl and barstate.islast
-    table.cell(panel, 0, 0, "المؤشر", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 0, "شراء",  text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 0, "بيع",   text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 1, "MACD", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 1, f_mark(c1L), bgcolor=f_col(c1L), text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 1, f_mark(c1S), bgcolor=f_col(c1S), text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 2, "SMI", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 2, f_mark(c2L), bgcolor=f_col(c2L), text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 2, f_mark(c2S), bgcolor=f_col(c2S), text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 3, "Stoch", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 3, f_mark(c3L), bgcolor=f_col(c3L), text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 3, f_mark(c3S), bgcolor=f_col(c3S), text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 4, "RSI", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 4, f_mark(c4L), bgcolor=f_col(c4L), text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 4, f_mark(c4S), bgcolor=f_col(c4S), text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 5, "Donchian", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 5, f_mark(c5L), bgcolor=f_col(c5L), text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 5, f_mark(c5S), bgcolor=f_col(c5S), text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 6, "EMA50", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 6, f_mark(c6L), bgcolor=f_col(c6L), text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 6, f_mark(c6S), bgcolor=f_col(c6S), text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 7, "حارس التشبع", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 7, f_mark(cSatL), bgcolor=f_col(cSatL), text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 7, f_mark(cSatS), bgcolor=f_col(cSatS), text_color=color.white, text_size=size.small)
-    table.cell(panel, 0, 8, "النتيجة", text_color=color.white, text_size=size.small)
-    table.cell(panel, 1, 8, f_mark(longOK),  bgcolor=f_col(longOK),  text_color=color.white, text_size=size.small)
-    table.cell(panel, 2, 8, f_mark(shortOK), bgcolor=f_col(shortOK), text_color=color.white, text_size=size.small)
-
-// ============================ التنبيهات ============================
-alertcondition(longSignal,  title="شراء 6/6", message="استراتيجية 6 مؤشرات: إشارة شراء — اكتملت الشروط الستة")
-alertcondition(shortSignal, title="بيع 6/6",  message="استراتيجية 6 مؤشرات: إشارة بيع — اكتملت الشروط الستة")
+// ============================ قواعد الدخول والخروج ============================
+// بانتظار شرح صاحب الاستراتيجية — ستُضاف القواعد هنا كما يحددها بالضبط،
+// بدون أي افتراضات إضافية.
