@@ -49,6 +49,28 @@ class TestRsiGates(unittest.TestCase):
         self.assertFalse(pine.sell_rsi_gate(45.0, 56.0))  # gap > 10
 
 
+class TestRocNalan(unittest.TestCase):
+    def test_matches_pine_v4_percent_change_and_ema(self):
+        close = pd.Series([100.0 + i for i in range(120)], dtype=float)
+        roc, maroc = pine.calc_roc_nalan(close, 48)
+        expected = (close - close.shift(48)) / close.shift(48) * 100.0
+        pd.testing.assert_series_equal(roc, expected, check_names=False)
+        pd.testing.assert_series_equal(maroc, pine.ema_tv(expected, 48), check_names=False)
+        self.assertEqual(pine.ROC_LENGTH, 48)
+
+    def test_buy_requires_strictly_above_average(self):
+        self.assertTrue(pine.roc_buy_gate(1.0, 0.0))
+        self.assertFalse(pine.roc_buy_gate(0.0, 0.0))
+        self.assertFalse(pine.roc_buy_gate(-0.1, 0.0))
+        self.assertFalse(pine.roc_buy_gate(float("nan"), 0.0))
+
+    def test_sell_requires_strictly_below_average(self):
+        self.assertTrue(pine.roc_sell_gate(-1.0, 0.0))
+        self.assertFalse(pine.roc_sell_gate(0.0, 0.0))
+        self.assertFalse(pine.roc_sell_gate(0.1, 0.0))
+        self.assertFalse(pine.roc_sell_gate(-1.0, float("nan")))
+
+
 class TestEntryLevels(unittest.TestCase):
     def test_long_uses_one_percent_tp_and_point_eight_sl(self):
         tp, sl = pine._entry_levels("buy", 100.0)
@@ -151,6 +173,8 @@ def _blank_chart(rows, start):
             "macd_confirm": 0.0,
             "hist_confirm": 0.0,
             "rsi_confirm": 55.0,
+            "roc_confirm": 1.0,
+            "maroc_confirm": 0.0,
         }
     )
 
@@ -196,6 +220,47 @@ class TestReplaySequence(unittest.TestCase):
         self.assertEqual(trades[0]["type"], "buy")
         self.assertEqual(trades[0]["outcome"], "win")
         self.assertAlmostEqual(trades[0]["price"], 100.1)
+
+    def test_buy_rejected_when_confirm_roc_is_on_or_below_average(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        fill_ts = None
+        for roc_value in (0.0, -0.5):
+            chart = _blank_chart(rows, start)
+            i0 = pine.WARMUP_BARS
+            chart.loc[i0 - 1, "smi_main"] = -39.0
+            chart.loc[i0:, "smi_main"] = -41.0
+            chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+            chart.loc[i0 + 2 :, "trend_main"] = 1.0
+            chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+            chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+            chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+            chart.loc[i0 + 5, "trend"] = -1.0
+            chart.loc[i0 + 5, "smi"] = -39.0
+            chart.loc[i0 + 6, "smi"] = -41.0
+            chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+            chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+            chart.loc[i0 + 7, "stoch_k"] = 15.0
+            chart.loc[i0 + 8, "stoch_k"] = 25.0
+            chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+            chart.loc[i0 + 8, "roc_confirm"] = roc_value
+            chart.loc[i0 + 8, "maroc_confirm"] = 0.0
+            chart.loc[i0 + 8, "close"] = 100.0
+            chart.loc[i0 + 9, "open"] = 100.1
+            fill_ts = chart.loc[i0 + 9, "ts"]
+            raw_1m = pd.DataFrame(
+                [
+                    {
+                        "ts": fill_ts,
+                        "open": 100.1,
+                        "high": 101.5,
+                        "low": 99.8,
+                        "close": 101.0,
+                        "vol": 1.0,
+                    }
+                ]
+            )
+            self.assertEqual(pine.replay_signals(chart, raw_1m), [])
 
     def test_buy_dies_when_main_smi_leaves_minus_40_at_step1(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
@@ -565,3 +630,4 @@ class TestThirteenTriples(unittest.TestCase):
         self.assertIn("15/45/5", text)
         self.assertIn("13 ثلاثي", text)
         self.assertIn("عند الدخول", text)
+        self.assertIn("ROC48 تأكيد", text)

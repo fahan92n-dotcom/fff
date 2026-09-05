@@ -10,6 +10,8 @@ Matches the user script defaults:
   At entry the forming ribbon must be green for a buy and red for a
   sell (close vs hh[1]/ll[1]). Mid-path flips after step 3 are allowed.
   After the fill the color is ignored.
+  Confirm-TF 纳兰飞梦 ROC(48): the ROC line must be strictly above its
+  EMA for a buy and strictly below it for a sell. Equal is rejected.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -72,6 +74,7 @@ SELL_MAIN_DIFF = (3.0, 10.0)
 OHLCV_1M_BARS = 45_000
 TRIPLE_WARMUP_BARS = 250
 DONCHIAN_HOLD_DEFAULT = "at_entry"
+ROC_LENGTH = 48
 
 PINE_TRIPLES = tuple((main, confirm, entry) for main, confirm, entry, *_ in TRIPLING_PAIRS)
 ALT_SYMBOLS = (
@@ -142,6 +145,25 @@ def calc_smi_stoch_mtm(
     smoothed = smi.rolling(smooth_period, min_periods=smooth_period).mean()
     signal = ema_tv(smoothed, ema_len)
     return smoothed, signal
+
+
+def calc_roc_nalan(close, length=ROC_LENGTH):
+    """纳兰飞梦-变动率: Pine v4 roc and ema(roc, length)."""
+    close = pd.to_numeric(close, errors="coerce")
+    length = int(length)
+    prior = close.shift(length)
+    roc = (close - prior) / prior * 100.0
+    roc = roc.where(prior.notna() & (prior != 0))
+    maroc = ema_tv(roc, length)
+    return roc, maroc
+
+
+def roc_buy_gate(roc, maroc):
+    return bool(np.isfinite(roc) and np.isfinite(maroc) and roc > maroc)
+
+
+def roc_sell_gate(roc, maroc):
+    return bool(np.isfinite(roc) and np.isfinite(maroc) and roc < maroc)
 
 
 def buy_rsi_gate(rsi_confirm, rsi_main):
@@ -217,6 +239,9 @@ def _indicator_frame(raw_1m, minutes):
     bars["rsi_ma"] = rsi.rolling(RSI_MA_LEN, min_periods=RSI_MA_LEN).mean()
     k_stoch, _ = calc_stoch_tv(close, bars["high"], bars["low"])
     bars["stoch_k"] = k_stoch
+    roc, maroc = calc_roc_nalan(close, ROC_LENGTH)
+    bars["roc"] = roc
+    bars["maroc"] = maroc
     return bars
 
 
@@ -299,7 +324,7 @@ def build_chart(
         main,
         ["smi", "macd", "hist", "trend", "ema50", "close", "rsi", "don_hh", "don_ll", "trend_prev"],
     )
-    confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi"])
+    confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi", "roc", "maroc"])
     out = chart.copy()
     out["smi_main"] = main_map["smi"].to_numpy()
     out["macd_main"] = main_map["macd"].to_numpy()
@@ -317,6 +342,8 @@ def build_chart(
     out["macd_confirm"] = confirm_map["macd"].to_numpy()
     out["hist_confirm"] = confirm_map["hist"].to_numpy()
     out["rsi_confirm"] = confirm_map["rsi"].to_numpy()
+    out["roc_confirm"] = confirm_map["roc"].to_numpy()
+    out["maroc_confirm"] = confirm_map["maroc"].to_numpy()
     return out
 
 
@@ -389,6 +416,8 @@ def replay_signals(
     close_values = chart["close"].to_numpy(dtype=float)
     rsi_confirm = chart["rsi_confirm"].to_numpy(dtype=float)
     rsi_main = chart["rsi_main"].to_numpy(dtype=float)
+    roc_confirm = chart["roc_confirm"].to_numpy(dtype=float)
+    maroc_confirm = chart["maroc_confirm"].to_numpy(dtype=float)
     if "main_open_ts" in chart.columns:
         main_closes = candle_period_ends(chart["main_open_ts"], main_tf)
         chart_closes = candle_period_ends(chart["ts"], entry_tf)
@@ -494,6 +523,7 @@ def replay_signals(
                 bool(stoch_buy_cross[i])
                 and bars_since <= MAX_BARS_GAP
                 and buy_rsi_gate(rsi_confirm[i], rsi_main[i])
+                and roc_buy_gate(roc_confirm[i], maroc_confirm[i])
                 and np.isfinite(trend_now)
                 and trend_now == 1
             ):
@@ -507,6 +537,7 @@ def replay_signals(
                 bool(stoch_sell_cross[i])
                 and bars_since <= MAX_BARS_GAP
                 and sell_rsi_gate(rsi_confirm[i], rsi_main[i])
+                and roc_sell_gate(roc_confirm[i], maroc_confirm[i])
                 and np.isfinite(trend_now)
                 and trend_now == -1
             ):
@@ -546,6 +577,8 @@ def replay_signals(
                 "exit_ts": exit_ts,
                 "rsi_confirm": float(rsi_confirm[i]),
                 "rsi_main": float(rsi_main[i]),
+                "roc_confirm": float(roc_confirm[i]),
+                "maroc_confirm": float(maroc_confirm[i]),
                 "main_tf": main_tf,
                 "confirm_tf": confirm_tf,
                 "entry_tf": entry_tf,
@@ -700,7 +733,8 @@ def format_report(result):
     opens = result["opens"]
     lines = [
         f"{result.get('symbol', SYMBOL)} | 13 ثلاثي | SMI Stoch_MTM | "
-        f"دونشيان {'حتى الدخول' if result.get('donchian_hold') == 'through' else 'عند الدخول'}",
+        f"دونشيان {'حتى الدخول' if result.get('donchian_hold') == 'through' else 'عند الدخول'} | "
+        f"ROC{ROC_LENGTH} تأكيد",
         f"الفترة: {start} → {end} UTC ({(result['end'] - result['start']).days} يوم)",
         f"إجمالي الصفقات: {len(result['trades'])}",
         f"ناجحة: {len(wins)}",
