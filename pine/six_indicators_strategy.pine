@@ -30,6 +30,8 @@
 // ملاحظات تنفيذ: كل القيم تُقرأ من الشموع المغلقة فقط (لا إعادة رسم). الشارت يجب أن يكون
 // على 5 دقائق أو أقل حتى تعمل كل أزواج الفريمات.
 // الخروج (حدده صاحب الاستراتيجية): الربح 1.00% ووقف الخسارة 0.75%.
+// سجل على الشاشة (مقتبس بطلب صاحب الاستراتيجية): الصفقات المنفذة فقط،
+// مع قيمة RSI التأكيد وRSI الرئيس لحظة الدخول ونتيجة كل صفقة (رابحة/خاسرة).
 strategy("استراتيجية 6 مؤشرات — MACD+SMI+Stoch+RSI+Donchian+EMA50",
      overlay                  = true,
      pyramiding               = 0,
@@ -105,6 +107,9 @@ slPct   = input.float(0.75, "وقف الخسارة %", step=0.01, minval=0.05, g
 grpVis  = "العرض"
 showTbl = input.bool(true, "لوحة تقدم الخطوات", group=grpVis)
 showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
+showLog = input.bool(true, "سجل الصفقات", group=grpVis)
+maxLogRows  = input.int(200, "أقصى عدد عمليات محفوظة بالسجل", minval=1, group=grpVis)
+rowsPerPage = input.int(25, "عدد الصفوف المعروضة (آخر N صفقة)", minval=1, maxval=100, group=grpVis)
 
 // ============================ دوال المؤشرات ============================
 f_ma(float src, simple int len, simple string typ) =>
@@ -144,6 +149,7 @@ f_snap_main() =>
     [m, h] = f_macd()
     don = f_dchannel()
     ema50 = ta.ema(close, emaLen)
+    rsiV = ta.rsi(rsiSrc, rsiLen)
     satL  = smi[1] <= osLvl
     satS  = smi[1] >= obLvl
     macdL = h[1] < 0 and m[1] >= h[1]
@@ -152,12 +158,13 @@ f_snap_main() =>
     donS  = don[1] == -1
     emaL  = close[1] < ema50[1]
     emaS  = close[1] > ema50[1]
-    [satL, satS, macdL, macdS, donL, donS, emaL, emaS]
+    [satL, satS, macdL, macdS, donL, donS, emaL, emaS, rsiV[1]]
 
-// فريم التأكيد: شرط 5 — لون هستوجرام MACD
+// فريم التأكيد: شرط 5 — لون هستوجرام MACD (+ قيمة RSI للسجل)
 f_snap_conf() =>
     [m, h] = f_macd()
-    [h[1] > 0, h[1] < 0]
+    rsiV = ta.rsi(rsiSrc, rsiLen)
+    [h[1] > 0, h[1] < 0, rsiV[1]]
 
 // فريم الدخول: شروط 6 و7 و8 و9
 f_snap_entry() =>
@@ -239,27 +246,27 @@ f_engine(bool enabled, bool cancelEvt, bool mainNew, bool s1sat, bool s2macd, bo
     [fire, st]
 
 // ============================ جلب البيانات ============================
-[m1satL, m1satS, m1macdL, m1macdS, m1donL, m1donS, m1emaL, m1emaS] = f_req_main("15")
-[m2satL, m2satS, m2macdL, m2macdS, m2donL, m2donS, m2emaL, m2emaS] = f_req_main("30")
-[m3satL, m3satS, m3macdL, m3macdS, m3donL, m3donS, m3emaL, m3emaS] = f_req_main("45")
-[m4satL, m4satS, m4macdL, m4macdS, m4donL, m4donS, m4emaL, m4emaS] = f_req_main("60")
-[m5satL, m5satS, m5macdL, m5macdS, m5donL, m5donS, m5emaL, m5emaS] = f_req_main("90")
-[m6satL, m6satS, m6macdL, m6macdS, m6donL, m6donS, m6emaL, m6emaS] = f_req_main("120")
-[m7satL, m7satS, m7macdL, m7macdS, m7donL, m7donS, m7emaL, m7emaS] = f_req_main("150")
-[m8satL, m8satS, m8macdL, m8macdS, m8donL, m8donS, m8emaL, m8emaS] = f_req_main("180")
-[m9satL, m9satS, m9macdL, m9macdS, m9donL, m9donS, m9emaL, m9emaS] = f_req_main("210")
-[m10satL, m10satS, m10macdL, m10macdS, m10donL, m10donS, m10emaL, m10emaS] = f_req_main("240")
+[m1satL, m1satS, m1macdL, m1macdS, m1donL, m1donS, m1emaL, m1emaS, m1rsi] = f_req_main("15")
+[m2satL, m2satS, m2macdL, m2macdS, m2donL, m2donS, m2emaL, m2emaS, m2rsi] = f_req_main("30")
+[m3satL, m3satS, m3macdL, m3macdS, m3donL, m3donS, m3emaL, m3emaS, m3rsi] = f_req_main("45")
+[m4satL, m4satS, m4macdL, m4macdS, m4donL, m4donS, m4emaL, m4emaS, m4rsi] = f_req_main("60")
+[m5satL, m5satS, m5macdL, m5macdS, m5donL, m5donS, m5emaL, m5emaS, m5rsi] = f_req_main("90")
+[m6satL, m6satS, m6macdL, m6macdS, m6donL, m6donS, m6emaL, m6emaS, m6rsi] = f_req_main("120")
+[m7satL, m7satS, m7macdL, m7macdS, m7donL, m7donS, m7emaL, m7emaS, m7rsi] = f_req_main("150")
+[m8satL, m8satS, m8macdL, m8macdS, m8donL, m8donS, m8emaL, m8emaS, m8rsi] = f_req_main("180")
+[m9satL, m9satS, m9macdL, m9macdS, m9donL, m9donS, m9emaL, m9emaS, m9rsi] = f_req_main("210")
+[m10satL, m10satS, m10macdL, m10macdS, m10donL, m10donS, m10emaL, m10emaS, m10rsi] = f_req_main("240")
 
-[c1G, c1R] = f_req_conf("45")
-[c2G, c2R] = f_req_conf("90")
-[c3G, c3R] = f_req_conf("135")
-[c4G, c4R] = f_req_conf("180")
-[c5G, c5R] = f_req_conf("270")
-[c6G, c6R] = f_req_conf("360")
-[c7G, c7R] = f_req_conf("450")
-[c8G, c8R] = f_req_conf("540")
-[c9G, c9R] = f_req_conf("630")
-[c10G, c10R] = f_req_conf("720")
+[c1G, c1R, c1rsi] = f_req_conf("45")
+[c2G, c2R, c2rsi] = f_req_conf("90")
+[c3G, c3R, c3rsi] = f_req_conf("135")
+[c4G, c4R, c4rsi] = f_req_conf("180")
+[c5G, c5R, c5rsi] = f_req_conf("270")
+[c6G, c6R, c6rsi] = f_req_conf("360")
+[c7G, c7R, c7rsi] = f_req_conf("450")
+[c8G, c8R, c8rsi] = f_req_conf("540")
+[c9G, c9R, c9rsi] = f_req_conf("630")
+[c10G, c10R, c10rsi] = f_req_conf("720")
 
 [e1dR, e1dG, e1sL, e1sS, e1tL, e1tS, e1cU, e1cD, e1stB, e1stS] = f_req_entry("5")
 [e2dR, e2dG, e2sL, e2sS, e2tL, e2tS, e2cU, e2cD, e2stB, e2stS] = f_req_entry("10")
@@ -322,38 +329,88 @@ sellHit = useShrt and (f1S or f2S or f3S or f4S or f5S or f6S or f7S or f8S or f
 buyTag  = f1L ? "15/45/5" : f2L ? "30/90/10" : f3L ? "45/135/15" : f4L ? "60/180/20" : f5L ? "90/270/30" : f6L ? "120/360/40" : f7L ? "150/450/50" : f8L ? "180/540/60" : f9L ? "210/630/70" : "240/720/80"
 sellTag = f1S ? "15/45/5" : f2S ? "30/90/10" : f3S ? "45/135/15" : f4S ? "60/180/20" : f5S ? "90/270/30" : f6S ? "120/360/40" : f7S ? "150/450/50" : f8S ? "180/540/60" : f9S ? "210/630/70" : "240/720/80"
 
+// قيم RSI الرئيس والتأكيد للزوج الذي أطلق الصفقة (للسجل)
+buyRsiMain  = f1L ? m1rsi : f2L ? m2rsi : f3L ? m3rsi : f4L ? m4rsi : f5L ? m5rsi : f6L ? m6rsi : f7L ? m7rsi : f8L ? m8rsi : f9L ? m9rsi : m10rsi
+buyRsiConf  = f1L ? c1rsi : f2L ? c2rsi : f3L ? c3rsi : f4L ? c4rsi : f5L ? c5rsi : f6L ? c6rsi : f7L ? c7rsi : f8L ? c8rsi : f9L ? c9rsi : c10rsi
+sellRsiMain = f1S ? m1rsi : f2S ? m2rsi : f3S ? m3rsi : f4S ? m4rsi : f5S ? m5rsi : f6S ? m6rsi : f7S ? m7rsi : f8S ? m8rsi : f9S ? m9rsi : m10rsi
+sellRsiConf = f1S ? c1rsi : f2S ? c2rsi : f3S ? c3rsi : f4S ? c4rsi : f5S ? c5rsi : f6S ? c6rsi : f7S ? c7rsi : f8S ? c8rsi : f9S ? c9rsi : c10rsi
+
+// الصفقة تُنفذ فقط إذا لم تكن هناك صفقة قائمة بنفس الاتجاه — والسجل يعرض المنفذة فقط
+enterLong  = buyHit and strategy.position_size <= 0
+enterShort = sellHit and strategy.position_size >= 0
+
 var float longStop  = na
 var float longLim   = na
 var float shortStop = na
 var float shortLim  = na
 
-if buyHit
+if enterLong
     strategy.entry("Long", strategy.long, comment="شراء " + buyTag)
     longStop := close * (1.0 - slPct / 100.0)
     longLim  := close * (1.0 + tpPct / 100.0)
     alert("استراتيجية 6 مؤشرات: صفقة شراء " + buyTag + " — " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
 
-if sellHit
+if enterShort
     strategy.entry("Short", strategy.short, comment="بيع " + sellTag)
     shortStop := close * (1.0 + slPct / 100.0)
     shortLim  := close * (1.0 - tpPct / 100.0)
     alert("استراتيجية 6 مؤشرات: صفقة بيع " + sellTag + " — " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
+
+// ================= سجل الصفقات (مقتبس من الكود الذي أرسله صاحب الاستراتيجية) =================
+var array<string> logTime       = array.new<string>()
+var array<string> logType       = array.new<string>()
+var array<string> logTag        = array.new<string>()
+var array<float>  logRsiConfirm = array.new<float>()
+var array<float>  logRsiMain    = array.new<float>()
+var array<string> logResult     = array.new<string>()
+var array<int>    logId         = array.new<int>()
+var int nextTradeId = 0
+var array<int> pendingQueue = array.new<int>()
+
+if enterLong or enterShort
+    array.unshift(logTime, str.format_time(time, "yyyy-MM-dd HH:mm"))
+    array.unshift(logType, enterLong ? "شراء" : "بيع")
+    array.unshift(logTag, enterLong ? buyTag : sellTag)
+    array.unshift(logRsiConfirm, enterLong ? buyRsiConf : sellRsiConf)
+    array.unshift(logRsiMain, enterLong ? buyRsiMain : sellRsiMain)
+    array.unshift(logResult, "قيد التنفيذ")
+    array.unshift(logId, nextTradeId)
+    array.push(pendingQueue, nextTradeId)
+    nextTradeId += 1
+    if array.size(logTime) > maxLogRows
+        array.pop(logTime)
+        array.pop(logType)
+        array.pop(logTag)
+        array.pop(logRsiConfirm)
+        array.pop(logRsiMain)
+        array.pop(logResult)
+        array.pop(logId)
+
+var int lastClosedCount = 0
+if strategy.closedtrades > lastClosedCount
+    for ci = lastClosedCount to strategy.closedtrades - 1
+        if array.size(pendingQueue) > 0
+            closedId = array.shift(pendingQueue)
+            rowIdx = array.indexof(logId, closedId)
+            if rowIdx >= 0
+                array.set(logResult, rowIdx, strategy.closedtrades.profit(ci) >= 0 ? "رابحة" : "خاسرة")
+    lastClosedCount := strategy.closedtrades
 
 if usePct and strategy.position_size > 0
     strategy.exit("L-Exit", from_entry="Long", stop=longStop, limit=longLim)
 if usePct and strategy.position_size < 0
     strategy.exit("S-Exit", from_entry="Short", stop=shortStop, limit=shortLim)
 
-alertcondition(buyHit,  title="شراء (أي زوج)", message="استراتيجية 6 مؤشرات: صفقة شراء")
-alertcondition(sellHit, title="بيع (أي زوج)",  message="استراتيجية 6 مؤشرات: صفقة بيع")
+alertcondition(enterLong,  title="شراء (أي زوج)", message="استراتيجية 6 مؤشرات: صفقة شراء")
+alertcondition(enterShort, title="بيع (أي زوج)",  message="استراتيجية 6 مؤشرات: صفقة بيع")
 
 // ============================ العرض ============================
-plotshape(buyHit,  title="شراء", style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small)
-plotshape(sellHit, title="بيع",  style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small)
+plotshape(enterLong,  title="شراء", style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small)
+plotshape(enterShort, title="بيع",  style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small)
 
-if showLbl and buyHit
+if showLbl and enterLong
     label.new(bar_index, low, "شراء\n" + buyTag, style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.small)
-if showLbl and sellHit
+if showLbl and enterShort
     label.new(bar_index, high, "بيع\n" + sellTag, style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
 
 // تحذير: الشارت يجب أن يكون أصغر من/يساوي أصغر فريم دخول مفعّل
@@ -402,3 +459,29 @@ if showTbl and barstate.islast
     table.cell(panel, 0, 10, "240/720/80", text_color=color.white, text_size=size.small)
     table.cell(panel, 1, 10, str.tostring(st10L), bgcolor=f_stCol(st10L), text_color=color.white, text_size=size.small)
     table.cell(panel, 2, 10, str.tostring(st10S), bgcolor=f_stCol(st10S), text_color=color.white, text_size=size.small)
+
+// جدول سجل الصفقات على الشاشة (مقتبس من الكود الذي أرسله صاحب الاستراتيجية)
+var table logTbl = table.new(position.top_left, 6, 102, border_width=1)
+if showLog and barstate.islast
+    totalRecords = array.size(logTime)
+    displayCount = math.min(rowsPerPage, totalRecords)
+    table.cell(logTbl, 0, 0, "آخر " + str.tostring(displayCount) + " صفقة من أصل " + str.tostring(totalRecords), bgcolor=color.black, text_color=color.white, text_size=size.small)
+    table.merge_cells(logTbl, 0, 0, 5, 0)
+    table.cell(logTbl, 0, 1, "وقت الدخول", bgcolor=color.navy, text_color=color.white, text_size=size.small)
+    table.cell(logTbl, 1, 1, "الاتجاه", bgcolor=color.navy, text_color=color.white, text_size=size.small)
+    table.cell(logTbl, 2, 1, "الزوج", bgcolor=color.navy, text_color=color.white, text_size=size.small)
+    table.cell(logTbl, 3, 1, "RSI تأكيد", bgcolor=color.navy, text_color=color.white, text_size=size.small)
+    table.cell(logTbl, 4, 1, "RSI رئيس", bgcolor=color.navy, text_color=color.white, text_size=size.small)
+    table.cell(logTbl, 5, 1, "النتيجة", bgcolor=color.navy, text_color=color.white, text_size=size.small)
+    if totalRecords > 0
+        for i = 0 to displayCount - 1
+            rowColor = array.get(logType, i) == "شراء" ? color.new(color.green, 80) : color.new(color.red, 80)
+            rowInTable = i + 2
+            result = array.get(logResult, i)
+            resultColor = result == "رابحة" ? color.new(color.green, 60) : result == "خاسرة" ? color.new(color.red, 60) : color.new(color.gray, 60)
+            table.cell(logTbl, 0, rowInTable, array.get(logTime, i), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 1, rowInTable, array.get(logType, i), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 2, rowInTable, array.get(logTag, i), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 3, rowInTable, str.tostring(array.get(logRsiConfirm, i), "#.##"), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 4, rowInTable, str.tostring(array.get(logRsiMain, i), "#.##"), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 5, rowInTable, result, bgcolor=resultColor, text_color=color.white, text_size=size.small)
