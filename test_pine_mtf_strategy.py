@@ -210,6 +210,45 @@ class TestReplaySequence(unittest.TestCase):
         trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
         self.assertEqual(trades, [])
 
+    def test_buy_takes_step2_when_smi_leaves_on_same_bar(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0, "smi_main"] = -41.0
+        chart.loc[i0 + 1 :, "smi_main"] = -10.0  # leaves zone on the MACD bar
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 + 2 :, "trend_main"] = 1.0
+        chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+        chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+        chart.loc[i0 + 5, "trend"] = -1.0
+        chart.loc[i0 + 5, "smi"] = -39.0
+        chart.loc[i0 + 6, "smi"] = -41.0
+        chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+        chart.loc[i0 + 7, "stoch_k"] = 15.0
+        chart.loc[i0 + 8, "stoch_k"] = 25.0
+        chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+        chart.loc[i0 + 8, "close"] = 100.0
+        chart.loc[i0 + 9, "open"] = 100.1
+        fill_ts = chart.loc[i0 + 9, "ts"]
+        raw_1m = pd.DataFrame(
+            [
+                {
+                    "ts": fill_ts,
+                    "open": 100.1,
+                    "high": 101.5,
+                    "low": 99.8,
+                    "close": 101.0,
+                    "vol": 1.0,
+                }
+            ]
+        )
+        trades = pine.replay_signals(chart, raw_1m)
+        self.assertEqual(len(trades), 1)
+
     def test_buy_survives_smi_leaving_after_step2(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         rows = pine.WARMUP_BARS + 10
@@ -302,6 +341,44 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
         trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
         self.assertEqual(trades, [])
+
+    def test_buy_takes_step4_when_donchian_flips_on_same_bar(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0:, "smi_main"] = -41.0
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 + 2, "trend_main"] = 1.0
+        chart.loc[i0 + 3 :, "trend_main"] = -1.0  # flip on the EMA-cross bar
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+        chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+        chart.loc[i0 + 5, "trend"] = -1.0
+        chart.loc[i0 + 5, "smi"] = -39.0
+        chart.loc[i0 + 6, "smi"] = -41.0
+        chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+        chart.loc[i0 + 7, "stoch_k"] = 15.0
+        chart.loc[i0 + 8, "stoch_k"] = 25.0
+        chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+        chart.loc[i0 + 8, "close"] = 100.0
+        chart.loc[i0 + 9, "open"] = 100.1
+        fill_ts = chart.loc[i0 + 9, "ts"]
+        raw_1m = pd.DataFrame(
+            [
+                {
+                    "ts": fill_ts,
+                    "open": 100.1,
+                    "high": 101.5,
+                    "low": 99.8,
+                    "close": 101.0,
+                    "vol": 1.0,
+                }
+            ]
+        )
+        trades = pine.replay_signals(chart, raw_1m)
+        self.assertEqual(len(trades), 1)
 
     def test_buy_survives_donchian_flip_after_step4(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)

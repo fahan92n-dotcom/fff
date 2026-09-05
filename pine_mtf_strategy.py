@@ -8,6 +8,7 @@ Matches the user script defaults:
   After step 3 (only while waiting for step 4), lookahead main Donchian
   leaving green (buy) / red (sell) kills the path. Later steps do not
   re-check it — same scope mistake as the old SMI ``>= 1`` persist.
+  Persist runs only if the next step is not already true on that bar.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -361,17 +362,6 @@ def replay_signals(
     for i in range(start_i, n):
         smi_now = smi_persist[i]
         trend_now = trend_persist[i]
-        # Persist only while waiting for the next step. Re-checking through
-        # entry is the same over-scope bug that zeroed SMI paths.
-        if long_step == 1 and np.isfinite(smi_now) and smi_now > -SMI_THRESH:
-            _reset_long()
-        if long_step == 3 and np.isfinite(trend_now) and trend_now != 1:
-            _reset_long()
-        if short_step == 1 and np.isfinite(smi_now) and smi_now < SMI_THRESH:
-            _reset_short()
-        if short_step == 3 and np.isfinite(trend_now) and trend_now != -1:
-            _reset_short()
-
         long_c8 = False
         short_c8 = False
         if long_step == 7:
@@ -387,14 +377,21 @@ def replay_signals(
                 short_c8 = True
                 short_rsi_cross_bar = i
 
+        # Next-step first. Persist only if still waiting — otherwise a
+        # lookahead HTF bar that both leaves the zone and completes the
+        # next condition is killed before it can advance.
         if long_step == 0 and bool(c1_buy[i]):
             long_step = 1
         elif long_step == 1 and bool(c2_buy[i]):
             long_step = 2
+        elif long_step == 1 and np.isfinite(smi_now) and smi_now > -SMI_THRESH:
+            _reset_long()
         elif long_step == 2 and bool(c3_buy[i]):
             long_step = 3
         elif long_step == 3 and bool(c4_buy[i]):
             long_step = 4
+        elif long_step == 3 and np.isfinite(trend_now) and trend_now != 1:
+            _reset_long()
         elif long_step == 4 and bool(c5_buy[i]):
             long_step = 5
         elif long_step == 5 and bool(c6_buy[i]):
@@ -409,10 +406,14 @@ def replay_signals(
             short_step = 1
         elif short_step == 1 and bool(c2_sell[i]):
             short_step = 2
+        elif short_step == 1 and np.isfinite(smi_now) and smi_now < SMI_THRESH:
+            _reset_short()
         elif short_step == 2 and bool(c3_sell[i]):
             short_step = 3
         elif short_step == 3 and bool(c4_sell[i]):
             short_step = 4
+        elif short_step == 3 and np.isfinite(trend_now) and trend_now != -1:
+            _reset_short()
         elif short_step == 4 and bool(c5_sell[i]):
             short_step = 5
         elif short_step == 5 and bool(c6_sell[i]):
