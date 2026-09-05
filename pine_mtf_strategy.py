@@ -3,6 +3,8 @@
 Matches the user script defaults:
   all 13 cascade triples (main ×3 confirm, main ÷3 entry)
   SMI = Stoch_MTM (single EMA D=3, then SMA 5; not double EMA)
+  After step 1, leaving main SMI saturation (−40 / +40) kills the path.
+  After step 3, main Donchian must stay green (buy) / red (sell) through entry.
   lookahead=barmerge.lookahead_on (HTF values leak the completed HTF bar)
   TP 1.00% / SL 0.80% (short SL in the Pine uses tpPct, so +1.00%)
 
@@ -274,6 +276,8 @@ def replay_signals(
     smi_entry = chart["smi"]
     stoch_k = chart["stoch_k"]
     rsi_entry = chart["rsi"].to_numpy(dtype=float)
+    smi_main_v = smi_main.to_numpy(dtype=float)
+    trend_main_v = chart["trend_main"].to_numpy(dtype=float)
 
     c1_buy = _crossunder_level(smi_main, -SMI_THRESH).to_numpy()
     c1_sell = _crossover_level(smi_main, SMI_THRESH).to_numpy()
@@ -309,7 +313,30 @@ def replay_signals(
     rsi_confirm = chart["rsi_confirm"].to_numpy(dtype=float)
     rsi_main = chart["rsi_main"].to_numpy(dtype=float)
 
+    def _reset_long():
+        nonlocal long_step, long_rsi_touched, long_rsi_cross_bar
+        long_step = 0
+        long_rsi_touched = False
+        long_rsi_cross_bar = None
+
+    def _reset_short():
+        nonlocal short_step, short_rsi_touched, short_rsi_cross_bar
+        short_step = 0
+        short_rsi_touched = False
+        short_rsi_cross_bar = None
+
     for i in range(start_i, n):
+        smi_now = smi_main_v[i]
+        trend_now = trend_main_v[i]
+        if long_step >= 1 and np.isfinite(smi_now) and smi_now > -SMI_THRESH:
+            _reset_long()
+        if long_step >= 3 and trend_now != 1:
+            _reset_long()
+        if short_step >= 1 and np.isfinite(smi_now) and smi_now < SMI_THRESH:
+            _reset_short()
+        if short_step >= 3 and trend_now != -1:
+            _reset_short()
+
         long_c8 = False
         short_c8 = False
         if long_step == 7:

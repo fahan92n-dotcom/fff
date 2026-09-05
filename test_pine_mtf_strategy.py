@@ -148,9 +148,9 @@ class TestReplaySequence(unittest.TestCase):
         chart = _blank_chart(rows, start)
         i0 = pine.WARMUP_BARS
         chart.loc[i0 - 1, "smi_main"] = -39.0
-        chart.loc[i0, "smi_main"] = -41.0  # c1
+        chart.loc[i0:, "smi_main"] = -41.0  # stay in sat until entry
         chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]  # c2
-        chart.loc[i0 + 2, "trend_main"] = 1.0  # c3
+        chart.loc[i0 + 2 :, "trend_main"] = 1.0  # stay green through entry
         chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
         chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]  # c4
         chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]  # c5
@@ -182,6 +182,35 @@ class TestReplaySequence(unittest.TestCase):
         self.assertEqual(trades[0]["type"], "buy")
         self.assertEqual(trades[0]["outcome"], "win")
         self.assertAlmostEqual(trades[0]["price"], 100.1)
+
+    def test_buy_dies_when_main_smi_leaves_minus_40(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0 : i0 + 2, "smi_main"] = -41.0
+        chart.loc[i0 + 2 :, "smi_main"] = -10.0  # left saturation
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 + 2 :, "trend_main"] = 1.0
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+        trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
+        self.assertEqual(trades, [])
+
+    def test_buy_dies_when_main_donchian_leaves_green(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0:, "smi_main"] = -41.0
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 + 2, "trend_main"] = 1.0
+        chart.loc[i0 + 3 :, "trend_main"] = -1.0  # flipped before entry
+        chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+        trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
+        self.assertEqual(trades, [])
 
 
 class TestThirteenTriples(unittest.TestCase):
