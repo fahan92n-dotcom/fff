@@ -369,7 +369,7 @@ class TestReplaySequence(unittest.TestCase):
         )
         self.assertEqual(trades, [])
 
-    def test_buy_allowed_if_donchian_returns_green_by_entry(self):
+    def test_buy_dies_if_donchian_flips_before_entry_even_if_it_returns(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         rows = pine.WARMUP_BARS + 10
         chart = _blank_chart(rows, start)
@@ -379,8 +379,8 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
         chart.loc[i0 + 2 : i0 + 3, "trend_main"] = 1.0
         chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
-        chart.loc[i0 + 4 : i0 + 6, "trend_main"] = -1.0  # flipped mid-path
-        chart.loc[i0 + 7 :, "trend_main"] = 1.0  # green again at entry
+        chart.loc[i0 + 4 : i0 + 6, "trend_main"] = -1.0  # left green before entry
+        chart.loc[i0 + 7 :, "trend_main"] = 1.0
         chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
         chart.loc[i0 + 5, "trend"] = -1.0
         chart.loc[i0 + 5, "smi"] = -39.0
@@ -392,22 +392,10 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
         chart.loc[i0 + 8, "close"] = 100.0
         chart.loc[i0 + 9, "open"] = 100.1
-        fill_ts = chart.loc[i0 + 9, "ts"]
-        raw_1m = pd.DataFrame(
-            [
-                {
-                    "ts": fill_ts,
-                    "open": 100.1,
-                    "high": 101.5,
-                    "low": 99.8,
-                    "close": 101.0,
-                    "vol": 1.0,
-                }
-            ]
+        trades = pine.replay_signals(
+            chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"])
         )
-        trades = pine.replay_signals(chart, raw_1m)
-        self.assertEqual(len(trades), 1)
-        self.assertEqual(trades[0]["type"], "buy")
+        self.assertEqual(trades, [])
 
 
 class TestHtfMapping(unittest.TestCase):
