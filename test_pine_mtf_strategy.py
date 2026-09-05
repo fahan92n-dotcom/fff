@@ -71,6 +71,29 @@ class TestRocNalan(unittest.TestCase):
         self.assertFalse(pine.roc_sell_gate(-1.0, float("nan")))
 
 
+class TestAwesomeOscillator(unittest.TestCase):
+    def test_matches_sma5_minus_sma34_of_median(self):
+        high = pd.Series([10.0 + i for i in range(40)], dtype=float)
+        low = high - 2.0
+        ao = pine.calc_awesome_oscillator(high, low, 5, 34)
+        mid = (high + low) / 2.0
+        expected = mid.rolling(5).mean() - mid.rolling(34).mean()
+        pd.testing.assert_series_equal(ao, expected, check_names=False)
+        self.assertEqual(pine.AO_FAST, 5)
+        self.assertEqual(pine.AO_SLOW, 34)
+
+    def test_buy_requires_strictly_above_zero(self):
+        self.assertTrue(pine.ao_buy_gate(0.1))
+        self.assertFalse(pine.ao_buy_gate(0.0))
+        self.assertFalse(pine.ao_buy_gate(-0.1))
+        self.assertFalse(pine.ao_buy_gate(float("nan")))
+
+    def test_sell_requires_strictly_below_zero(self):
+        self.assertTrue(pine.ao_sell_gate(-0.1))
+        self.assertFalse(pine.ao_sell_gate(0.0))
+        self.assertFalse(pine.ao_sell_gate(0.1))
+
+
 class TestEntryLevels(unittest.TestCase):
     def test_long_uses_one_percent_tp_and_point_seven_five_sl(self):
         self.assertEqual(pine.TP_PCT, 1.00)
@@ -177,6 +200,7 @@ def _blank_chart(rows, start):
             "rsi_confirm": 55.0,
             "roc_confirm": 1.0,
             "maroc_confirm": 0.0,
+            "ao_confirm": 1.0,
         }
     )
 
@@ -247,6 +271,45 @@ class TestReplaySequence(unittest.TestCase):
             chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
             chart.loc[i0 + 8, "roc_confirm"] = roc_value
             chart.loc[i0 + 8, "maroc_confirm"] = 0.0
+            chart.loc[i0 + 8, "close"] = 100.0
+            chart.loc[i0 + 9, "open"] = 100.1
+            fill_ts = chart.loc[i0 + 9, "ts"]
+            raw_1m = pd.DataFrame(
+                [
+                    {
+                        "ts": fill_ts,
+                        "open": 100.1,
+                        "high": 101.5,
+                        "low": 99.8,
+                        "close": 101.0,
+                        "vol": 1.0,
+                    }
+                ]
+            )
+            self.assertEqual(pine.replay_signals(chart, raw_1m), [])
+
+    def test_buy_rejected_when_confirm_ao_is_on_or_below_zero(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        for ao_value in (0.0, -0.5):
+            chart = _blank_chart(rows, start)
+            i0 = pine.WARMUP_BARS
+            chart.loc[i0 - 1, "smi_main"] = -39.0
+            chart.loc[i0:, "smi_main"] = -41.0
+            chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+            chart.loc[i0 + 2 :, "trend_main"] = 1.0
+            chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+            chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+            chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+            chart.loc[i0 + 5, "trend"] = -1.0
+            chart.loc[i0 + 5, "smi"] = -39.0
+            chart.loc[i0 + 6, "smi"] = -41.0
+            chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+            chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+            chart.loc[i0 + 7, "stoch_k"] = 15.0
+            chart.loc[i0 + 8, "stoch_k"] = 25.0
+            chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+            chart.loc[i0 + 8, "ao_confirm"] = ao_value
             chart.loc[i0 + 8, "close"] = 100.0
             chart.loc[i0 + 9, "open"] = 100.1
             fill_ts = chart.loc[i0 + 9, "ts"]
@@ -643,4 +706,5 @@ class TestThirteenTriples(unittest.TestCase):
         self.assertIn("13 ثلاثي", text)
         self.assertIn("عند الدخول", text)
         self.assertIn("ROC48 تأكيد", text)
+        self.assertIn("AO5/34 تأكيد", text)
         self.assertIn("TP 1.00% / SL 0.75%", text)
