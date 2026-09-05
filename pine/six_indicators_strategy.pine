@@ -24,12 +24,12 @@
 //   7) SMI (الدخول)     : أول شمعة إغلاق تشبّع: شراء ≤ -40 | بيع ≥ +40
 //   8) RSI (الدخول)     : شراء = يصل 35 وتحت ثم أول تقاطع إيجابي مع متوسطه SMA-14
 //                          بيع = يصل 65 وفوق ثم أول تقاطع سلبي مع متوسطه SMA-14
-//   9) Stochastic 15/3/3 (الدخول): تحت 80 لا ندخل؛ لما يصبح فوق 80 وبينه وبين تقاطع RSI
-//                          3 شموع أو أقل → تتم الصفقة ويصدر إعلان. (كما ورد: للشراء وللبيع)
+//   9) Stochastic 15/3/3 (الدخول): شراء = يجتاز 20 ويصير فوقه | بيع = ينزل من 80 ويصير تحته
+//                          وبينه وبين تقاطع RSI ثلاث شموع أو أقل → تتم الصفقة ويصدر إعلان
 //
 // ملاحظات تنفيذ: كل القيم تُقرأ من الشموع المغلقة فقط (لا إعادة رسم). الشارت يجب أن يكون
-// على 5 دقائق أو أقل حتى تعمل كل أزواج الفريمات. قواعد الخروج لم تُحدد بعد — يوجد
-// هدف/وقف % مؤقت قابل للتعطيل حتى يحددها صاحب الاستراتيجية.
+// على 5 دقائق أو أقل حتى تعمل كل أزواج الفريمات.
+// الخروج (حدده صاحب الاستراتيجية): الربح 1.00% ووقف الخسارة 0.75%.
 strategy("استراتيجية 6 مؤشرات — MACD+SMI+Stoch+RSI+Donchian+EMA50",
      overlay                  = true,
      pyramiding               = 0,
@@ -79,7 +79,8 @@ emaLen = input.int(50, "طول EMA", minval=1, group=grpEma)
 grpLvl    = "مستويات الشروط"
 rsiTouchL = input.float(35, "لمس RSI شراء (وتحت)", group=grpLvl)
 rsiTouchS = input.float(65, "لمس RSI بيع (وفوق)", group=grpLvl)
-stochLvl  = input.float(80, "ستوكاستك: الدخول لما يصبح فوق", group=grpLvl)
+stochBuy  = input.float(20, "ستوكاستك شراء: يجتاز ويصير فوق", group=grpLvl)
+stochSell = input.float(80, "ستوكاستك بيع: ينزل ويصير تحت", group=grpLvl)
 stochGap  = input.int(3, "أقصى شموع بين تقاطع RSI والستوكاستك", minval=0, group=grpLvl)
 
 grpP  = "أزواج الفريمات (رئيس/تأكيد/دخول)"
@@ -94,12 +95,12 @@ use8  = input.bool(true, "180 / 540 / 60", group=grpP)
 use9  = input.bool(true, "210 / 630 / 70", group=grpP)
 use10 = input.bool(true, "240 / 720 / 80", group=grpP)
 
-grpRisk = "إدارة الصفقة (مؤقتة — قواعد الخروج لم تُحدد بعد)"
+grpRisk = "إدارة الصفقة"
 useLong = input.bool(true, "شراء", group=grpRisk)
 useShrt = input.bool(true, "بيع", group=grpRisk)
-usePct  = input.bool(true, "وقف/هدف % (مؤقت)", group=grpRisk)
-tpPct   = input.float(1.00, "هدف %", step=0.01, minval=0.05, group=grpRisk)
-slPct   = input.float(0.75, "وقف %", step=0.01, minval=0.05, group=grpRisk)
+usePct  = input.bool(true, "وقف/هدف %", group=grpRisk)
+tpPct   = input.float(1.00, "الربح %", step=0.01, minval=0.05, group=grpRisk)
+slPct   = input.float(0.75, "وقف الخسارة %", step=0.01, minval=0.05, group=grpRisk)
 
 grpVis  = "العرض"
 showTbl = input.bool(true, "لوحة تقدم الخطوات", group=grpVis)
@@ -173,8 +174,9 @@ f_snap_entry() =>
     touchS  = rsi[1] >= rsiTouchS
     crossUp = rsi[1] > rsiMa[1] and rsi[2] <= rsiMa[2]
     crossDn = rsi[1] < rsiMa[1] and rsi[2] >= rsiMa[2]
-    stochHi = k[1] > stochLvl
-    [donRed, donGrn, satL, satS, touchL, touchS, crossUp, crossDn, stochHi]
+    stochUp = k[1] > stochBuy
+    stochDn = k[1] < stochSell
+    [donRed, donGrn, satL, satS, touchL, touchS, crossUp, crossDn, stochUp, stochDn]
 
 // فريم الإلغاء الأعلى (5س = 300): تشبع SMI فقط
 f_snap_sat() =>
@@ -259,16 +261,16 @@ f_engine(bool enabled, bool cancelEvt, bool mainNew, bool s1sat, bool s2macd, bo
 [c9G, c9R] = f_req_conf("630")
 [c10G, c10R] = f_req_conf("720")
 
-[e1dR, e1dG, e1sL, e1sS, e1tL, e1tS, e1cU, e1cD, e1st] = f_req_entry("5")
-[e2dR, e2dG, e2sL, e2sS, e2tL, e2tS, e2cU, e2cD, e2st] = f_req_entry("10")
-[e3dR, e3dG, e3sL, e3sS, e3tL, e3tS, e3cU, e3cD, e3st] = f_req_entry("15")
-[e4dR, e4dG, e4sL, e4sS, e4tL, e4tS, e4cU, e4cD, e4st] = f_req_entry("20")
-[e5dR, e5dG, e5sL, e5sS, e5tL, e5tS, e5cU, e5cD, e5st] = f_req_entry("30")
-[e6dR, e6dG, e6sL, e6sS, e6tL, e6tS, e6cU, e6cD, e6st] = f_req_entry("40")
-[e7dR, e7dG, e7sL, e7sS, e7tL, e7tS, e7cU, e7cD, e7st] = f_req_entry("50")
-[e8dR, e8dG, e8sL, e8sS, e8tL, e8tS, e8cU, e8cD, e8st] = f_req_entry("60")
-[e9dR, e9dG, e9sL, e9sS, e9tL, e9tS, e9cU, e9cD, e9st] = f_req_entry("70")
-[e10dR, e10dG, e10sL, e10sS, e10tL, e10tS, e10cU, e10cD, e10st] = f_req_entry("80")
+[e1dR, e1dG, e1sL, e1sS, e1tL, e1tS, e1cU, e1cD, e1stB, e1stS] = f_req_entry("5")
+[e2dR, e2dG, e2sL, e2sS, e2tL, e2tS, e2cU, e2cD, e2stB, e2stS] = f_req_entry("10")
+[e3dR, e3dG, e3sL, e3sS, e3tL, e3tS, e3cU, e3cD, e3stB, e3stS] = f_req_entry("15")
+[e4dR, e4dG, e4sL, e4sS, e4tL, e4tS, e4cU, e4cD, e4stB, e4stS] = f_req_entry("20")
+[e5dR, e5dG, e5sL, e5sS, e5tL, e5tS, e5cU, e5cD, e5stB, e5stS] = f_req_entry("30")
+[e6dR, e6dG, e6sL, e6sS, e6tL, e6tS, e6cU, e6cD, e6stB, e6stS] = f_req_entry("40")
+[e7dR, e7dG, e7sL, e7sS, e7tL, e7tS, e7cU, e7cD, e7stB, e7stS] = f_req_entry("50")
+[e8dR, e8dG, e8sL, e8sS, e8tL, e8tS, e8cU, e8cD, e8stB, e8stS] = f_req_entry("60")
+[e9dR, e9dG, e9sL, e9sS, e9tL, e9tS, e9cU, e9cD, e9stB, e9stS] = f_req_entry("70")
+[e10dR, e10dG, e10sL, e10sS, e10tL, e10tS, e10cU, e10cD, e10stB, e10stS] = f_req_entry("80")
 
 [sat300L, sat300S] = f_req_sat("300")
 
@@ -293,26 +295,26 @@ n80  = f_new("80")
 
 // ============================ تشغيل المحركات ============================
 // الإلغاء: إغلاق تشبّع بنفس الاتجاه على الفريم الرئيس الأكبر يلغي الأصغر.
-[f1L, st1L]  = f_engine(use1,  n30 and m2satL,   n15,  m1satL,  m1macdL,  m1donL,  m1emaL,  c1G,  e1dR,  n5,  e1sL,  e1tL,  e1cU,  e1st)
-[f1S, st1S]  = f_engine(use1,  n30 and m2satS,   n15,  m1satS,  m1macdS,  m1donS,  m1emaS,  c1R,  e1dG,  n5,  e1sS,  e1tS,  e1cD,  e1st)
-[f2L, st2L]  = f_engine(use2,  n45 and m3satL,   n30,  m2satL,  m2macdL,  m2donL,  m2emaL,  c2G,  e2dR,  n10, e2sL,  e2tL,  e2cU,  e2st)
-[f2S, st2S]  = f_engine(use2,  n45 and m3satS,   n30,  m2satS,  m2macdS,  m2donS,  m2emaS,  c2R,  e2dG,  n10, e2sS,  e2tS,  e2cD,  e2st)
-[f3L, st3L]  = f_engine(use3,  n60 and m4satL,   n45,  m3satL,  m3macdL,  m3donL,  m3emaL,  c3G,  e3dR,  n15, e3sL,  e3tL,  e3cU,  e3st)
-[f3S, st3S]  = f_engine(use3,  n60 and m4satS,   n45,  m3satS,  m3macdS,  m3donS,  m3emaS,  c3R,  e3dG,  n15, e3sS,  e3tS,  e3cD,  e3st)
-[f4L, st4L]  = f_engine(use4,  n90 and m5satL,   n60,  m4satL,  m4macdL,  m4donL,  m4emaL,  c4G,  e4dR,  n20, e4sL,  e4tL,  e4cU,  e4st)
-[f4S, st4S]  = f_engine(use4,  n90 and m5satS,   n60,  m4satS,  m4macdS,  m4donS,  m4emaS,  c4R,  e4dG,  n20, e4sS,  e4tS,  e4cD,  e4st)
-[f5L, st5L]  = f_engine(use5,  n120 and m6satL,  n90,  m5satL,  m5macdL,  m5donL,  m5emaL,  c5G,  e5dR,  n30, e5sL,  e5tL,  e5cU,  e5st)
-[f5S, st5S]  = f_engine(use5,  n120 and m6satS,  n90,  m5satS,  m5macdS,  m5donS,  m5emaS,  c5R,  e5dG,  n30, e5sS,  e5tS,  e5cD,  e5st)
-[f6L, st6L]  = f_engine(use6,  n150 and m7satL,  n120, m6satL,  m6macdL,  m6donL,  m6emaL,  c6G,  e6dR,  n40, e6sL,  e6tL,  e6cU,  e6st)
-[f6S, st6S]  = f_engine(use6,  n150 and m7satS,  n120, m6satS,  m6macdS,  m6donS,  m6emaS,  c6R,  e6dG,  n40, e6sS,  e6tS,  e6cD,  e6st)
-[f7L, st7L]  = f_engine(use7,  n180 and m8satL,  n150, m7satL,  m7macdL,  m7donL,  m7emaL,  c7G,  e7dR,  n50, e7sL,  e7tL,  e7cU,  e7st)
-[f7S, st7S]  = f_engine(use7,  n180 and m8satS,  n150, m7satS,  m7macdS,  m7donS,  m7emaS,  c7R,  e7dG,  n50, e7sS,  e7tS,  e7cD,  e7st)
-[f8L, st8L]  = f_engine(use8,  n210 and m9satL,  n180, m8satL,  m8macdL,  m8donL,  m8emaL,  c8G,  e8dR,  n60, e8sL,  e8tL,  e8cU,  e8st)
-[f8S, st8S]  = f_engine(use8,  n210 and m9satS,  n180, m8satS,  m8macdS,  m8donS,  m8emaS,  c8R,  e8dG,  n60, e8sS,  e8tS,  e8cD,  e8st)
-[f9L, st9L]  = f_engine(use9,  n240 and m10satL, n210, m9satL,  m9macdL,  m9donL,  m9emaL,  c9G,  e9dR,  n70, e9sL,  e9tL,  e9cU,  e9st)
-[f9S, st9S]  = f_engine(use9,  n240 and m10satS, n210, m9satS,  m9macdS,  m9donS,  m9emaS,  c9R,  e9dG,  n70, e9sS,  e9tS,  e9cD,  e9st)
-[f10L, st10L] = f_engine(use10, n300 and sat300L, n240, m10satL, m10macdL, m10donL, m10emaL, c10G, e10dR, n80, e10sL, e10tL, e10cU, e10st)
-[f10S, st10S] = f_engine(use10, n300 and sat300S, n240, m10satS, m10macdS, m10donS, m10emaS, c10R, e10dG, n80, e10sS, e10tS, e10cD, e10st)
+[f1L, st1L]  = f_engine(use1,  n30 and m2satL,   n15,  m1satL,  m1macdL,  m1donL,  m1emaL,  c1G,  e1dR,  n5,  e1sL,  e1tL,  e1cU,  e1stB)
+[f1S, st1S]  = f_engine(use1,  n30 and m2satS,   n15,  m1satS,  m1macdS,  m1donS,  m1emaS,  c1R,  e1dG,  n5,  e1sS,  e1tS,  e1cD,  e1stS)
+[f2L, st2L]  = f_engine(use2,  n45 and m3satL,   n30,  m2satL,  m2macdL,  m2donL,  m2emaL,  c2G,  e2dR,  n10, e2sL,  e2tL,  e2cU,  e2stB)
+[f2S, st2S]  = f_engine(use2,  n45 and m3satS,   n30,  m2satS,  m2macdS,  m2donS,  m2emaS,  c2R,  e2dG,  n10, e2sS,  e2tS,  e2cD,  e2stS)
+[f3L, st3L]  = f_engine(use3,  n60 and m4satL,   n45,  m3satL,  m3macdL,  m3donL,  m3emaL,  c3G,  e3dR,  n15, e3sL,  e3tL,  e3cU,  e3stB)
+[f3S, st3S]  = f_engine(use3,  n60 and m4satS,   n45,  m3satS,  m3macdS,  m3donS,  m3emaS,  c3R,  e3dG,  n15, e3sS,  e3tS,  e3cD,  e3stS)
+[f4L, st4L]  = f_engine(use4,  n90 and m5satL,   n60,  m4satL,  m4macdL,  m4donL,  m4emaL,  c4G,  e4dR,  n20, e4sL,  e4tL,  e4cU,  e4stB)
+[f4S, st4S]  = f_engine(use4,  n90 and m5satS,   n60,  m4satS,  m4macdS,  m4donS,  m4emaS,  c4R,  e4dG,  n20, e4sS,  e4tS,  e4cD,  e4stS)
+[f5L, st5L]  = f_engine(use5,  n120 and m6satL,  n90,  m5satL,  m5macdL,  m5donL,  m5emaL,  c5G,  e5dR,  n30, e5sL,  e5tL,  e5cU,  e5stB)
+[f5S, st5S]  = f_engine(use5,  n120 and m6satS,  n90,  m5satS,  m5macdS,  m5donS,  m5emaS,  c5R,  e5dG,  n30, e5sS,  e5tS,  e5cD,  e5stS)
+[f6L, st6L]  = f_engine(use6,  n150 and m7satL,  n120, m6satL,  m6macdL,  m6donL,  m6emaL,  c6G,  e6dR,  n40, e6sL,  e6tL,  e6cU,  e6stB)
+[f6S, st6S]  = f_engine(use6,  n150 and m7satS,  n120, m6satS,  m6macdS,  m6donS,  m6emaS,  c6R,  e6dG,  n40, e6sS,  e6tS,  e6cD,  e6stS)
+[f7L, st7L]  = f_engine(use7,  n180 and m8satL,  n150, m7satL,  m7macdL,  m7donL,  m7emaL,  c7G,  e7dR,  n50, e7sL,  e7tL,  e7cU,  e7stB)
+[f7S, st7S]  = f_engine(use7,  n180 and m8satS,  n150, m7satS,  m7macdS,  m7donS,  m7emaS,  c7R,  e7dG,  n50, e7sS,  e7tS,  e7cD,  e7stS)
+[f8L, st8L]  = f_engine(use8,  n210 and m9satL,  n180, m8satL,  m8macdL,  m8donL,  m8emaL,  c8G,  e8dR,  n60, e8sL,  e8tL,  e8cU,  e8stB)
+[f8S, st8S]  = f_engine(use8,  n210 and m9satS,  n180, m8satS,  m8macdS,  m8donS,  m8emaS,  c8R,  e8dG,  n60, e8sS,  e8tS,  e8cD,  e8stS)
+[f9L, st9L]  = f_engine(use9,  n240 and m10satL, n210, m9satL,  m9macdL,  m9donL,  m9emaL,  c9G,  e9dR,  n70, e9sL,  e9tL,  e9cU,  e9stB)
+[f9S, st9S]  = f_engine(use9,  n240 and m10satS, n210, m9satS,  m9macdS,  m9donS,  m9emaS,  c9R,  e9dG,  n70, e9sS,  e9tS,  e9cD,  e9stS)
+[f10L, st10L] = f_engine(use10, n300 and sat300L, n240, m10satL, m10macdL, m10donL, m10emaL, c10G, e10dR, n80, e10sL, e10tL, e10cU, e10stB)
+[f10S, st10S] = f_engine(use10, n300 and sat300S, n240, m10satS, m10macdS, m10donS, m10emaS, c10R, e10dG, n80, e10sS, e10tS, e10cD, e10stS)
 
 // ============================ الدخول والإعلان ============================
 buyHit  = useLong and (f1L or f2L or f3L or f4L or f5L or f6L or f7L or f8L or f9L or f10L)
