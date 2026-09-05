@@ -4,11 +4,11 @@ Matches the user script defaults:
   all 13 cascade triples (main ×3 confirm, main ÷3 entry)
   SMI = Stoch_MTM (single EMA D=3, then SMA 5; not double EMA)
   After step 1 (only while waiting for step 2), lookahead main SMI
-  leaving saturation (−40 / +40) kills the path. Close at ±40 is still OK.
-  After step 3 (only while waiting for step 4), lookahead main Donchian
-  leaving green (buy) / red (sell) kills the path. Later steps do not
-  re-check it — same scope mistake as the old SMI ``>= 1`` persist.
-  Persist runs only if the next step is not already true on that bar.
+  leaving saturation (−40 / +40) kills the path unless MACD is already
+  true on that bar. Close at ±40 is still OK.
+  Donchian is LonesomeTheBlue Trend Ribbon: maintrend = dchannel(20).
+  After step 3 that maintrend must stay green (buy) / red (sell) through
+  entry. The 10 plot columns only change opacity, not hue.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -29,6 +29,7 @@ import pandas as pd
 
 from cascade_steps import TRIPLING_PAIRS
 from indicators import (
+    DONCHIAN_DLEN,
     _calc_macd_full,
     calc_donchian_trend_series,
     calc_ema,
@@ -181,11 +182,12 @@ def _indicator_frame(raw_1m, minutes):
     close = bars["close"]
     macd, _signal, hist = _calc_macd_full(close)
     smi, _ = calc_smi_stoch_mtm(bars["high"], bars["low"], close)
+    # LonesomeTheBlue Donchian Trend Ribbon: maintrend = dchannel(dlen=20)
     trend = calc_donchian_trend_series(
         close.to_numpy(),
         bars["high"].to_numpy(),
         bars["low"].to_numpy(),
-        20,
+        DONCHIAN_DLEN,
     )
     trend.index = bars.index
     rsi = calc_rsi_tv(close, 14)
@@ -377,9 +379,14 @@ def replay_signals(
                 short_c8 = True
                 short_rsi_cross_bar = i
 
-        # Next-step first. Persist only if still waiting — otherwise a
-        # lookahead HTF bar that both leaves the zone and completes the
-        # next condition is killed before it can advance.
+        # Main ribbon must stay its step-3 color through entry.
+        if long_step >= 3 and np.isfinite(trend_now) and trend_now != 1:
+            _reset_long()
+        if short_step >= 3 and np.isfinite(trend_now) and trend_now != -1:
+            _reset_short()
+
+        # SMI persist only while waiting for MACD. Take step 2 first if
+        # both fire on the same lookahead bar.
         if long_step == 0 and bool(c1_buy[i]):
             long_step = 1
         elif long_step == 1 and bool(c2_buy[i]):
@@ -390,8 +397,6 @@ def replay_signals(
             long_step = 3
         elif long_step == 3 and bool(c4_buy[i]):
             long_step = 4
-        elif long_step == 3 and np.isfinite(trend_now) and trend_now != 1:
-            _reset_long()
         elif long_step == 4 and bool(c5_buy[i]):
             long_step = 5
         elif long_step == 5 and bool(c6_buy[i]):
@@ -412,8 +417,6 @@ def replay_signals(
             short_step = 3
         elif short_step == 3 and bool(c4_sell[i]):
             short_step = 4
-        elif short_step == 3 and np.isfinite(trend_now) and trend_now != -1:
-            _reset_short()
         elif short_step == 4 and bool(c5_sell[i]):
             short_step = 5
         elif short_step == 5 and bool(c6_sell[i]):

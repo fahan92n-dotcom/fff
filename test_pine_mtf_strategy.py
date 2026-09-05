@@ -342,45 +342,7 @@ class TestReplaySequence(unittest.TestCase):
         trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
         self.assertEqual(trades, [])
 
-    def test_buy_takes_step4_when_donchian_flips_on_same_bar(self):
-        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        rows = pine.WARMUP_BARS + 10
-        chart = _blank_chart(rows, start)
-        i0 = pine.WARMUP_BARS
-        chart.loc[i0 - 1, "smi_main"] = -39.0
-        chart.loc[i0:, "smi_main"] = -41.0
-        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
-        chart.loc[i0 + 2, "trend_main"] = 1.0
-        chart.loc[i0 + 3 :, "trend_main"] = -1.0  # flip on the EMA-cross bar
-        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
-        chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
-        chart.loc[i0 + 5, "trend"] = -1.0
-        chart.loc[i0 + 5, "smi"] = -39.0
-        chart.loc[i0 + 6, "smi"] = -41.0
-        chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
-        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
-        chart.loc[i0 + 7, "stoch_k"] = 15.0
-        chart.loc[i0 + 8, "stoch_k"] = 25.0
-        chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
-        chart.loc[i0 + 8, "close"] = 100.0
-        chart.loc[i0 + 9, "open"] = 100.1
-        fill_ts = chart.loc[i0 + 9, "ts"]
-        raw_1m = pd.DataFrame(
-            [
-                {
-                    "ts": fill_ts,
-                    "open": 100.1,
-                    "high": 101.5,
-                    "low": 99.8,
-                    "close": 101.0,
-                    "vol": 1.0,
-                }
-            ]
-        )
-        trades = pine.replay_signals(chart, raw_1m)
-        self.assertEqual(len(trades), 1)
-
-    def test_buy_survives_donchian_flip_after_step4(self):
+    def test_buy_dies_when_main_donchian_leaves_green_after_step4(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         rows = pine.WARMUP_BARS + 10
         chart = _blank_chart(rows, start)
@@ -390,7 +352,7 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
         chart.loc[i0 + 2 : i0 + 3, "trend_main"] = 1.0
         chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]  # c4 → step 4
-        chart.loc[i0 + 4 :, "trend_main"] = -1.0  # flip after leaving step 3
+        chart.loc[i0 + 4 :, "trend_main"] = -1.0  # main ribbon red before entry
         chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
         chart.loc[i0 + 5, "trend"] = -1.0
         chart.loc[i0 + 5, "smi"] = -39.0
@@ -402,22 +364,10 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
         chart.loc[i0 + 8, "close"] = 100.0
         chart.loc[i0 + 9, "open"] = 100.1
-        fill_ts = chart.loc[i0 + 9, "ts"]
-        raw_1m = pd.DataFrame(
-            [
-                {
-                    "ts": fill_ts,
-                    "open": 100.1,
-                    "high": 101.5,
-                    "low": 99.8,
-                    "close": 101.0,
-                    "vol": 1.0,
-                }
-            ]
+        trades = pine.replay_signals(
+            chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"])
         )
-        trades = pine.replay_signals(chart, raw_1m)
-        self.assertEqual(len(trades), 1)
-        self.assertEqual(trades[0]["type"], "buy")
+        self.assertEqual(trades, [])
 
 
 class TestHtfMapping(unittest.TestCase):
@@ -474,6 +424,12 @@ class TestHtfMapping(unittest.TestCase):
             chart, htf, ["smi"], chart_minutes=5, htf_minutes=15
         )
         self.assertEqual(list(mapped["smi"]), [-10.0, -10.0, -50.0, -50.0])
+
+
+class TestDonchianSettings(unittest.TestCase):
+    def test_uses_lonesome_dchannel_period_20(self):
+        self.assertEqual(pine.DONCHIAN_DLEN, 20)
+        self.assertEqual(ind.DONCHIAN_DLEN, 20)
 
 
 class TestThirteenTriples(unittest.TestCase):
