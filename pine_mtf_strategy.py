@@ -8,9 +8,9 @@ Matches the user script defaults:
   true on that bar. Close at ±40 is still OK.
   Donchian is LonesomeTheBlue Trend Ribbon: maintrend = dchannel(20).
   After step 3 the ribbon must stay green (buy) or red (sell) on every
-  bar before entry and on the entry bar, using the *forming* main bar
-  (close vs hh[1]/ll[1] at that chart close — not the future HTF close
-  leaked onto earlier bars). After the fill the color is ignored.
+  bar before entry and on the entry bar. Persist cancels only when a
+  main bar *closes* the wrong color; the entry bar uses the forming
+  ribbon (close vs hh[1]/ll[1]). After the fill the color is ignored.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -217,11 +217,12 @@ def _map_htf(chart, htf, columns):
     Bars are left-labeled (open time), so ``merge_asof(backward)`` is the
     containing period — the same leak as ``request.security(..., lookahead_on)``.
     """
-    src = htf[["ts", *columns]].sort_values("ts")
+    src = htf[["ts", *columns]].rename(columns={"ts": "htf_ts"}).sort_values("htf_ts")
     mapped = pd.merge_asof(
         chart[["ts"]].sort_values("ts"),
         src,
-        on="ts",
+        left_on="ts",
+        right_on="htf_ts",
         direction="backward",
     )
     return mapped
@@ -300,6 +301,7 @@ def build_chart(
         main_map["don_ll"],
         main_map["trend_prev"],
     )
+    out["main_open_ts"] = main_map["htf_ts"].to_numpy()
     out["ema50_main"] = main_map["ema50"].to_numpy()
     out["close_main"] = main_map["close"].to_numpy()
     out["rsi_main"] = main_map["rsi"].to_numpy()
@@ -377,6 +379,12 @@ def replay_signals(
     close_values = chart["close"].to_numpy(dtype=float)
     rsi_confirm = chart["rsi_confirm"].to_numpy(dtype=float)
     rsi_main = chart["rsi_main"].to_numpy(dtype=float)
+    if "main_open_ts" in chart.columns:
+        main_closes = candle_period_ends(chart["main_open_ts"], main_tf)
+        chart_closes = candle_period_ends(chart["ts"], entry_tf)
+        main_just_closed = (main_closes == chart_closes).to_numpy()
+    else:
+        main_just_closed = np.ones(n, dtype=bool)
 
     def _reset_long():
         nonlocal long_step, long_rsi_touched, long_rsi_cross_bar
@@ -408,11 +416,21 @@ def replay_signals(
                 short_c8 = True
                 short_rsi_cross_bar = i
 
-        # Buy: green before entry and at entry. Sell: red before and at.
-        # After fill the ribbon color is not checked.
-        if long_step >= 3 and np.isfinite(trend_now) and trend_now != 1:
+        # Cancel only when a main bar *closes* the wrong color. Intra-HTF
+        # noise must not kill the path; the entry bar still requires live color.
+        if (
+            long_step >= 3
+            and main_just_closed[i]
+            and np.isfinite(trend_now)
+            and trend_now != 1
+        ):
             _reset_long()
-        if short_step >= 3 and np.isfinite(trend_now) and trend_now != -1:
+        if (
+            short_step >= 3
+            and main_just_closed[i]
+            and np.isfinite(trend_now)
+            and trend_now != -1
+        ):
             _reset_short()
 
         # SMI persist only while waiting for MACD. Take step 2 first if
