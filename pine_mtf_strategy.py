@@ -74,6 +74,15 @@ OHLCV_1M_BARS = 45_000
 TRIPLE_WARMUP_BARS = 250
 
 PINE_TRIPLES = tuple((main, confirm, entry) for main, confirm, entry, *_ in TRIPLING_PAIRS)
+ALT_SYMBOLS = (
+    "XRPUSDT",
+    "SOLUSDT",
+    "ETHUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "SUIUSDT",
+    "HBARUSDT",
+)
 
 
 def _utc(ts):
@@ -332,6 +341,7 @@ def replay_signals(
     confirm_tf=CONFIRM_TF,
     entry_tf=ENTRY_TF,
     warmup_bars=None,
+    donchian_hold="through",
 ):
     """Walk chart bars with the Pine sequential state machine."""
     if chart is None or chart.empty:
@@ -416,22 +426,23 @@ def replay_signals(
                 short_c8 = True
                 short_rsi_cross_bar = i
 
-        # Cancel only when a main bar *closes* the wrong color. Intra-HTF
-        # noise must not kill the path; the entry bar still requires live color.
-        if (
-            long_step >= 3
-            and main_just_closed[i]
-            and np.isfinite(trend_now)
-            and trend_now != 1
-        ):
-            _reset_long()
-        if (
-            short_step >= 3
-            and main_just_closed[i]
-            and np.isfinite(trend_now)
-            and trend_now != -1
-        ):
-            _reset_short()
+        # through: stay the step-3 color until a main bar closes wrong.
+        # at_entry: only the signal bar must be green (buy) / red (sell).
+        if donchian_hold == "through":
+            if (
+                long_step >= 3
+                and main_just_closed[i]
+                and np.isfinite(trend_now)
+                and trend_now != 1
+            ):
+                _reset_long()
+            if (
+                short_step >= 3
+                and main_just_closed[i]
+                and np.isfinite(trend_now)
+                and trend_now != -1
+            ):
+                _reset_short()
 
         # SMI persist only while waiting for MACD. Take step 2 first if
         # both fire on the same lookahead bar.
@@ -538,6 +549,7 @@ def replay_signals(
                 "main_tf": main_tf,
                 "confirm_tf": confirm_tf,
                 "entry_tf": entry_tf,
+                "symbol": chart.attrs.get("symbol") if hasattr(chart, "attrs") else None,
             }
         )
         if signal_type == "buy":
@@ -587,7 +599,17 @@ def summarize(trades):
     }
 
 
-def scan_triple(raw_1m, main_tf, confirm_tf, entry_tf, start, end, frame_cache=None):
+def scan_triple(
+    raw_1m,
+    main_tf,
+    confirm_tf,
+    entry_tf,
+    start,
+    end,
+    frame_cache=None,
+    donchian_hold="through",
+    symbol=None,
+):
     chart = build_chart(
         raw_1m,
         chart_minutes=entry_tf,
@@ -604,7 +626,11 @@ def scan_triple(raw_1m, main_tf, confirm_tf, entry_tf, start, end, frame_cache=N
         confirm_tf=confirm_tf,
         entry_tf=entry_tf,
         warmup_bars=TRIPLE_WARMUP_BARS,
+        donchian_hold=donchian_hold,
     )
+    if symbol:
+        for trade in signals:
+            trade["symbol"] = symbol
     week = filter_week(signals, start, end)
     return summarize(week), len(signals)
 
@@ -613,22 +639,37 @@ def _ohlcv_target(days):
     return max(OHLCV_1M_BARS, int(days) * 1440 + WARMUP_1M_BARS)
 
 
-def scan_week(raw_1m=None, now=None, days=WEEK_DAYS, triples=None):
+def scan_week(
+    raw_1m=None,
+    now=None,
+    days=WEEK_DAYS,
+    triples=None,
+    symbol=SYMBOL,
+    donchian_hold="through",
+):
     if raw_1m is None:
         target = _ohlcv_target(days)
-        log.info("Fetching BTCUSDT 1m from Binance Vision (%s bars)...", target)
-        raw_1m = fetch_btc_1m_vision(target=target)
+        log.info("Fetching %s 1m from Binance Vision (%s bars)...", symbol, target)
+        raw_1m = fetch_btc_1m_vision(target=target, symbol=symbol)
     if raw_1m is None or raw_1m.empty:
-        raise RuntimeError("No OHLCV from Binance Vision")
+        raise RuntimeError(f"No OHLCV from Binance Vision for {symbol}")
     start, end = period_bounds(now=now, days=days)
     wanted = list(PINE_TRIPLES if triples is None else triples)
     frame_cache = {}
     by_triple = []
     all_trades = []
     for main_tf, confirm_tf, entry_tf in wanted:
-        log.info("Scanning %sm / %sm / %sm ...", main_tf, confirm_tf, entry_tf)
+        log.info("Scanning %s %sm / %sm / %sm ...", symbol, main_tf, confirm_tf, entry_tf)
         summary, all_count = scan_triple(
-            raw_1m, main_tf, confirm_tf, entry_tf, start, end, frame_cache
+            raw_1m,
+            main_tf,
+            confirm_tf,
+            entry_tf,
+            start,
+            end,
+            frame_cache,
+            donchian_hold=donchian_hold,
+            symbol=symbol,
         )
         by_triple.append(
             {
@@ -643,7 +684,8 @@ def scan_week(raw_1m=None, now=None, days=WEEK_DAYS, triples=None):
     result = summarize(all_trades)
     result["start"] = start
     result["end"] = end
-    result["symbol"] = SYMBOL
+    result["symbol"] = symbol
+    result["donchian_hold"] = donchian_hold
     result["bars_1m"] = len(raw_1m)
     result["by_triple"] = by_triple
     result["all_signals"] = sum(item["all_signals"] for item in by_triple)
@@ -657,7 +699,8 @@ def format_report(result):
     losses = result["losses"]
     opens = result["opens"]
     lines = [
-        f"BTCUSDT | 13 ثلاثي | SMI Stoch_MTM (EMA مرة + SMA 5)",
+        f"{result.get('symbol', SYMBOL)} | 13 ثلاثي | SMI Stoch_MTM | "
+        f"دونشيان {'عند الدخول' if result.get('donchian_hold') == 'at_entry' else 'حتى الدخول'}",
         f"الفترة: {start} → {end} UTC ({(result['end'] - result['start']).days} يوم)",
         f"إجمالي الصفقات: {len(result['trades'])}",
         f"ناجحة: {len(wins)}",
@@ -694,15 +737,70 @@ def format_report(result):
             f"{trade.get('confirm_tf', CONFIRM_TF)}/"
             f"{trade.get('entry_tf', ENTRY_TF)}"
         )
+        coin = trade.get("symbol") or result.get("symbol") or ""
+        prefix = f"{coin} | " if coin else ""
         lines.append(
-            f"{when} UTC | {frames} | {side} @ {trade['price']:.2f} | {mark} | "
+            f"{prefix}{when} UTC | {frames} | {side} @ {trade['price']:.6g} | {mark} | "
             f"RSI تأكيد {trade['rsi_confirm']:.2f} / رئيسي {trade['rsi_main']:.2f}"
         )
     return "\n".join(lines)
 
 
-def main(days=WEEK_DAYS):
+def scan_alts(days=MONTH_DAYS, symbols=None, donchian_hold="at_entry"):
+    wanted = list(ALT_SYMBOLS if symbols is None else symbols)
+    start, end = period_bounds(days=days)
+    by_symbol = []
+    all_trades = []
+    for symbol in wanted:
+        try:
+            result = scan_week(
+                days=days, symbol=symbol, donchian_hold=donchian_hold
+            )
+        except RuntimeError as exc:
+            log.warning("%s", exc)
+            result = summarize([])
+            result["start"] = start
+            result["end"] = end
+            result["symbol"] = symbol
+            result["donchian_hold"] = donchian_hold
+            result["by_triple"] = []
+            result["bars_1m"] = 0
+            result["all_signals"] = 0
+        by_symbol.append(result)
+        all_trades.extend(result["trades"])
+    combined = summarize(all_trades)
+    combined["start"] = start
+    combined["end"] = end
+    combined["symbol"] = ",".join(wanted)
+    combined["donchian_hold"] = donchian_hold
+    combined["by_symbol"] = by_symbol
+    return combined
+
+
+def format_alts_report(combined):
+    lines = [
+        format_report(combined),
+        "",
+        "حسب العملة:",
+    ]
+    for item in combined.get("by_symbol") or []:
+        lines.append(
+            f"{item.get('symbol')} | "
+            f"صفقات {len(item['trades'])} | "
+            f"ناجحة {len(item['wins'])} | "
+            f"فاشلة {len(item['losses'])} | "
+            f"مفتوحة {len(item['opens'])} | "
+            f"صافي {item['net_pct']:+.2f}%"
+        )
+    return "\n".join(lines)
+
+
+def main(days=WEEK_DAYS, alts=False):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if alts:
+        result = scan_alts(days=days, donchian_hold="at_entry")
+        print(format_alts_report(result))
+        return result
     result = scan_week(days=days)
     print(format_report(result))
     return result
@@ -711,5 +809,15 @@ def main(days=WEEK_DAYS):
 if __name__ == "__main__":
     import sys
 
-    days = int(sys.argv[1]) if len(sys.argv) > 1 else WEEK_DAYS
-    main(days=days)
+    days = WEEK_DAYS
+    alts = False
+    if len(sys.argv) > 1:
+        if sys.argv[1] in {"alts", "alt"}:
+            alts = True
+            days = MONTH_DAYS
+            if len(sys.argv) > 2:
+                days = int(sys.argv[2])
+        else:
+            days = int(sys.argv[1])
+            alts = len(sys.argv) > 2 and sys.argv[2] in {"alts", "alt"}
+    main(days=days, alts=alts)

@@ -474,6 +474,22 @@ class TestDonchianSettings(unittest.TestCase):
         self.assertEqual(ind.DONCHIAN_DLEN, 20)
 
 
+class TestAltSymbols(unittest.TestCase):
+    def test_lists_requested_alts(self):
+        self.assertEqual(
+            pine.ALT_SYMBOLS,
+            (
+                "XRPUSDT",
+                "SOLUSDT",
+                "ETHUSDT",
+                "DOGEUSDT",
+                "ADAUSDT",
+                "SUIUSDT",
+                "HBARUSDT",
+            ),
+        )
+
+
 class TestThirteenTriples(unittest.TestCase):
     def test_uses_all_cascade_triples(self):
         self.assertEqual(len(pine.PINE_TRIPLES), 13)
