@@ -12,6 +12,8 @@ Matches the user script defaults:
   After the fill the color is ignored.
   Confirm-TF Awesome Oscillator (SMA 5 − SMA 34 of median price):
   AO must be strictly above 0 for a buy and strictly below 0 for a sell.
+  Confirm-TF Braid Filter (EMA 3/7/14, ATR(14)*40%): green for a buy,
+  red for a sell. Gray (dif ≤ filter or MAs tied) is rejected.
   Main MACD step 2: line stays above a red histogram (buy) or below a
   green histogram (sell), with no other hist bound. The line must also
   be inside 20% of its lookback extreme: last 24h on main TFs ≤ 60m,
@@ -46,6 +48,7 @@ from indicators import (
     candle_period_ends,
     ema_tv,
     resample_ohlcv,
+    rma_tv,
 )
 from pullback_bot.strategy import SYMBOL, fetch_btc_1m_vision
 
@@ -85,6 +88,11 @@ MACD_PULLBACK_PCT = 0.20
 MACD_FAST_LOOKBACK_HOURS = 24
 MACD_SLOW_LOOKBACK_HOURS = 72
 MACD_FAST_TF_MAX = 60
+BRAID_P1 = 3
+BRAID_P2 = 7
+BRAID_P3 = 14
+BRAID_ATR_LEN = 14
+BRAID_SEP_PCT = 40
 
 PINE_TRIPLES = tuple((main, confirm, entry) for main, confirm, entry, *_ in TRIPLING_PAIRS)
 ALT_SYMBOLS = (
@@ -183,6 +191,53 @@ def ao_buy_gate(ao):
 
 def ao_sell_gate(ao):
     return bool(np.isfinite(ao) and ao < 0)
+
+
+def calc_atr_tv(high, low, close, length=BRAID_ATR_LEN):
+    """Pine v4 ``atr``: RMA of true range."""
+    high = pd.to_numeric(high, errors="coerce")
+    low = pd.to_numeric(low, errors="coerce")
+    close = pd.to_numeric(close, errors="coerce")
+    prev = close.shift(1)
+    tr = pd.concat(
+        [high - low, (high - prev).abs(), (low - prev).abs()],
+        axis=1,
+    ).max(axis=1)
+    return rma_tv(tr, int(length))
+
+
+def calc_braid_filter(
+    open_,
+    high,
+    low,
+    close,
+    p1=BRAID_P1,
+    p2=BRAID_P2,
+    p3=BRAID_P3,
+    atr_len=BRAID_ATR_LEN,
+    sep_pct=BRAID_SEP_PCT,
+):
+    """Robert Hill Braid Filter with the script defaults (EMA 3/7/14)."""
+    ma01 = ema_tv(close, int(p1))
+    ma02 = ema_tv(open_, int(p2))
+    ma03 = ema_tv(close, int(p3))
+    stacked = pd.concat([ma01, ma02, ma03], axis=1)
+    dif = stacked.max(axis=1) - stacked.min(axis=1)
+    filt = calc_atr_tv(high, low, close, atr_len) * (float(sep_pct) / 100.0)
+    green = (ma01 > ma02) & (dif > filt)
+    red = (ma02 > ma01) & (dif > filt)
+    color = np.where(green, 1.0, np.where(red, -1.0, 0.0))
+    valid = np.isfinite(dif.to_numpy()) & np.isfinite(filt.to_numpy())
+    color = np.where(valid, color, np.nan)
+    return pd.Series(color, index=close.index), dif, filt
+
+
+def braid_buy_gate(color):
+    return bool(np.isfinite(color) and color == 1)
+
+
+def braid_sell_gate(color):
+    return bool(np.isfinite(color) and color == -1)
 
 
 def macd_lookback_hours(main_tf):
@@ -380,9 +435,15 @@ def build_chart(
     confirm = _cached_frame(raw_1m, confirm_tf, cache)
     if chart.empty or main.empty or confirm.empty:
         return pd.DataFrame()
-    if "ao" not in confirm.columns:
+    if "ao" not in confirm.columns or "braid" not in confirm.columns:
         confirm = confirm.copy()
-        confirm["ao"] = calc_awesome_oscillator(confirm["high"], confirm["low"])
+        if "ao" not in confirm.columns:
+            confirm["ao"] = calc_awesome_oscillator(confirm["high"], confirm["low"])
+        if "braid" not in confirm.columns:
+            braid, _, _ = calc_braid_filter(
+                confirm["open"], confirm["high"], confirm["low"], confirm["close"]
+            )
+            confirm["braid"] = braid
         cache[confirm_tf] = confirm
     if "macd_peak" not in main.columns:
         main = main.copy()
@@ -411,7 +472,7 @@ def build_chart(
             "macd_trough",
         ],
     )
-    confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi", "ao"])
+    confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi", "ao", "braid"])
     out = chart.copy()
     out["smi_main"] = main_map["smi"].to_numpy()
     out["macd_main"] = main_map["macd"].to_numpy()
@@ -432,6 +493,7 @@ def build_chart(
     out["hist_confirm"] = confirm_map["hist"].to_numpy()
     out["rsi_confirm"] = confirm_map["rsi"].to_numpy()
     out["ao_confirm"] = confirm_map["ao"].to_numpy()
+    out["braid_confirm"] = confirm_map["braid"].to_numpy()
     return out
 
 
@@ -504,6 +566,7 @@ def replay_signals(
     rsi_confirm = chart["rsi_confirm"].to_numpy(dtype=float)
     rsi_main = chart["rsi_main"].to_numpy(dtype=float)
     ao_confirm = chart["ao_confirm"].to_numpy(dtype=float)
+    braid_confirm = chart["braid_confirm"].to_numpy(dtype=float)
     macd_main = chart["macd_main"].to_numpy(dtype=float)
     macd_peak = chart["macd_peak_main"].to_numpy(dtype=float)
     macd_trough = chart["macd_trough_main"].to_numpy(dtype=float)
@@ -617,6 +680,7 @@ def replay_signals(
                 and bars_since <= MAX_BARS_GAP
                 and buy_rsi_gate(rsi_confirm[i], rsi_main[i])
                 and ao_buy_gate(ao_confirm[i])
+                and braid_buy_gate(braid_confirm[i])
                 and macd_buy_pullback(macd_main[i], macd_peak[i])
                 and np.isfinite(trend_now)
                 and trend_now == 1
@@ -632,6 +696,7 @@ def replay_signals(
                 and bars_since <= MAX_BARS_GAP
                 and sell_rsi_gate(rsi_confirm[i], rsi_main[i])
                 and ao_sell_gate(ao_confirm[i])
+                and braid_sell_gate(braid_confirm[i])
                 and macd_sell_pullback(macd_main[i], macd_trough[i])
                 and np.isfinite(trend_now)
                 and trend_now == -1
@@ -673,6 +738,7 @@ def replay_signals(
                 "rsi_confirm": float(rsi_confirm[i]),
                 "rsi_main": float(rsi_main[i]),
                 "ao_confirm": float(ao_confirm[i]),
+                "braid_confirm": float(braid_confirm[i]),
                 "macd_main": float(macd_main[i]),
                 "macd_peak_main": float(macd_peak[i]),
                 "macd_trough_main": float(macd_trough[i]),
@@ -828,7 +894,7 @@ def format_report(result):
     lines = [
         f"{result.get('symbol', SYMBOL)} | 13 ثلاثي | SMI Stoch_MTM | "
         f"دونشيان {'حتى الدخول' if result.get('donchian_hold') == 'through' else 'عند الدخول'} | "
-        f"AO{AO_FAST}/{AO_SLOW} تأكيد | "
+        f"AO{AO_FAST}/{AO_SLOW} تأكيد | Braid تأكيد | "
         f"MACD{int(MACD_PULLBACK_PCT * 100)}% | "
         f"TP {TP_PCT:.2f}% / SL {SL_PCT:.2f}%",
         f"الفترة: {start} → {end} UTC ({(result['end'] - result['start']).days} يوم)",

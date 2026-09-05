@@ -76,10 +76,40 @@ class TestAwesomeOscillator(unittest.TestCase):
         chart_src = inspect.getsource(pine.build_chart)
         replay_src = inspect.getsource(pine.replay_signals)
         frame_src = inspect.getsource(pine._indicator_frame)
-        self.assertIn('confirm, ["macd", "hist", "rsi", "ao"]', chart_src)
+        self.assertIn('confirm, ["macd", "hist", "rsi", "ao", "braid"]', chart_src)
         self.assertNotIn("ao_main", chart_src)
         self.assertNotIn("ao_main", replay_src)
         self.assertNotIn("bars[\"ao\"]", frame_src)
+
+
+class TestBraidFilter(unittest.TestCase):
+    def test_uses_ema_3_7_14_and_atr_filter(self):
+        self.assertEqual(pine.BRAID_P1, 3)
+        self.assertEqual(pine.BRAID_P2, 7)
+        self.assertEqual(pine.BRAID_P3, 14)
+        self.assertEqual(pine.BRAID_SEP_PCT, 40)
+        close = pd.Series([100.0 + i * 0.4 for i in range(40)], dtype=float)
+        open_ = close - 0.2
+        high = close + 0.5
+        low = close - 0.5
+        color, dif, filt = pine.calc_braid_filter(open_, high, low, close)
+        ma01 = pine.ema_tv(close, 3)
+        ma02 = pine.ema_tv(open_, 7)
+        ma03 = pine.ema_tv(close, 14)
+        stacked = pd.concat([ma01, ma02, ma03], axis=1)
+        expected_dif = stacked.max(axis=1) - stacked.min(axis=1)
+        pd.testing.assert_series_equal(dif, expected_dif, check_names=False)
+        last = color.last_valid_index()
+        self.assertFalse(pd.isna(color.loc[last]))
+        self.assertIn(float(color.loc[last]), (1.0, -1.0, 0.0))
+
+    def test_buy_requires_green_sell_requires_red(self):
+        self.assertTrue(pine.braid_buy_gate(1.0))
+        self.assertFalse(pine.braid_buy_gate(0.0))
+        self.assertFalse(pine.braid_buy_gate(-1.0))
+        self.assertTrue(pine.braid_sell_gate(-1.0))
+        self.assertFalse(pine.braid_sell_gate(0.0))
+        self.assertFalse(pine.braid_sell_gate(1.0))
 
 
 class TestMacdPullback(unittest.TestCase):
@@ -221,6 +251,7 @@ def _blank_chart(rows, start):
             "hist_confirm": 0.0,
             "rsi_confirm": 55.0,
             "ao_confirm": 1.0,
+            "braid_confirm": 1.0,
             "macd_peak_main": 10.0,
             "macd_trough_main": -10.0,
         }
@@ -307,6 +338,45 @@ class TestReplaySequence(unittest.TestCase):
             chart.loc[i0 + 8, "stoch_k"] = 25.0
             chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
             chart.loc[i0 + 8, "ao_confirm"] = ao_value
+            chart.loc[i0 + 8, "close"] = 100.0
+            chart.loc[i0 + 9, "open"] = 100.1
+            fill_ts = chart.loc[i0 + 9, "ts"]
+            raw_1m = pd.DataFrame(
+                [
+                    {
+                        "ts": fill_ts,
+                        "open": 100.1,
+                        "high": 101.5,
+                        "low": 99.8,
+                        "close": 101.0,
+                        "vol": 1.0,
+                    }
+                ]
+            )
+            self.assertEqual(pine.replay_signals(chart, raw_1m), [])
+
+    def test_buy_rejected_when_confirm_braid_is_not_green(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        for braid_value in (0.0, -1.0):
+            chart = _blank_chart(rows, start)
+            i0 = pine.WARMUP_BARS
+            chart.loc[i0 - 1, "smi_main"] = -39.0
+            chart.loc[i0:, "smi_main"] = -41.0
+            chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+            chart.loc[i0 + 2 :, "trend_main"] = 1.0
+            chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+            chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+            chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+            chart.loc[i0 + 5, "trend"] = -1.0
+            chart.loc[i0 + 5, "smi"] = -39.0
+            chart.loc[i0 + 6, "smi"] = -41.0
+            chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+            chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+            chart.loc[i0 + 7, "stoch_k"] = 15.0
+            chart.loc[i0 + 8, "stoch_k"] = 25.0
+            chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+            chart.loc[i0 + 8, "braid_confirm"] = braid_value
             chart.loc[i0 + 8, "close"] = 100.0
             chart.loc[i0 + 9, "open"] = 100.1
             fill_ts = chart.loc[i0 + 9, "ts"]
@@ -703,5 +773,6 @@ class TestThirteenTriples(unittest.TestCase):
         self.assertIn("13 ثلاثي", text)
         self.assertIn("عند الدخول", text)
         self.assertIn("AO5/34 تأكيد", text)
+        self.assertIn("Braid تأكيد", text)
         self.assertIn("MACD20%", text)
         self.assertIn("TP 1.00% / SL 0.75%", text)
