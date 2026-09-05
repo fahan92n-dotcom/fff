@@ -2,6 +2,7 @@
 
 Matches the user script defaults:
   main=15m, confirm=45m, entry=5m
+  SMI = Stoch_MTM (single EMA D=3, then SMA 5; not double EMA)
   lookahead=barmerge.lookahead_on (HTF values leak the completed HTF bar)
   TP 1.00% / SL 0.80% (short SL in the Pine uses tpPct, so +1.00%)
 
@@ -21,8 +22,8 @@ from indicators import (
     calc_donchian_trend_series,
     calc_ema,
     calc_rsi_tv,
-    calc_smi,
     calc_stoch_tv,
+    ema_tv,
     resample_ohlcv,
 )
 from pullback_bot.strategy import SYMBOL, fetch_btc_1m_vision
@@ -43,6 +44,10 @@ RSI_SELL_TOUCH = 65.0
 STOCH_LEVEL = 80.0
 RSI_MA_LEN = 14
 WEEK_DAYS = 7
+SMI_K = 10
+SMI_D = 3
+SMI_EMA_SIGNAL = 10
+SMI_SMOOTH = 5
 
 BUY_CONFIRM_RSI = (50.0, 60.0)
 BUY_MAIN_DIFF = (3.0, 10.0)
@@ -76,6 +81,37 @@ def _crossunder_series(left, right):
 
 def _crossover_series(left, right):
     return (left.shift(1) <= right.shift(1)) & (left > right)
+
+
+def calc_smi_stoch_mtm(
+    high,
+    low,
+    close,
+    k=SMI_K,
+    d=SMI_D,
+    ema_len=SMI_EMA_SIGNAL,
+    smooth_period=SMI_SMOOTH,
+):
+    """Surjith Stoch_MTM: one EMA on the range, then SMA, then signal EMA.
+
+    avgrel/avgdiff use a single ``ta.ema(..., D)``, not ``ta.ema(ta.ema(...))``.
+    The plotted black line is ``SMA(SMI, 5)``.
+    """
+    lowest = low.rolling(k, min_periods=k).min()
+    highest = high.rolling(k, min_periods=k).max()
+    diff = highest - lowest
+    rdiff = close - (highest + lowest) / 2
+    avgrel = ema_tv(rdiff, d)
+    avgdiff = ema_tv(diff, d)
+    smi = np.where(
+        (avgdiff != 0) & np.isfinite(avgdiff) & np.isfinite(avgrel),
+        (avgrel / (avgdiff / 2)) * 100,
+        0.0,
+    )
+    smi = pd.Series(smi, index=close.index)
+    smoothed = smi.rolling(smooth_period, min_periods=smooth_period).mean()
+    signal = ema_tv(smoothed, ema_len)
+    return smoothed, signal
 
 
 def buy_rsi_gate(rsi_confirm, rsi_main):
@@ -126,7 +162,7 @@ def _indicator_frame(raw_1m, minutes):
         return bars
     close = bars["close"]
     macd, _signal, hist = _calc_macd_full(close)
-    smi, _, _ = calc_smi(bars["high"], bars["low"], close)
+    smi, _ = calc_smi_stoch_mtm(bars["high"], bars["low"], close)
     trend = calc_donchian_trend_series(
         close.to_numpy(),
         bars["high"].to_numpy(),
@@ -433,7 +469,7 @@ def format_report(result):
     losses = result["losses"]
     opens = result["opens"]
     lines = [
-        f"BTCUSDT | 15m → 45m → 5m | آخر {WEEK_DAYS} أيام",
+        f"BTCUSDT | 15m → 45m → 5m | SMI Stoch_MTM (EMA مرة + SMA 5)",
         f"الفترة: {start} → {end} UTC",
         f"إجمالي الصفقات: {len(result['trades'])}",
         f"ناجحة: {len(wins)}",

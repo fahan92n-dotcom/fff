@@ -3,9 +3,27 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 
+import indicators as ind
 import pine_mtf_strategy as pine
+
+
+class TestStochMtmSmi(unittest.TestCase):
+    def test_uses_single_ema_then_sma5_not_double_ema(self):
+        close = pd.Series(100.0 + np.sin(np.linspace(0, 8 * np.pi, 80)) * 8.0)
+        high = close + 1.0
+        low = close - 1.0
+        smoothed, signal = pine.calc_smi_stoch_mtm(high, low, close)
+        double, _, _ = ind.calc_smi(high, low, close)
+        last = smoothed.last_valid_index()
+        self.assertFalse(pd.isna(smoothed.loc[last]))
+        self.assertFalse(pd.isna(signal.loc[last]))
+        self.assertGreater(
+            abs(float(smoothed.loc[last]) - float(double.loc[last])),
+            0.5,
+        )
 
 
 class TestRsiGates(unittest.TestCase):
