@@ -5,8 +5,9 @@ Matches the user script defaults:
   SMI = Stoch_MTM (single EMA D=3, then SMA 5; not double EMA)
   After step 1 (only while waiting for step 2), lookahead main SMI
   leaving saturation (−40 / +40) kills the path. Close at ±40 is still OK.
-  After step 3, lookahead main Donchian must stay green (buy) / red (sell)
-  through entry.
+  After step 3 (only while waiting for step 4), lookahead main Donchian
+  leaving green (buy) / red (sell) kills the path. Later steps do not
+  re-check it — same scope mistake as the old SMI ``>= 1`` persist.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -360,14 +361,15 @@ def replay_signals(
     for i in range(start_i, n):
         smi_now = smi_persist[i]
         trend_now = trend_persist[i]
-        # SMI persist is only the step-1 wait. Later steps do not re-check it.
+        # Persist only while waiting for the next step. Re-checking through
+        # entry is the same over-scope bug that zeroed SMI paths.
         if long_step == 1 and np.isfinite(smi_now) and smi_now > -SMI_THRESH:
             _reset_long()
-        if long_step >= 3 and np.isfinite(trend_now) and trend_now != 1:
+        if long_step == 3 and np.isfinite(trend_now) and trend_now != 1:
             _reset_long()
         if short_step == 1 and np.isfinite(smi_now) and smi_now < SMI_THRESH:
             _reset_short()
-        if short_step >= 3 and np.isfinite(trend_now) and trend_now != -1:
+        if short_step == 3 and np.isfinite(trend_now) and trend_now != -1:
             _reset_short()
 
         long_c8 = False
