@@ -249,7 +249,6 @@ def _indicator_frame(raw_1m, minutes):
     bars["rsi_ma"] = rsi.rolling(RSI_MA_LEN, min_periods=RSI_MA_LEN).mean()
     k_stoch, _ = calc_stoch_tv(close, bars["high"], bars["low"])
     bars["stoch_k"] = k_stoch
-    bars["ao"] = calc_awesome_oscillator(bars["high"], bars["low"])
     return bars
 
 
@@ -326,6 +325,10 @@ def build_chart(
     confirm = _cached_frame(raw_1m, confirm_tf, cache)
     if chart.empty or main.empty or confirm.empty:
         return pd.DataFrame()
+    if "ao" not in confirm.columns:
+        confirm = confirm.copy()
+        confirm["ao"] = calc_awesome_oscillator(confirm["high"], confirm["low"])
+        cache[confirm_tf] = confirm
 
     main_map = _map_htf(
         chart,

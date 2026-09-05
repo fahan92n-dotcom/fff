@@ -1,5 +1,6 @@
 """Unit tests for the Pine sequential MTF week scan."""
 
+import inspect
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -70,6 +71,15 @@ class TestAwesomeOscillator(unittest.TestCase):
         self.assertTrue(pine.ao_sell_gate(-0.1))
         self.assertFalse(pine.ao_sell_gate(0.0))
         self.assertFalse(pine.ao_sell_gate(0.1))
+
+    def test_ao_condition_is_confirm_timeframe_only(self):
+        chart_src = inspect.getsource(pine.build_chart)
+        replay_src = inspect.getsource(pine.replay_signals)
+        frame_src = inspect.getsource(pine._indicator_frame)
+        self.assertIn('confirm, ["macd", "hist", "rsi", "ao"]', chart_src)
+        self.assertNotIn("ao_main", chart_src)
+        self.assertNotIn("ao_main", replay_src)
+        self.assertNotIn("bars[\"ao\"]", frame_src)
 
 
 class TestEntryLevels(unittest.TestCase):
