@@ -12,6 +12,11 @@ Matches the user script defaults:
   After the fill the color is ignored.
   Confirm-TF Awesome Oscillator (SMA 5 − SMA 34 of median price):
   AO must be strictly above 0 for a buy and strictly below 0 for a sell.
+  Main MACD step 2: line stays above a red histogram (buy) or below a
+  green histogram (sell), with no other hist bound. The line must also
+  be inside 20% of its lookback extreme: last 24h on main TFs ≤ 60m,
+  last 72h on main TFs 90–240. Buy ceiling = 20% of the highest
+  positive MACD; sell floor = 20% of the lowest negative MACD.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -76,6 +81,10 @@ TRIPLE_WARMUP_BARS = 250
 DONCHIAN_HOLD_DEFAULT = "at_entry"
 AO_FAST = 5
 AO_SLOW = 34
+MACD_PULLBACK_PCT = 0.20
+MACD_FAST_LOOKBACK_HOURS = 24
+MACD_SLOW_LOOKBACK_HOURS = 72
+MACD_FAST_TF_MAX = 60
 
 PINE_TRIPLES = tuple((main, confirm, entry) for main, confirm, entry, *_ in TRIPLING_PAIRS)
 ALT_SYMBOLS = (
@@ -174,6 +183,52 @@ def ao_buy_gate(ao):
 
 def ao_sell_gate(ao):
     return bool(np.isfinite(ao) and ao < 0)
+
+
+def macd_lookback_hours(main_tf):
+    return (
+        MACD_FAST_LOOKBACK_HOURS
+        if int(main_tf) <= MACD_FAST_TF_MAX
+        else MACD_SLOW_LOOKBACK_HOURS
+    )
+
+
+def macd_window_extremes(ts, macd, hours):
+    """Highest positive and lowest negative MACD in a trailing time window."""
+    frame = pd.DataFrame(
+        {
+            "ts": pd.to_datetime(ts, utc=True),
+            "macd": pd.to_numeric(macd, errors="coerce"),
+        }
+    )
+    frame["_i"] = np.arange(len(frame))
+    ordered = frame.sort_values("ts")
+    series = pd.Series(
+        ordered["macd"].to_numpy(dtype=float),
+        index=pd.DatetimeIndex(ordered["ts"]),
+    )
+    window = f"{int(hours)}h"
+    peak = series.where(series > 0).rolling(window, min_periods=1).max()
+    trough = series.where(series < 0).rolling(window, min_periods=1).min()
+    ordered = ordered.copy()
+    ordered["peak"] = peak.to_numpy()
+    ordered["trough"] = trough.to_numpy()
+    restored = ordered.sort_values("_i")
+    return restored["peak"].to_numpy(), restored["trough"].to_numpy()
+
+
+def macd_buy_pullback(macd, peak, pct=MACD_PULLBACK_PCT):
+    if not np.isfinite(macd):
+        return False
+    threshold = (float(peak) * pct) if np.isfinite(peak) and peak > 0 else 0.0
+    return macd <= threshold
+
+
+def macd_sell_pullback(macd, trough, pct=MACD_PULLBACK_PCT):
+    if not np.isfinite(macd):
+        return False
+    threshold = (float(trough) * pct) if np.isfinite(trough) and trough < 0 else 0.0
+    return macd >= threshold
 
 
 def buy_rsi_gate(rsi_confirm, rsi_main):
@@ -329,11 +384,32 @@ def build_chart(
         confirm = confirm.copy()
         confirm["ao"] = calc_awesome_oscillator(confirm["high"], confirm["low"])
         cache[confirm_tf] = confirm
+    if "macd_peak" not in main.columns:
+        main = main.copy()
+        peak, trough = macd_window_extremes(
+            main["ts"], main["macd"], macd_lookback_hours(main_tf)
+        )
+        main["macd_peak"] = peak
+        main["macd_trough"] = trough
+        cache[main_tf] = main
 
     main_map = _map_htf(
         chart,
         main,
-        ["smi", "macd", "hist", "trend", "ema50", "close", "rsi", "don_hh", "don_ll", "trend_prev"],
+        [
+            "smi",
+            "macd",
+            "hist",
+            "trend",
+            "ema50",
+            "close",
+            "rsi",
+            "don_hh",
+            "don_ll",
+            "trend_prev",
+            "macd_peak",
+            "macd_trough",
+        ],
     )
     confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi", "ao"])
     out = chart.copy()
@@ -350,6 +426,8 @@ def build_chart(
     out["ema50_main"] = main_map["ema50"].to_numpy()
     out["close_main"] = main_map["close"].to_numpy()
     out["rsi_main"] = main_map["rsi"].to_numpy()
+    out["macd_peak_main"] = main_map["macd_peak"].to_numpy()
+    out["macd_trough_main"] = main_map["macd_trough"].to_numpy()
     out["macd_confirm"] = confirm_map["macd"].to_numpy()
     out["hist_confirm"] = confirm_map["hist"].to_numpy()
     out["rsi_confirm"] = confirm_map["rsi"].to_numpy()
@@ -426,6 +504,9 @@ def replay_signals(
     rsi_confirm = chart["rsi_confirm"].to_numpy(dtype=float)
     rsi_main = chart["rsi_main"].to_numpy(dtype=float)
     ao_confirm = chart["ao_confirm"].to_numpy(dtype=float)
+    macd_main = chart["macd_main"].to_numpy(dtype=float)
+    macd_peak = chart["macd_peak_main"].to_numpy(dtype=float)
+    macd_trough = chart["macd_trough_main"].to_numpy(dtype=float)
     if "main_open_ts" in chart.columns:
         main_closes = candle_period_ends(chart["main_open_ts"], main_tf)
         chart_closes = candle_period_ends(chart["ts"], entry_tf)
@@ -485,7 +566,9 @@ def replay_signals(
         # both fire on the same lookahead bar.
         if long_step == 0 and bool(c1_buy[i]):
             long_step = 1
-        elif long_step == 1 and bool(c2_buy[i]):
+        elif long_step == 1 and bool(c2_buy[i]) and macd_buy_pullback(
+            macd_main[i], macd_peak[i]
+        ):
             long_step = 2
         elif long_step == 1 and np.isfinite(smi_now) and smi_now > -SMI_THRESH:
             _reset_long()
@@ -505,7 +588,9 @@ def replay_signals(
 
         if short_step == 0 and bool(c1_sell[i]):
             short_step = 1
-        elif short_step == 1 and bool(c2_sell[i]):
+        elif short_step == 1 and bool(c2_sell[i]) and macd_sell_pullback(
+            macd_main[i], macd_trough[i]
+        ):
             short_step = 2
         elif short_step == 1 and np.isfinite(smi_now) and smi_now < SMI_THRESH:
             _reset_short()
@@ -532,6 +617,7 @@ def replay_signals(
                 and bars_since <= MAX_BARS_GAP
                 and buy_rsi_gate(rsi_confirm[i], rsi_main[i])
                 and ao_buy_gate(ao_confirm[i])
+                and macd_buy_pullback(macd_main[i], macd_peak[i])
                 and np.isfinite(trend_now)
                 and trend_now == 1
             ):
@@ -546,6 +632,7 @@ def replay_signals(
                 and bars_since <= MAX_BARS_GAP
                 and sell_rsi_gate(rsi_confirm[i], rsi_main[i])
                 and ao_sell_gate(ao_confirm[i])
+                and macd_sell_pullback(macd_main[i], macd_trough[i])
                 and np.isfinite(trend_now)
                 and trend_now == -1
             ):
@@ -586,6 +673,9 @@ def replay_signals(
                 "rsi_confirm": float(rsi_confirm[i]),
                 "rsi_main": float(rsi_main[i]),
                 "ao_confirm": float(ao_confirm[i]),
+                "macd_main": float(macd_main[i]),
+                "macd_peak_main": float(macd_peak[i]),
+                "macd_trough_main": float(macd_trough[i]),
                 "main_tf": main_tf,
                 "confirm_tf": confirm_tf,
                 "entry_tf": entry_tf,
@@ -739,6 +829,7 @@ def format_report(result):
         f"{result.get('symbol', SYMBOL)} | 13 ثلاثي | SMI Stoch_MTM | "
         f"دونشيان {'حتى الدخول' if result.get('donchian_hold') == 'through' else 'عند الدخول'} | "
         f"AO{AO_FAST}/{AO_SLOW} تأكيد | "
+        f"MACD{int(MACD_PULLBACK_PCT * 100)}% | "
         f"TP {TP_PCT:.2f}% / SL {SL_PCT:.2f}%",
         f"الفترة: {start} → {end} UTC ({(result['end'] - result['start']).days} يوم)",
         f"إجمالي الصفقات: {len(result['trades'])}",

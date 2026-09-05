@@ -82,6 +82,40 @@ class TestAwesomeOscillator(unittest.TestCase):
         self.assertNotIn("bars[\"ao\"]", frame_src)
 
 
+class TestMacdPullback(unittest.TestCase):
+    def test_lookback_is_24h_through_60_and_72h_from_90(self):
+        for minutes in (15, 18, 21, 24, 27, 30, 45, 60):
+            self.assertEqual(pine.macd_lookback_hours(minutes), 24)
+        for minutes in (90, 120, 150, 210, 240):
+            self.assertEqual(pine.macd_lookback_hours(minutes), 72)
+        self.assertEqual(pine.MACD_PULLBACK_PCT, 0.20)
+
+    def test_buy_ceiling_is_20_percent_of_positive_peak(self):
+        self.assertTrue(pine.macd_buy_pullback(2.0, 10.0))
+        self.assertTrue(pine.macd_buy_pullback(0.0, 10.0))
+        self.assertFalse(pine.macd_buy_pullback(2.1, 10.0))
+        self.assertTrue(pine.macd_buy_pullback(-0.5, float("nan")))
+        self.assertFalse(pine.macd_buy_pullback(0.1, float("nan")))
+
+    def test_sell_floor_is_20_percent_of_negative_trough(self):
+        self.assertTrue(pine.macd_sell_pullback(-2.0, -10.0))
+        self.assertTrue(pine.macd_sell_pullback(0.0, -10.0))
+        self.assertFalse(pine.macd_sell_pullback(-2.1, -10.0))
+        self.assertTrue(pine.macd_sell_pullback(0.5, float("nan")))
+        self.assertFalse(pine.macd_sell_pullback(-0.1, float("nan")))
+
+    def test_window_tracks_positive_peak_and_negative_trough(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        ts = [start + timedelta(hours=i) for i in range(6)]
+        macd = [1.0, 5.0, 4.0, -2.0, -8.0, -3.0]
+        peak, trough = pine.macd_window_extremes(ts, macd, 24)
+        self.assertAlmostEqual(peak[1], 5.0)
+        self.assertAlmostEqual(peak[2], 5.0)
+        self.assertAlmostEqual(peak[4], 5.0)
+        self.assertAlmostEqual(trough[4], -8.0)
+        self.assertAlmostEqual(trough[5], -8.0)
+
+
 class TestEntryLevels(unittest.TestCase):
     def test_long_uses_one_percent_tp_and_point_seven_five_sl(self):
         self.assertEqual(pine.TP_PCT, 1.00)
@@ -187,6 +221,8 @@ def _blank_chart(rows, start):
             "hist_confirm": 0.0,
             "rsi_confirm": 55.0,
             "ao_confirm": 1.0,
+            "macd_peak_main": 10.0,
+            "macd_trough_main": -10.0,
         }
     )
 
@@ -232,6 +268,22 @@ class TestReplaySequence(unittest.TestCase):
         self.assertEqual(trades[0]["type"], "buy")
         self.assertEqual(trades[0]["outcome"], "win")
         self.assertAlmostEqual(trades[0]["price"], 100.1)
+
+    def test_buy_dies_when_macd_is_above_20_percent_of_peak(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0:, "smi_main"] = -41.0
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 5.0]  # 5 > 0.2*10
+        chart.loc[i0 + 1, "macd_peak_main"] = 10.0
+        chart.loc[i0 + 2 :, "trend_main"] = 1.0
+        chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+        trades = pine.replay_signals(
+            chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"])
+        )
+        self.assertEqual(trades, [])
 
     def test_buy_rejected_when_confirm_ao_is_on_or_below_zero(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
@@ -651,4 +703,5 @@ class TestThirteenTriples(unittest.TestCase):
         self.assertIn("13 ثلاثي", text)
         self.assertIn("عند الدخول", text)
         self.assertIn("AO5/34 تأكيد", text)
+        self.assertIn("MACD20%", text)
         self.assertIn("TP 1.00% / SL 0.75%", text)
