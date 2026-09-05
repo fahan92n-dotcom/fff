@@ -25,6 +25,13 @@ class TestStochMtmSmi(unittest.TestCase):
             0.5,
         )
 
+    def test_invalid_range_is_nan_not_zero(self):
+        close = pd.Series([100.0] * 20)
+        high = close.copy()
+        low = close.copy()
+        smoothed, _ = pine.calc_smi_stoch_mtm(high, low, close)
+        self.assertTrue(smoothed.isna().all())
+
 
 class TestRsiGates(unittest.TestCase):
     def test_buy_gate_requires_confirm_band_and_main_gap(self):
@@ -190,19 +197,97 @@ class TestReplaySequence(unittest.TestCase):
         self.assertEqual(trades[0]["outcome"], "win")
         self.assertAlmostEqual(trades[0]["price"], 100.1)
 
-    def test_buy_dies_when_main_smi_leaves_minus_40(self):
+    def test_buy_dies_when_main_smi_leaves_minus_40_at_step1(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         rows = pine.WARMUP_BARS + 10
         chart = _blank_chart(rows, start)
         i0 = pine.WARMUP_BARS
         chart.loc[i0 - 1, "smi_main"] = -39.0
-        chart.loc[i0 : i0 + 2, "smi_main"] = -41.0
-        chart.loc[i0 + 2 :, "smi_main"] = -10.0  # left saturation
-        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 : i0 + 1, "smi_main"] = -41.0
+        chart.loc[i0 + 2 :, "smi_main"] = -39.0  # closed above −40 while still at step 1
         chart.loc[i0 + 2 :, "trend_main"] = 1.0
         chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
         trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
         self.assertEqual(trades, [])
+
+    def test_buy_survives_smi_leaving_after_step2(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0 : i0 + 1, "smi_main"] = -41.0
+        chart.loc[i0 + 2 :, "smi_main"] = -10.0  # left saturation after MACD (step 2)
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]  # c2
+        chart.loc[i0 + 2 :, "trend_main"] = 1.0  # stay green through entry
+        chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]  # c4
+        chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]  # c5
+        chart.loc[i0 + 5, "trend"] = -1.0  # c6
+        chart.loc[i0 + 5, "smi"] = -39.0
+        chart.loc[i0 + 6, "smi"] = -41.0  # c7
+        chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]  # touch + RSI cross
+        chart.loc[i0 + 7, "stoch_k"] = 15.0
+        chart.loc[i0 + 8, "stoch_k"] = 25.0  # stoch cross + RSI gate
+        chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+        chart.loc[i0 + 8, "close"] = 100.0
+        chart.loc[i0 + 9, "open"] = 100.1
+        fill_ts = chart.loc[i0 + 9, "ts"]
+        raw_1m = pd.DataFrame(
+            [
+                {
+                    "ts": fill_ts,
+                    "open": 100.1,
+                    "high": 101.5,
+                    "low": 99.8,
+                    "close": 101.0,
+                    "vol": 1.0,
+                }
+            ]
+        )
+        trades = pine.replay_signals(chart, raw_1m)
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0]["type"], "buy")
+
+    def test_buy_keeps_path_when_step1_smi_closes_at_minus_40(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0, "smi_main"] = -41.0
+        chart.loc[i0 + 1 :, "smi_main"] = -40.0  # close at −40 still counts
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 + 2 :, "trend_main"] = 1.0
+        chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+        chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+        chart.loc[i0 + 5, "trend"] = -1.0
+        chart.loc[i0 + 5, "smi"] = -39.0
+        chart.loc[i0 + 6, "smi"] = -41.0
+        chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+        chart.loc[i0 + 7, "stoch_k"] = 15.0
+        chart.loc[i0 + 8, "stoch_k"] = 25.0
+        chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+        chart.loc[i0 + 8, "close"] = 100.0
+        chart.loc[i0 + 9, "open"] = 100.1
+        fill_ts = chart.loc[i0 + 9, "ts"]
+        raw_1m = pd.DataFrame(
+            [
+                {
+                    "ts": fill_ts,
+                    "open": 100.1,
+                    "high": 101.5,
+                    "low": 99.8,
+                    "close": 101.0,
+                    "vol": 1.0,
+                }
+            ]
+        )
+        trades = pine.replay_signals(chart, raw_1m)
+        self.assertEqual(len(trades), 1)
 
     def test_buy_dies_when_main_donchian_leaves_green(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
@@ -218,6 +303,62 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
         trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
         self.assertEqual(trades, [])
+
+
+class TestHtfMapping(unittest.TestCase):
+    def test_lookahead_maps_to_containing_left_labeled_bar(self):
+        chart = pd.DataFrame(
+            {
+                "ts": pd.to_datetime(
+                    [
+                        "2026-09-01 10:00",
+                        "2026-09-01 10:05",
+                        "2026-09-01 10:10",
+                        "2026-09-01 10:15",
+                    ],
+                    utc=True,
+                )
+            }
+        )
+        htf = pd.DataFrame(
+            {
+                "ts": pd.to_datetime(
+                    ["2026-09-01 09:45", "2026-09-01 10:00", "2026-09-01 10:15"],
+                    utc=True,
+                ),
+                "smi": [-10.0, -50.0, -20.0],
+            }
+        )
+        mapped = pine._map_htf(chart, htf, ["smi"])
+        self.assertEqual(list(mapped["smi"]), [-50.0, -50.0, -50.0, -20.0])
+
+    def test_closed_persist_uses_last_finished_htf_bar(self):
+        chart = pd.DataFrame(
+            {
+                "ts": pd.to_datetime(
+                    [
+                        "2026-09-01 10:00",
+                        "2026-09-01 10:05",
+                        "2026-09-01 10:10",
+                        "2026-09-01 10:15",
+                    ],
+                    utc=True,
+                )
+            }
+        )
+        htf = pd.DataFrame(
+            {
+                "ts": pd.to_datetime(
+                    ["2026-09-01 09:45", "2026-09-01 10:00", "2026-09-01 10:15"],
+                    utc=True,
+                ),
+                "smi": [-10.0, -50.0, -20.0],
+            }
+        )
+        mapped = pine._map_closed_htf(
+            chart, htf, ["smi"], chart_minutes=5, htf_minutes=15
+        )
+        self.assertEqual(list(mapped["smi"]), [-10.0, -10.0, -50.0, -50.0])
 
 
 class TestThirteenTriples(unittest.TestCase):

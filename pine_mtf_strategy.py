@@ -3,9 +3,12 @@
 Matches the user script defaults:
   all 13 cascade triples (main ×3 confirm, main ÷3 entry)
   SMI = Stoch_MTM (single EMA D=3, then SMA 5; not double EMA)
-  After step 1, leaving main SMI saturation (−40 / +40) kills the path.
-  After step 3, main Donchian must stay green (buy) / red (sell) through entry.
-  lookahead=barmerge.lookahead_on (HTF values leak the completed HTF bar)
+  After step 1 (only while waiting for step 2), a *closed* main SMI
+  leaving saturation (−40 / +40) kills the path. Close at ±40 is still OK.
+  After step 3, *closed* main Donchian must stay green (buy) / red (sell)
+  through entry.
+  Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
+  Persist uses the last *closed* main bar — cancel when that bar closes.
   TP 1.00% / SL 0.80% (short SL in the Pine uses tpPct, so +1.00%)
 
 This is a market-data simulation, not live Binance account fills.
@@ -26,6 +29,7 @@ from indicators import (
     calc_ema,
     calc_rsi_tv,
     calc_stoch_tv,
+    candle_period_ends,
     ema_tv,
     resample_ohlcv,
 )
@@ -115,7 +119,7 @@ def calc_smi_stoch_mtm(
     smi = np.where(
         (avgdiff != 0) & np.isfinite(avgdiff) & np.isfinite(avgrel),
         (avgrel / (avgdiff / 2)) * 100,
-        0.0,
+        np.nan,
     )
     smi = pd.Series(smi, index=close.index)
     smoothed = smi.rolling(smooth_period, min_periods=smooth_period).mean()
@@ -194,7 +198,11 @@ def _indicator_frame(raw_1m, minutes):
 
 
 def _map_htf(chart, htf, columns):
-    """lookahead_on: every chart bar sees the HTF bar that contains it, fully closed."""
+    """lookahead_on: every chart bar sees the containing HTF bar's final values.
+
+    Bars are left-labeled (open time), so ``merge_asof(backward)`` is the
+    containing period — the same leak as ``request.security(..., lookahead_on)``.
+    """
     src = htf[["ts", *columns]].sort_values("ts")
     mapped = pd.merge_asof(
         chart[["ts"]].sort_values("ts"),
@@ -203,6 +211,25 @@ def _map_htf(chart, htf, columns):
         direction="backward",
     )
     return mapped
+
+
+def _map_closed_htf(chart, htf, columns, chart_minutes, htf_minutes):
+    """Last HTF bar that has already closed by the chart bar's close.
+
+    Persist rules watch the main SMI/Donchian *close*, not the forming bar
+    that lookahead already leaked into step triggers.
+    """
+    left = pd.DataFrame(
+        {
+            "ts": chart["ts"].to_numpy(),
+            "close_at": candle_period_ends(chart["ts"], chart_minutes),
+        }
+    ).sort_values("close_at")
+    right = htf[["ts", *columns]].copy()
+    right["close_at"] = candle_period_ends(right["ts"], htf_minutes)
+    right = right.drop(columns=["ts"]).sort_values("close_at")
+    mapped = pd.merge_asof(left, right, on="close_at", direction="backward")
+    return mapped.sort_values("ts")
 
 
 def _cached_frame(raw_1m, minutes, cache):
@@ -232,6 +259,9 @@ def build_chart(
         chart, main, ["smi", "macd", "hist", "trend", "ema50", "close", "rsi"]
     )
     confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi"])
+    persist_map = _map_closed_htf(
+        chart, main, ["smi", "trend"], chart_minutes, main_tf
+    )
     out = chart.copy()
     out["smi_main"] = main_map["smi"].to_numpy()
     out["macd_main"] = main_map["macd"].to_numpy()
@@ -240,6 +270,8 @@ def build_chart(
     out["ema50_main"] = main_map["ema50"].to_numpy()
     out["close_main"] = main_map["close"].to_numpy()
     out["rsi_main"] = main_map["rsi"].to_numpy()
+    out["smi_main_closed"] = persist_map["smi"].to_numpy()
+    out["trend_main_closed"] = persist_map["trend"].to_numpy()
     out["macd_confirm"] = confirm_map["macd"].to_numpy()
     out["hist_confirm"] = confirm_map["hist"].to_numpy()
     out["rsi_confirm"] = confirm_map["rsi"].to_numpy()
@@ -278,8 +310,16 @@ def replay_signals(
     smi_entry = chart["smi"]
     stoch_k = chart["stoch_k"]
     rsi_entry = chart["rsi"].to_numpy(dtype=float)
-    smi_main_v = smi_main.to_numpy(dtype=float)
-    trend_main_v = chart["trend_main"].to_numpy(dtype=float)
+    smi_persist = (
+        chart["smi_main_closed"]
+        if "smi_main_closed" in chart.columns
+        else smi_main
+    ).to_numpy(dtype=float)
+    trend_persist = (
+        chart["trend_main_closed"]
+        if "trend_main_closed" in chart.columns
+        else chart["trend_main"]
+    ).to_numpy(dtype=float)
 
     c1_buy = _crossunder_level(smi_main, -SMI_THRESH).to_numpy()
     c1_sell = _crossover_level(smi_main, SMI_THRESH).to_numpy()
@@ -328,15 +368,16 @@ def replay_signals(
         short_rsi_cross_bar = None
 
     for i in range(start_i, n):
-        smi_now = smi_main_v[i]
-        trend_now = trend_main_v[i]
-        if long_step >= 1 and np.isfinite(smi_now) and smi_now > -SMI_THRESH:
+        smi_now = smi_persist[i]
+        trend_now = trend_persist[i]
+        # SMI persist is only the step-1 wait. Later steps do not re-check it.
+        if long_step == 1 and np.isfinite(smi_now) and smi_now > -SMI_THRESH:
             _reset_long()
-        if long_step >= 3 and trend_now != 1:
+        if long_step >= 3 and np.isfinite(trend_now) and trend_now != 1:
             _reset_long()
-        if short_step >= 1 and np.isfinite(smi_now) and smi_now < SMI_THRESH:
+        if short_step == 1 and np.isfinite(smi_now) and smi_now < SMI_THRESH:
             _reset_short()
-        if short_step >= 3 and trend_now != -1:
+        if short_step >= 3 and np.isfinite(trend_now) and trend_now != -1:
             _reset_short()
 
         long_c8 = False
