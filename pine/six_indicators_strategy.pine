@@ -4,7 +4,7 @@
 //   2) Stochastic SMI (Stoch_MTM: K=10, D=3, EMA=10, تنعيم=1، تشبع ±40)
 //                                                : SMI فوق خط إشارته EMA = شراء، تحته = بيع
 //   3) Stochastic (15/3/3)                       : %K فوق %D = شراء، تحته = بيع
-//   4) RSI (14)                                  : فوق 50 = شراء، تحت 50 = بيع
+//   4) RSI (14، مصدر إغلاق، تنعيم SMA-14)        : فوق 50 = شراء، تحت 50 = بيع (أو مقارنة بمتوسطه SMA اختيارياً)
 //   5) Donchian Trend Ribbon (20)                : الشريط أخضر = شراء، أحمر = بيع
 //   6) EMA 50                                    : الإغلاق فوق EMA50 = شراء، تحته = بيع
 //
@@ -49,8 +49,11 @@ stObLvl = input.float(80, "تشبع شرائي ستوكاستك", group=grpSt)
 stOsLvl = input.float(20, "تشبع بيعي ستوكاستك", group=grpSt)
 
 grpRsi = "RSI"
-rsiLen = input.int(14, "طول RSI", minval=2, group=grpRsi)
-rsiMid = input.float(50, "خط الوسط", group=grpRsi)
+rsiLen  = input.int(14, "طول مؤشر القوى النسبية", minval=2, group=grpRsi)
+rsiSrc  = input.source(close, "مصدر", group=grpRsi)
+rsiMode = input.string("خط الوسط 50", "شرط RSI", options=["خط الوسط 50", "متوسط SMA"], group=grpRsi)
+rsiMid  = input.float(50, "خط الوسط", group=grpRsi)
+rsiMaLen = input.int(14, "طول متوسط SMA", minval=1, group=grpRsi)
 
 grpDon = "Donchian Trend Ribbon"
 dlen   = input.int(20, "الطول", minval=2, group=grpDon)
@@ -105,8 +108,11 @@ smiSig  = ta.ema(smi, smiC)
 stK = ta.sma(ta.stoch(close, high, low, stKlen), stKsm)
 stD = ta.sma(stK, stDsm)
 
-// RSI
-rsi = ta.rsi(close, rsiLen)
+// RSI — حسب إعدادات الصورة: طول 14، مصدر إغلاق، تنعيم SMA بطول 14
+rsi   = ta.rsi(rsiSrc, rsiLen)
+rsiMa = ta.sma(rsi, rsiMaLen)
+rsiBull = rsiMode == "متوسط SMA" ? rsi > rsiMa : rsi > rsiMid
+rsiBear = rsiMode == "متوسط SMA" ? rsi < rsiMa : rsi < rsiMid
 
 // Donchian Trend Ribbon — لون الشريط الرئيسي dchannel(dlen)
 var float donTrend = 0.0
@@ -122,7 +128,7 @@ ema50 = ta.ema(close, emaLen)
 c1L = not useMacd or macdLine > sigLine
 c2L = not useSmi  or smi > smiSig
 c3L = not useSt   or stK > stD
-c4L = not useRsi  or rsi > rsiMid
+c4L = not useRsi  or rsiBull
 c5L = not useDon  or donTrend == 1
 c6L = not useEma  or close > ema50
 cSatL = not useSat or (smi < obLvl and stK < stObLvl)
@@ -131,7 +137,7 @@ cSatL = not useSat or (smi < obLvl and stK < stObLvl)
 c1S = not useMacd or macdLine < sigLine
 c2S = not useSmi  or smi < smiSig
 c3S = not useSt   or stK < stD
-c4S = not useRsi  or rsi < rsiMid
+c4S = not useRsi  or rsiBear
 c5S = not useDon  or donTrend == -1
 c6S = not useEma  or close < ema50
 cSatS = not useSat or (smi > osLvl and stK > stOsLvl)
