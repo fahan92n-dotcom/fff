@@ -3,12 +3,15 @@
 Matches the user script defaults:
   all 13 cascade triples (main ×3 confirm, main ÷3 entry)
   SMI = Stoch_MTM (single EMA D=3, then SMA 5; not double EMA)
-  After step 1 (only while waiting for step 2), a *closed* main SMI
+  After step 1 (only while waiting for step 2), lookahead main SMI
   leaving saturation (−40 / +40) kills the path. Close at ±40 is still OK.
-  After step 3, *closed* main Donchian must stay green (buy) / red (sell)
+  After step 3, lookahead main Donchian must stay green (buy) / red (sell)
   through entry.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
-  Persist uses the last *closed* main bar — cancel when that bar closes.
+
+  Persist must use the same HTF series as the triggers. Mapping persist to
+  the previous closed main bar false-kills every path: step 1 fires on the
+  new bar’s leaked close, then persist reads the old bar still outside ±40.
   TP 1.00% / SL 0.80% (short SL in the Pine uses tpPct, so +1.00%)
 
 This is a market-data simulation, not live Binance account fills.
@@ -259,9 +262,6 @@ def build_chart(
         chart, main, ["smi", "macd", "hist", "trend", "ema50", "close", "rsi"]
     )
     confirm_map = _map_htf(chart, confirm, ["macd", "hist", "rsi"])
-    persist_map = _map_closed_htf(
-        chart, main, ["smi", "trend"], chart_minutes, main_tf
-    )
     out = chart.copy()
     out["smi_main"] = main_map["smi"].to_numpy()
     out["macd_main"] = main_map["macd"].to_numpy()
@@ -270,8 +270,6 @@ def build_chart(
     out["ema50_main"] = main_map["ema50"].to_numpy()
     out["close_main"] = main_map["close"].to_numpy()
     out["rsi_main"] = main_map["rsi"].to_numpy()
-    out["smi_main_closed"] = persist_map["smi"].to_numpy()
-    out["trend_main_closed"] = persist_map["trend"].to_numpy()
     out["macd_confirm"] = confirm_map["macd"].to_numpy()
     out["hist_confirm"] = confirm_map["hist"].to_numpy()
     out["rsi_confirm"] = confirm_map["rsi"].to_numpy()
@@ -310,16 +308,8 @@ def replay_signals(
     smi_entry = chart["smi"]
     stoch_k = chart["stoch_k"]
     rsi_entry = chart["rsi"].to_numpy(dtype=float)
-    smi_persist = (
-        chart["smi_main_closed"]
-        if "smi_main_closed" in chart.columns
-        else smi_main
-    ).to_numpy(dtype=float)
-    trend_persist = (
-        chart["trend_main_closed"]
-        if "trend_main_closed" in chart.columns
-        else chart["trend_main"]
-    ).to_numpy(dtype=float)
+    smi_persist = smi_main.to_numpy(dtype=float)
+    trend_persist = chart["trend_main"].to_numpy(dtype=float)
 
     c1_buy = _crossunder_level(smi_main, -SMI_THRESH).to_numpy()
     c1_sell = _crossover_level(smi_main, SMI_THRESH).to_numpy()
