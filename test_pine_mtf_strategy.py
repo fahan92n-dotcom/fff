@@ -72,15 +72,17 @@ class TestRocNalan(unittest.TestCase):
 
 
 class TestEntryLevels(unittest.TestCase):
-    def test_long_uses_one_percent_tp_and_point_eight_sl(self):
+    def test_long_uses_one_percent_tp_and_point_seven_five_sl(self):
+        self.assertEqual(pine.TP_PCT, 1.00)
+        self.assertEqual(pine.SL_PCT, 0.75)
         tp, sl = pine._entry_levels("buy", 100.0)
         self.assertAlmostEqual(tp, 101.0)
-        self.assertAlmostEqual(sl, 99.2)
+        self.assertAlmostEqual(sl, 99.25)
 
-    def test_short_sl_matches_pine_tp_pct_bug(self):
+    def test_short_uses_one_percent_tp_and_point_seven_five_sl(self):
         tp, sl = pine._entry_levels("sell", 100.0)
         self.assertAlmostEqual(tp, 99.0)
-        self.assertAlmostEqual(sl, 101.0)
+        self.assertAlmostEqual(sl, 100.75)
 
 
 class TestEvaluateOutcome(unittest.TestCase):
@@ -593,13 +595,23 @@ class TestAltSymbols(unittest.TestCase):
         self.assertEqual(
             pine.ALT_SYMBOLS,
             (
-                "XRPUSDT",
-                "SOLUSDT",
-                "ETHUSDT",
+                "BTCUSDT",
                 "DOGEUSDT",
+                "XRPUSDT",
+                "ETHUSDT",
+                "SOLUSDT",
                 "ADAUSDT",
                 "SUIUSDT",
+                "LINKUSDT",
+                "TAOUSDT",
+                "BCHUSDT",
+                "AVAXUSDT",
+                "AAVEUSDT",
                 "HBARUSDT",
+                "XLMUSDT",
+                "UNIUSDT",
+                "TIAUSDT",
+                "DOTUSDT",
             ),
         )
 
@@ -631,3 +643,4 @@ class TestThirteenTriples(unittest.TestCase):
         self.assertIn("13 ثلاثي", text)
         self.assertIn("عند الدخول", text)
         self.assertIn("ROC48 تأكيد", text)
+        self.assertIn("TP 1.00% / SL 0.75%", text)

@@ -17,7 +17,7 @@ Matches the user script defaults:
   Persist must use the same HTF series as the triggers. Mapping persist to
   the previous closed main bar false-kills every path: step 1 fires on the
   new bar’s leaked close, then persist reads the old bar still outside ±40.
-  TP 1.00% / SL 0.80% (short SL in the Pine uses tpPct, so +1.00%)
+  TP 1.00% / SL 0.75% on both sides.
 
 This is a market-data simulation, not live Binance account fills.
 """
@@ -53,7 +53,7 @@ CHART_TF = 5
 WARMUP_BARS = 500
 MAX_BARS_GAP = 3
 TP_PCT = 1.00
-SL_PCT = 0.80
+SL_PCT = 0.75
 SMI_THRESH = 40.0
 RSI_BUY_TOUCH = 35.0
 RSI_SELL_TOUCH = 65.0
@@ -78,13 +78,23 @@ ROC_LENGTH = 48
 
 PINE_TRIPLES = tuple((main, confirm, entry) for main, confirm, entry, *_ in TRIPLING_PAIRS)
 ALT_SYMBOLS = (
-    "XRPUSDT",
-    "SOLUSDT",
-    "ETHUSDT",
+    "BTCUSDT",
     "DOGEUSDT",
+    "XRPUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
     "ADAUSDT",
     "SUIUSDT",
+    "LINKUSDT",
+    "TAOUSDT",
+    "BCHUSDT",
+    "AVAXUSDT",
+    "AAVEUSDT",
     "HBARUSDT",
+    "XLMUSDT",
+    "UNIUSDT",
+    "TIAUSDT",
+    "DOTUSDT",
 )
 
 
@@ -353,10 +363,9 @@ def _entry_levels(signal_type, signal_close):
             signal_close * (1.0 + TP_PCT / 100.0),
             signal_close * (1.0 - SL_PCT / 100.0),
         )
-    # Pine short SL uses tpPct, not slPct.
     return (
         signal_close * (1.0 - TP_PCT / 100.0),
-        signal_close * (1.0 + TP_PCT / 100.0),
+        signal_close * (1.0 + SL_PCT / 100.0),
     )
 
 
@@ -619,10 +628,7 @@ def summarize(trades):
         if trade["outcome"] == "win":
             net_pct += TP_PCT
         elif trade["outcome"] == "loss":
-            if trade["type"] == "buy":
-                net_pct -= SL_PCT
-            else:
-                net_pct -= TP_PCT
+            net_pct -= SL_PCT
     return {
         "trades": trades,
         "wins": wins,
@@ -734,7 +740,7 @@ def format_report(result):
     lines = [
         f"{result.get('symbol', SYMBOL)} | 13 ثلاثي | SMI Stoch_MTM | "
         f"دونشيان {'حتى الدخول' if result.get('donchian_hold') == 'through' else 'عند الدخول'} | "
-        f"ROC{ROC_LENGTH} تأكيد",
+        f"ROC{ROC_LENGTH} تأكيد | TP {TP_PCT:.2f}% / SL {SL_PCT:.2f}%",
         f"الفترة: {start} → {end} UTC ({(result['end'] - result['start']).days} يوم)",
         f"إجمالي الصفقات: {len(result['trades'])}",
         f"ناجحة: {len(wins)}",
