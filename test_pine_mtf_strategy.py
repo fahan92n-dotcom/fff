@@ -328,7 +328,7 @@ class TestReplaySequence(unittest.TestCase):
         trades = pine.replay_signals(chart, raw_1m)
         self.assertEqual(len(trades), 1)
 
-    def test_buy_dies_when_main_donchian_leaves_green_at_step3(self):
+    def test_through_buy_dies_when_main_donchian_leaves_green_at_step3(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         rows = pine.WARMUP_BARS + 10
         chart = _blank_chart(rows, start)
@@ -339,7 +339,11 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 2, "trend_main"] = 1.0
         chart.loc[i0 + 3 :, "trend_main"] = -1.0  # flipped while still at step 3
         chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
-        trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]))
+        trades = pine.replay_signals(
+            chart,
+            pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]),
+            donchian_hold="through",
+        )
         self.assertEqual(trades, [])
 
     def test_buy_rejected_when_main_donchian_is_red_at_entry(self):
@@ -369,7 +373,47 @@ class TestReplaySequence(unittest.TestCase):
         )
         self.assertEqual(trades, [])
 
-    def test_buy_dies_if_donchian_flips_before_entry_even_if_it_returns(self):
+    def test_buy_allowed_if_donchian_returns_green_at_entry(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0:, "smi_main"] = -41.0
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 + 2 : i0 + 3, "trend_main"] = 1.0
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+        chart.loc[i0 + 4 : i0 + 6, "trend_main"] = -1.0  # mid-path flip is OK
+        chart.loc[i0 + 7 :, "trend_main"] = 1.0  # green again on the signal bar
+        chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+        chart.loc[i0 + 5, "trend"] = -1.0
+        chart.loc[i0 + 5, "smi"] = -39.0
+        chart.loc[i0 + 6, "smi"] = -41.0
+        chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+        chart.loc[i0 + 7, "stoch_k"] = 15.0
+        chart.loc[i0 + 8, "stoch_k"] = 25.0
+        chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 50.0]
+        chart.loc[i0 + 8, "close"] = 100.0
+        chart.loc[i0 + 9, "open"] = 100.1
+        fill_ts = chart.loc[i0 + 9, "ts"]
+        raw_1m = pd.DataFrame(
+            [
+                {
+                    "ts": fill_ts,
+                    "open": 100.1,
+                    "high": 101.5,
+                    "low": 99.8,
+                    "close": 101.0,
+                    "vol": 1.0,
+                }
+            ]
+        )
+        trades = pine.replay_signals(chart, raw_1m)
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0]["type"], "buy")
+
+    def test_through_buy_dies_if_donchian_flips_before_entry(self):
         start = datetime(2026, 8, 1, tzinfo=timezone.utc)
         rows = pine.WARMUP_BARS + 10
         chart = _blank_chart(rows, start)
@@ -393,7 +437,9 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 8, "close"] = 100.0
         chart.loc[i0 + 9, "open"] = 100.1
         trades = pine.replay_signals(
-            chart, pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"])
+            chart,
+            pd.DataFrame(columns=["ts", "open", "high", "low", "close", "vol"]),
+            donchian_hold="through",
         )
         self.assertEqual(trades, [])
 
@@ -473,6 +519,9 @@ class TestDonchianSettings(unittest.TestCase):
         self.assertEqual(pine.DONCHIAN_DLEN, 20)
         self.assertEqual(ind.DONCHIAN_DLEN, 20)
 
+    def test_default_hold_checks_color_at_entry_only(self):
+        self.assertEqual(pine.DONCHIAN_HOLD_DEFAULT, "at_entry")
+
 
 class TestAltSymbols(unittest.TestCase):
     def test_lists_requested_alts(self):
@@ -515,3 +564,4 @@ class TestThirteenTriples(unittest.TestCase):
         text = pine.format_report(result)
         self.assertIn("15/45/5", text)
         self.assertIn("13 ثلاثي", text)
+        self.assertIn("عند الدخول", text)

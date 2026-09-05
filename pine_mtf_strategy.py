@@ -7,10 +7,9 @@ Matches the user script defaults:
   leaving saturation (−40 / +40) kills the path unless MACD is already
   true on that bar. Close at ±40 is still OK.
   Donchian is LonesomeTheBlue Trend Ribbon: maintrend = dchannel(20).
-  After step 3 the ribbon must stay green (buy) or red (sell) on every
-  bar before entry and on the entry bar. Persist cancels only when a
-  main bar *closes* the wrong color; the entry bar uses the forming
-  ribbon (close vs hh[1]/ll[1]). After the fill the color is ignored.
+  At entry the forming ribbon must be green for a buy and red for a
+  sell (close vs hh[1]/ll[1]). Mid-path flips after step 3 are allowed.
+  After the fill the color is ignored.
   Step triggers use lookahead=barmerge.lookahead_on (containing HTF bar).
 
   Persist must use the same HTF series as the triggers. Mapping persist to
@@ -72,6 +71,7 @@ SELL_CONFIRM_RSI = (40.0, 50.0)
 SELL_MAIN_DIFF = (3.0, 10.0)
 OHLCV_1M_BARS = 45_000
 TRIPLE_WARMUP_BARS = 250
+DONCHIAN_HOLD_DEFAULT = "at_entry"
 
 PINE_TRIPLES = tuple((main, confirm, entry) for main, confirm, entry, *_ in TRIPLING_PAIRS)
 ALT_SYMBOLS = (
@@ -341,7 +341,7 @@ def replay_signals(
     confirm_tf=CONFIRM_TF,
     entry_tf=ENTRY_TF,
     warmup_bars=None,
-    donchian_hold="through",
+    donchian_hold=DONCHIAN_HOLD_DEFAULT,
 ):
     """Walk chart bars with the Pine sequential state machine."""
     if chart is None or chart.empty:
@@ -607,7 +607,7 @@ def scan_triple(
     start,
     end,
     frame_cache=None,
-    donchian_hold="through",
+    donchian_hold=DONCHIAN_HOLD_DEFAULT,
     symbol=None,
 ):
     chart = build_chart(
@@ -645,7 +645,7 @@ def scan_week(
     days=WEEK_DAYS,
     triples=None,
     symbol=SYMBOL,
-    donchian_hold="through",
+    donchian_hold=DONCHIAN_HOLD_DEFAULT,
 ):
     if raw_1m is None:
         target = _ohlcv_target(days)
@@ -700,7 +700,7 @@ def format_report(result):
     opens = result["opens"]
     lines = [
         f"{result.get('symbol', SYMBOL)} | 13 ثلاثي | SMI Stoch_MTM | "
-        f"دونشيان {'عند الدخول' if result.get('donchian_hold') == 'at_entry' else 'حتى الدخول'}",
+        f"دونشيان {'حتى الدخول' if result.get('donchian_hold') == 'through' else 'عند الدخول'}",
         f"الفترة: {start} → {end} UTC ({(result['end'] - result['start']).days} يوم)",
         f"إجمالي الصفقات: {len(result['trades'])}",
         f"ناجحة: {len(wins)}",
@@ -746,7 +746,7 @@ def format_report(result):
     return "\n".join(lines)
 
 
-def scan_alts(days=MONTH_DAYS, symbols=None, donchian_hold="at_entry"):
+def scan_alts(days=MONTH_DAYS, symbols=None, donchian_hold=DONCHIAN_HOLD_DEFAULT):
     wanted = list(ALT_SYMBOLS if symbols is None else symbols)
     start, end = period_bounds(days=days)
     by_symbol = []
@@ -798,7 +798,7 @@ def format_alts_report(combined):
 def main(days=WEEK_DAYS, alts=False):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     if alts:
-        result = scan_alts(days=days, donchian_hold="at_entry")
+        result = scan_alts(days=days, donchian_hold=DONCHIAN_HOLD_DEFAULT)
         print(format_alts_report(result))
         return result
     result = scan_week(days=days)
