@@ -110,6 +110,7 @@ showLbl = input.bool(true, "ملصقات الدخول", group=grpVis)
 showLog = input.bool(true, "سجل الصفقات", group=grpVis)
 maxLogRows  = input.int(200, "أقصى عدد عمليات محفوظة بالسجل", minval=1, group=grpVis)
 rowsPerPage = input.int(25, "عدد الصفوف المعروضة (آخر N صفقة)", minval=1, maxval=100, group=grpVis)
+logPage     = input.int(1, "صفحة السجل (1 = الأحدث)", minval=1, group=grpVis)
 
 // ============================ دوال المؤشرات ============================
 f_ma(float src, simple int len, simple string typ) =>
@@ -463,9 +464,17 @@ if showTbl and barstate.islast
 // جدول سجل الصفقات على الشاشة (مقتبس من الكود الذي أرسله صاحب الاستراتيجية)
 var table logTbl = table.new(position.top_left, 6, 102, border_width=1)
 if showLog and barstate.islast
+    table.clear(logTbl, 0, 0, 5, 101)
     totalRecords = array.size(logTime)
-    displayCount = math.min(rowsPerPage, totalRecords)
-    table.cell(logTbl, 0, 0, "آخر " + str.tostring(displayCount) + " صفقة من أصل " + str.tostring(totalRecords), bgcolor=color.black, text_color=color.white, text_size=size.small)
+    startIdx = (logPage - 1) * rowsPerPage
+    displayCount = startIdx < totalRecords ? math.min(rowsPerPage, totalRecords - startIdx) : 0
+    totalPages = totalRecords == 0 ? 1 : int(math.ceil(totalRecords / float(rowsPerPage)))
+    string hdr = ""
+    if displayCount > 0
+        hdr := "الصفحة " + str.tostring(logPage) + "/" + str.tostring(totalPages) + " — الصفقات " + str.tostring(startIdx + 1) + "-" + str.tostring(startIdx + displayCount) + " من أصل " + str.tostring(totalRecords)
+    else
+        hdr := "الصفحة " + str.tostring(logPage) + " فارغة — عدد الصفقات " + str.tostring(totalRecords) + " (الصفحات: " + str.tostring(totalPages) + ")"
+    table.cell(logTbl, 0, 0, hdr, bgcolor=color.black, text_color=color.white, text_size=size.small)
     table.merge_cells(logTbl, 0, 0, 5, 0)
     table.cell(logTbl, 0, 1, "وقت الدخول", bgcolor=color.navy, text_color=color.white, text_size=size.small)
     table.cell(logTbl, 1, 1, "الاتجاه", bgcolor=color.navy, text_color=color.white, text_size=size.small)
@@ -473,15 +482,16 @@ if showLog and barstate.islast
     table.cell(logTbl, 3, 1, "RSI تأكيد", bgcolor=color.navy, text_color=color.white, text_size=size.small)
     table.cell(logTbl, 4, 1, "RSI رئيس", bgcolor=color.navy, text_color=color.white, text_size=size.small)
     table.cell(logTbl, 5, 1, "النتيجة", bgcolor=color.navy, text_color=color.white, text_size=size.small)
-    if totalRecords > 0
+    if displayCount > 0
         for i = 0 to displayCount - 1
-            rowColor = array.get(logType, i) == "شراء" ? color.new(color.green, 80) : color.new(color.red, 80)
+            idx = startIdx + i
+            rowColor = array.get(logType, idx) == "شراء" ? color.new(color.green, 80) : color.new(color.red, 80)
             rowInTable = i + 2
-            result = array.get(logResult, i)
+            result = array.get(logResult, idx)
             resultColor = result == "رابحة" ? color.new(color.green, 60) : result == "خاسرة" ? color.new(color.red, 60) : color.new(color.gray, 60)
-            table.cell(logTbl, 0, rowInTable, array.get(logTime, i), bgcolor=rowColor, text_size=size.small)
-            table.cell(logTbl, 1, rowInTable, array.get(logType, i), bgcolor=rowColor, text_size=size.small)
-            table.cell(logTbl, 2, rowInTable, array.get(logTag, i), bgcolor=rowColor, text_size=size.small)
-            table.cell(logTbl, 3, rowInTable, str.tostring(array.get(logRsiConfirm, i), "#.##"), bgcolor=rowColor, text_size=size.small)
-            table.cell(logTbl, 4, rowInTable, str.tostring(array.get(logRsiMain, i), "#.##"), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 0, rowInTable, array.get(logTime, idx), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 1, rowInTable, array.get(logType, idx), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 2, rowInTable, array.get(logTag, idx), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 3, rowInTable, str.tostring(array.get(logRsiConfirm, idx), "#.##"), bgcolor=rowColor, text_size=size.small)
+            table.cell(logTbl, 4, rowInTable, str.tostring(array.get(logRsiMain, idx), "#.##"), bgcolor=rowColor, text_size=size.small)
             table.cell(logTbl, 5, rowInTable, result, bgcolor=resultColor, text_color=color.white, text_size=size.small)
