@@ -20,15 +20,13 @@
 //   4) EMA50 (الرئيس)   : شراء = شمعة تغلق أدنى من EMA50 | بيع = شمعة تجتاز (تغلق فوق) EMA50
 //                          حتى لو تغيّرت بعدها لا يهم — الشرط يبقى متحققاً
 //   5) MACD (التأكيد)   : شراء = هستوجرام التأكيد أخضر (الخط فوق متوسطه) | بيع = أحمر
-//   6) ROC (التأكيد)    : roc=(close-close[48])/close[48]*100 ثم maroc=ema(roc,48)
-//                          شراء = maroc فوق الصفر (برتقالي) | بيع = maroc ليس فوق الصفر (أزرق)
-//   7) Donchian (الدخول): شراء = أحمر | بيع = أخضر
-//   8) SMI (الدخول)     : أول شمعة إغلاق تشبّع: شراء ≤ -40 | بيع ≥ +40
-//   9) RSI (الدخول)     : شراء = يصل 35 وتحت ثم أول تقاطع إيجابي مع متوسطه SMA-14
+//   6) Donchian (الدخول): شراء = أحمر | بيع = أخضر
+//   7) SMI (الدخول)     : أول شمعة إغلاق تشبّع: شراء ≤ -40 | بيع ≥ +40
+//   8) RSI (الدخول)     : شراء = يصل 35 وتحت ثم أول تقاطع إيجابي مع متوسطه SMA-14
 //                          بيع = يصل 65 وفوق ثم أول تقاطع سلبي مع متوسطه SMA-14
-//  10) Stochastic 15/3/3 (الدخول): شراء = يجتاز 20 ويصير فوقه | بيع = ينزل من 80 ويصير تحته
+//   9) Stochastic 15/3/3 (الدخول): شراء = يجتاز 20 ويصير فوقه | بيع = ينزل من 80 ويصير تحته
 //                          وبينه وبين تقاطع RSI ثلاث شموع أو أقل → تتم الصفقة ويصدر إعلان
-//  11) شرط RSI تأكيد/رئيس (يُفحص لحظة الدخول مع الشرط 10):
+//  10) شرط RSI تأكيد/رئيس (يُفحص لحظة الدخول مع الشرط 9):
 //                          شراء = RSI التأكيد بين 50-60 والرئيس أقل منه بـ3 إلى 10 درجات فقط لا غير
 //                          بيع  = RSI التأكيد بين 40-50 والرئيس أكبر منه بـ3 إلى 10 درجات فقط لا غير
 //
@@ -82,9 +80,6 @@ dlen   = input.int(20, "Donchian Channel Period", minval=10, group=grpDon)
 
 grpEma = "EMA"
 emaLen = input.int(50, "طول EMA", minval=1, group=grpEma)
-
-grpRoc = "ROC (فريم التأكيد)"
-rocLen = input.int(48, "طول ROC / EMA ROC", minval=1, group=grpRoc)
 
 grpLvl    = "مستويات الشروط"
 rsiTouchL = input.float(35, "لمس RSI شراء (وتحت)", group=grpLvl)
@@ -179,18 +174,13 @@ f_snap_main() =>
     emaS  = close[1] > ema50[1]
     [satL, satS, macdL, macdS, donL, donS, emaL, emaS, rsiV[1]]
 
-// فريم التأكيد: شرط 5 (MACD) + شرط 6 (ROC maroc) + قيمة RSI للشرط 11 والسجل
+// فريم التأكيد: شرط 5 — لون هستوجرام MACD (+ قيمة RSI للشرط 10 والسجل)
 f_snap_conf() =>
     [m, h] = f_macd()
     rsiV = ta.rsi(rsiSrc, rsiLen)
-    prevC = close[rocLen]
-    roc = prevC != 0 ? (close - prevC) / prevC * 100.0 : 0.0
-    maroc = ta.ema(roc, rocLen)
-    bool rocUp = maroc[1] > 0
-    bool rocDn = not na(maroc[1]) and not rocUp
-    [h[1] > 0, h[1] < 0, rsiV[1], rocUp, rocDn]
+    [h[1] > 0, h[1] < 0, rsiV[1]]
 
-// فريم الدخول: شروط 7 و8 و9 و10
+// فريم الدخول: شروط 6 و7 و8 و9
 f_snap_entry() =>
     smi = f_smi()
     don = f_dchannel()
@@ -230,7 +220,7 @@ f_req_sat(simple string tf) =>
 f_new(simple string tf) =>
     nz(ta.change(time(tf)), 0) != 0
 
-// شرط RSI تأكيد/رئيس (الشرط 11) — يُفحص لحظة الدخول
+// شرط RSI تأكيد/رئيس (الشرط 10) — يُفحص لحظة الدخول
 f_gateL(float mRsi, float cRsi) =>
     cRsi >= buyConfMin and cRsi <= buyConfMax and mRsi <= cRsi - buyDiffMin and mRsi >= cRsi - buyDiffMax
 
@@ -238,9 +228,9 @@ f_gateS(float mRsi, float cRsi) =>
     cRsi >= sellConfMin and cRsi <= sellConfMax and mRsi >= cRsi + sellDiffMin and mRsi <= cRsi + sellDiffMax
 
 // ============================ محرك التسلسل ============================
-// st = عدد الشروط المكتملة (0..10). كل شرط يبقى «تم» حتى الإلغاء أو الدخول.
-// s11gate = شرط RSI تأكيد/رئيس — يجب أن يتحقق مع الستوكاستك لحظة الدخول.
-f_engine(bool enabled, bool cancelEvt, bool mainNew, bool s1sat, bool s2macd, bool s3don, bool s4ema, bool s5hist, bool s6roc, bool s7don, bool entryNew, bool s8sat, bool s9touch, bool s9cross, bool s10stoch, bool s11gate) =>
+// st = عدد الشروط المكتملة (0..9). كل شرط يبقى «تم» حتى الإلغاء أو الدخول.
+// s9gate = شرط RSI تأكيد/رئيس — يجب أن يتحقق مع الستوكاستك لحظة الدخول.
+f_engine(bool enabled, bool cancelEvt, bool mainNew, bool s1sat, bool s2macd, bool s3don, bool s4ema, bool s5hist, bool s6don, bool entryNew, bool s7sat, bool s8touch, bool s8cross, bool s9stoch, bool s9gate) =>
     var int st = 0
     var int gap = 0
     bool justCrossed = false
@@ -257,24 +247,22 @@ f_engine(bool enabled, bool cancelEvt, bool mainNew, bool s1sat, bool s2macd, bo
         st := 4
     if st == 4 and s5hist
         st := 5
-    if st == 5 and s6roc
+    if st == 5 and s6don
         st := 6
-    if st == 6 and s7don
+    if st == 6 and entryNew and s7sat
         st := 7
-    if st == 7 and entryNew and s8sat
+    if st == 7 and entryNew and s8touch
         st := 8
-    if st == 8 and entryNew and s9touch
+    if (st == 8 or st == 9) and entryNew and s8cross
         st := 9
-    if (st == 9 or st == 10) and entryNew and s9cross
-        st := 10
         gap := 0
         justCrossed := true
-    if st == 10 and entryNew
+    if st == 9 and entryNew
         if not justCrossed
             gap += 1
         if gap > stochGap
-            st := 9
-        else if s10stoch and s11gate
+            st := 8
+        else if s9stoch and s9gate
             fire := true
             st := 0
     [fire, st]
@@ -291,16 +279,16 @@ f_engine(bool enabled, bool cancelEvt, bool mainNew, bool s1sat, bool s2macd, bo
 [m9satL, m9satS, m9macdL, m9macdS, m9donL, m9donS, m9emaL, m9emaS, m9rsi] = f_req_main("210")
 [m10satL, m10satS, m10macdL, m10macdS, m10donL, m10donS, m10emaL, m10emaS, m10rsi] = f_req_main("240")
 
-[c1G, c1R, c1rsi, c1rU, c1rD] = f_req_conf("45")
-[c2G, c2R, c2rsi, c2rU, c2rD] = f_req_conf("90")
-[c3G, c3R, c3rsi, c3rU, c3rD] = f_req_conf("135")
-[c4G, c4R, c4rsi, c4rU, c4rD] = f_req_conf("180")
-[c5G, c5R, c5rsi, c5rU, c5rD] = f_req_conf("270")
-[c6G, c6R, c6rsi, c6rU, c6rD] = f_req_conf("360")
-[c7G, c7R, c7rsi, c7rU, c7rD] = f_req_conf("450")
-[c8G, c8R, c8rsi, c8rU, c8rD] = f_req_conf("540")
-[c9G, c9R, c9rsi, c9rU, c9rD] = f_req_conf("630")
-[c10G, c10R, c10rsi, c10rU, c10rD] = f_req_conf("720")
+[c1G, c1R, c1rsi] = f_req_conf("45")
+[c2G, c2R, c2rsi] = f_req_conf("90")
+[c3G, c3R, c3rsi] = f_req_conf("135")
+[c4G, c4R, c4rsi] = f_req_conf("180")
+[c5G, c5R, c5rsi] = f_req_conf("270")
+[c6G, c6R, c6rsi] = f_req_conf("360")
+[c7G, c7R, c7rsi] = f_req_conf("450")
+[c8G, c8R, c8rsi] = f_req_conf("540")
+[c9G, c9R, c9rsi] = f_req_conf("630")
+[c10G, c10R, c10rsi] = f_req_conf("720")
 
 [e1dR, e1dG, e1sL, e1sS, e1tL, e1tS, e1cU, e1cD, e1stB, e1stS] = f_req_entry("5")
 [e2dR, e2dG, e2sL, e2sS, e2tL, e2tS, e2cU, e2cD, e2stB, e2stS] = f_req_entry("10")
@@ -336,26 +324,26 @@ n80  = f_new("80")
 
 // ============================ تشغيل المحركات ============================
 // الإلغاء: إغلاق تشبّع بنفس الاتجاه على الفريم الرئيس الأكبر يلغي الأصغر.
-[f1L, st1L]  = f_engine(use1,  n30 and m2satL,   n15,  m1satL,  m1macdL,  m1donL,  m1emaL,  c1G,  c1rU,  e1dR,  n5,  e1sL,  e1tL,  e1cU,  e1stB, f_gateL(m1rsi, c1rsi))
-[f1S, st1S]  = f_engine(use1,  n30 and m2satS,   n15,  m1satS,  m1macdS,  m1donS,  m1emaS,  c1R,  c1rD,  e1dG,  n5,  e1sS,  e1tS,  e1cD,  e1stS, f_gateS(m1rsi, c1rsi))
-[f2L, st2L]  = f_engine(use2,  n45 and m3satL,   n30,  m2satL,  m2macdL,  m2donL,  m2emaL,  c2G,  c2rU,  e2dR,  n10, e2sL,  e2tL,  e2cU,  e2stB, f_gateL(m2rsi, c2rsi))
-[f2S, st2S]  = f_engine(use2,  n45 and m3satS,   n30,  m2satS,  m2macdS,  m2donS,  m2emaS,  c2R,  c2rD,  e2dG,  n10, e2sS,  e2tS,  e2cD,  e2stS, f_gateS(m2rsi, c2rsi))
-[f3L, st3L]  = f_engine(use3,  n60 and m4satL,   n45,  m3satL,  m3macdL,  m3donL,  m3emaL,  c3G,  c3rU,  e3dR,  n15, e3sL,  e3tL,  e3cU,  e3stB, f_gateL(m3rsi, c3rsi))
-[f3S, st3S]  = f_engine(use3,  n60 and m4satS,   n45,  m3satS,  m3macdS,  m3donS,  m3emaS,  c3R,  c3rD,  e3dG,  n15, e3sS,  e3tS,  e3cD,  e3stS, f_gateS(m3rsi, c3rsi))
-[f4L, st4L]  = f_engine(use4,  n90 and m5satL,   n60,  m4satL,  m4macdL,  m4donL,  m4emaL,  c4G,  c4rU,  e4dR,  n20, e4sL,  e4tL,  e4cU,  e4stB, f_gateL(m4rsi, c4rsi))
-[f4S, st4S]  = f_engine(use4,  n90 and m5satS,   n60,  m4satS,  m4macdS,  m4donS,  m4emaS,  c4R,  c4rD,  e4dG,  n20, e4sS,  e4tS,  e4cD,  e4stS, f_gateS(m4rsi, c4rsi))
-[f5L, st5L]  = f_engine(use5,  n120 and m6satL,  n90,  m5satL,  m5macdL,  m5donL,  m5emaL,  c5G,  c5rU,  e5dR,  n30, e5sL,  e5tL,  e5cU,  e5stB, f_gateL(m5rsi, c5rsi))
-[f5S, st5S]  = f_engine(use5,  n120 and m6satS,  n90,  m5satS,  m5macdS,  m5donS,  m5emaS,  c5R,  c5rD,  e5dG,  n30, e5sS,  e5tS,  e5cD,  e5stS, f_gateS(m5rsi, c5rsi))
-[f6L, st6L]  = f_engine(use6,  n150 and m7satL,  n120, m6satL,  m6macdL,  m6donL,  m6emaL,  c6G,  c6rU,  e6dR,  n40, e6sL,  e6tL,  e6cU,  e6stB, f_gateL(m6rsi, c6rsi))
-[f6S, st6S]  = f_engine(use6,  n150 and m7satS,  n120, m6satS,  m6macdS,  m6donS,  m6emaS,  c6R,  c6rD,  e6dG,  n40, e6sS,  e6tS,  e6cD,  e6stS, f_gateS(m6rsi, c6rsi))
-[f7L, st7L]  = f_engine(use7,  n180 and m8satL,  n150, m7satL,  m7macdL,  m7donL,  m7emaL,  c7G,  c7rU,  e7dR,  n50, e7sL,  e7tL,  e7cU,  e7stB, f_gateL(m7rsi, c7rsi))
-[f7S, st7S]  = f_engine(use7,  n180 and m8satS,  n150, m7satS,  m7macdS,  m7donS,  m7emaS,  c7R,  c7rD,  e7dG,  n50, e7sS,  e7tS,  e7cD,  e7stS, f_gateS(m7rsi, c7rsi))
-[f8L, st8L]  = f_engine(use8,  n210 and m9satL,  n180, m8satL,  m8macdL,  m8donL,  m8emaL,  c8G,  c8rU,  e8dR,  n60, e8sL,  e8tL,  e8cU,  e8stB, f_gateL(m8rsi, c8rsi))
-[f8S, st8S]  = f_engine(use8,  n210 and m9satS,  n180, m8satS,  m8macdS,  m8donS,  m8emaS,  c8R,  c8rD,  e8dG,  n60, e8sS,  e8tS,  e8cD,  e8stS, f_gateS(m8rsi, c8rsi))
-[f9L, st9L]  = f_engine(use9,  n240 and m10satL, n210, m9satL,  m9macdL,  m9donL,  m9emaL,  c9G,  c9rU,  e9dR,  n70, e9sL,  e9tL,  e9cU,  e9stB, f_gateL(m9rsi, c9rsi))
-[f9S, st9S]  = f_engine(use9,  n240 and m10satS, n210, m9satS,  m9macdS,  m9donS,  m9emaS,  c9R,  c9rD,  e9dG,  n70, e9sS,  e9tS,  e9cD,  e9stS, f_gateS(m9rsi, c9rsi))
-[f10L, st10L] = f_engine(use10, n300 and sat300L, n240, m10satL, m10macdL, m10donL, m10emaL, c10G, c10rU, e10dR, n80, e10sL, e10tL, e10cU, e10stB, f_gateL(m10rsi, c10rsi))
-[f10S, st10S] = f_engine(use10, n300 and sat300S, n240, m10satS, m10macdS, m10donS, m10emaS, c10R, c10rD, e10dG, n80, e10sS, e10tS, e10cD, e10stS, f_gateS(m10rsi, c10rsi))
+[f1L, st1L]  = f_engine(use1,  n30 and m2satL,   n15,  m1satL,  m1macdL,  m1donL,  m1emaL,  c1G,  e1dR,  n5,  e1sL,  e1tL,  e1cU,  e1stB, f_gateL(m1rsi, c1rsi))
+[f1S, st1S]  = f_engine(use1,  n30 and m2satS,   n15,  m1satS,  m1macdS,  m1donS,  m1emaS,  c1R,  e1dG,  n5,  e1sS,  e1tS,  e1cD,  e1stS, f_gateS(m1rsi, c1rsi))
+[f2L, st2L]  = f_engine(use2,  n45 and m3satL,   n30,  m2satL,  m2macdL,  m2donL,  m2emaL,  c2G,  e2dR,  n10, e2sL,  e2tL,  e2cU,  e2stB, f_gateL(m2rsi, c2rsi))
+[f2S, st2S]  = f_engine(use2,  n45 and m3satS,   n30,  m2satS,  m2macdS,  m2donS,  m2emaS,  c2R,  e2dG,  n10, e2sS,  e2tS,  e2cD,  e2stS, f_gateS(m2rsi, c2rsi))
+[f3L, st3L]  = f_engine(use3,  n60 and m4satL,   n45,  m3satL,  m3macdL,  m3donL,  m3emaL,  c3G,  e3dR,  n15, e3sL,  e3tL,  e3cU,  e3stB, f_gateL(m3rsi, c3rsi))
+[f3S, st3S]  = f_engine(use3,  n60 and m4satS,   n45,  m3satS,  m3macdS,  m3donS,  m3emaS,  c3R,  e3dG,  n15, e3sS,  e3tS,  e3cD,  e3stS, f_gateS(m3rsi, c3rsi))
+[f4L, st4L]  = f_engine(use4,  n90 and m5satL,   n60,  m4satL,  m4macdL,  m4donL,  m4emaL,  c4G,  e4dR,  n20, e4sL,  e4tL,  e4cU,  e4stB, f_gateL(m4rsi, c4rsi))
+[f4S, st4S]  = f_engine(use4,  n90 and m5satS,   n60,  m4satS,  m4macdS,  m4donS,  m4emaS,  c4R,  e4dG,  n20, e4sS,  e4tS,  e4cD,  e4stS, f_gateS(m4rsi, c4rsi))
+[f5L, st5L]  = f_engine(use5,  n120 and m6satL,  n90,  m5satL,  m5macdL,  m5donL,  m5emaL,  c5G,  e5dR,  n30, e5sL,  e5tL,  e5cU,  e5stB, f_gateL(m5rsi, c5rsi))
+[f5S, st5S]  = f_engine(use5,  n120 and m6satS,  n90,  m5satS,  m5macdS,  m5donS,  m5emaS,  c5R,  e5dG,  n30, e5sS,  e5tS,  e5cD,  e5stS, f_gateS(m5rsi, c5rsi))
+[f6L, st6L]  = f_engine(use6,  n150 and m7satL,  n120, m6satL,  m6macdL,  m6donL,  m6emaL,  c6G,  e6dR,  n40, e6sL,  e6tL,  e6cU,  e6stB, f_gateL(m6rsi, c6rsi))
+[f6S, st6S]  = f_engine(use6,  n150 and m7satS,  n120, m6satS,  m6macdS,  m6donS,  m6emaS,  c6R,  e6dG,  n40, e6sS,  e6tS,  e6cD,  e6stS, f_gateS(m6rsi, c6rsi))
+[f7L, st7L]  = f_engine(use7,  n180 and m8satL,  n150, m7satL,  m7macdL,  m7donL,  m7emaL,  c7G,  e7dR,  n50, e7sL,  e7tL,  e7cU,  e7stB, f_gateL(m7rsi, c7rsi))
+[f7S, st7S]  = f_engine(use7,  n180 and m8satS,  n150, m7satS,  m7macdS,  m7donS,  m7emaS,  c7R,  e7dG,  n50, e7sS,  e7tS,  e7cD,  e7stS, f_gateS(m7rsi, c7rsi))
+[f8L, st8L]  = f_engine(use8,  n210 and m9satL,  n180, m8satL,  m8macdL,  m8donL,  m8emaL,  c8G,  e8dR,  n60, e8sL,  e8tL,  e8cU,  e8stB, f_gateL(m8rsi, c8rsi))
+[f8S, st8S]  = f_engine(use8,  n210 and m9satS,  n180, m8satS,  m8macdS,  m8donS,  m8emaS,  c8R,  e8dG,  n60, e8sS,  e8tS,  e8cD,  e8stS, f_gateS(m8rsi, c8rsi))
+[f9L, st9L]  = f_engine(use9,  n240 and m10satL, n210, m9satL,  m9macdL,  m9donL,  m9emaL,  c9G,  e9dR,  n70, e9sL,  e9tL,  e9cU,  e9stB, f_gateL(m9rsi, c9rsi))
+[f9S, st9S]  = f_engine(use9,  n240 and m10satS, n210, m9satS,  m9macdS,  m9donS,  m9emaS,  c9R,  e9dG,  n70, e9sS,  e9tS,  e9cD,  e9stS, f_gateS(m9rsi, c9rsi))
+[f10L, st10L] = f_engine(use10, n300 and sat300L, n240, m10satL, m10macdL, m10donL, m10emaL, c10G, e10dR, n80, e10sL, e10tL, e10cU, e10stB, f_gateL(m10rsi, c10rsi))
+[f10S, st10S] = f_engine(use10, n300 and sat300S, n240, m10satS, m10macdS, m10donS, m10emaS, c10R, e10dG, n80, e10sS, e10tS, e10cD, e10stS, f_gateS(m10rsi, c10rsi))
 
 // ============================ الدخول والإعلان ============================
 buyHit  = useLong and (f1L or f2L or f3L or f4L or f5L or f6L or f7L or f8L or f9L or f10L)
@@ -456,8 +444,8 @@ if timeframe.in_seconds() > minEntrySec
 else
     label.set_text(warnLbl, "")
 
-// لوحة تقدم الخطوات (الأرقام = الشروط المكتملة من 0 إلى 10)
-f_stCol(int st) => st == 0 ? color.new(color.gray, 80) : st < 6 ? color.new(color.teal, 60) : st < 10 ? color.new(color.olive, 40) : color.new(color.green, 20)
+// لوحة تقدم الخطوات (الأرقام = الشروط المكتملة من 0 إلى 9)
+f_stCol(int st) => st == 0 ? color.new(color.gray, 80) : st < 5 ? color.new(color.teal, 60) : st < 9 ? color.new(color.olive, 40) : color.new(color.green, 20)
 var table panel = table.new(position.top_right, 3, 11, bgcolor=color.new(#111111, 15), border_width=1, border_color=color.new(color.gray, 60))
 if showTbl and barstate.islast
     table.cell(panel, 0, 0, "زوج", text_color=color.white, text_size=size.small)
