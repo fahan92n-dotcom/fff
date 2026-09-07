@@ -1,6 +1,8 @@
 """Market Bias (CEREBR) as used in pine/six_indicators_strategy.pine.
 
-Screenshot defaults: period 50, smoothing 10. Long when osc_bias>0.
+Screenshot defaults: period 50, smoothing 10, oscillator 7.
+Main TF. Long = dark green (osc_bias > 0 and >= osc_smooth).
+Short = dark red (osc_bias < 0 and <= osc_smooth).
 """
 import unittest
 
@@ -11,29 +13,53 @@ from research.six_indicators_backtest import indicators_for, market_bias_osc, ru
 
 
 class TestMarketBiasOsc(unittest.TestCase):
-    def test_rising_series_is_bullish(self):
+    def test_rising_series_is_dark_green(self):
         n = 120
         close = 100.0 * (1.01 ** np.arange(n))
         high = close * 1.002
         low = close * 0.998
         op = close * 0.999
-        bias = market_bias_osc(
+        bias, sm = market_bias_osc(
             pd.Series(op), pd.Series(high), pd.Series(low), pd.Series(close)
         )
         self.assertTrue(np.isfinite(bias[-1]))
+        self.assertTrue(np.isfinite(sm[-1]))
         self.assertGreater(bias[-1], 0)
+        self.assertGreaterEqual(bias[-1], sm[-1])
 
-    def test_falling_series_is_bearish(self):
-        n = 120
-        close = 100.0 * (0.99 ** np.arange(n))
+    def test_falling_series_is_dark_red(self):
+        # تسارع الهبوط يجعل osc_bias أكثر سلبية من متوسطه = أحمر غامق
+        n = 200
+        t = np.arange(n)
+        close = 100.0 - 0.001 * (t ** 2)
         high = close * 1.002
         low = close * 0.998
         op = close * 1.001
-        bias = market_bias_osc(
+        bias, sm = market_bias_osc(
             pd.Series(op), pd.Series(high), pd.Series(low), pd.Series(close)
         )
         self.assertTrue(np.isfinite(bias[-1]))
+        self.assertTrue(np.isfinite(sm[-1]))
         self.assertLess(bias[-1], 0)
+        self.assertLessEqual(bias[-1], sm[-1])
+
+    def test_light_green_is_not_buy(self):
+        """Weak/light lime: bias > 0 but below its EMA — not dark green."""
+        bias = np.array([5.0, 4.0, 3.0, 2.0])
+        sm = np.array([3.0, 3.2, 3.1, 2.8])
+        mbU = (bias > 0) & (bias >= sm)
+        mbD = (bias < 0) & (bias <= sm)
+        self.assertFalse(mbU[-1])
+        self.assertFalse(mbD[-1])
+
+    def test_light_red_is_not_sell(self):
+        """Weak/light red: bias < 0 but above its EMA — not dark red."""
+        bias = np.array([-5.0, -4.0, -3.0, -2.0])
+        sm = np.array([-3.0, -3.2, -3.1, -2.8])
+        mbU = (bias > 0) & (bias >= sm)
+        mbD = (bias < 0) & (bias <= sm)
+        self.assertFalse(mbU[-1])
+        self.assertFalse(mbD[-1])
 
     def test_indicators_for_exposes_mb_flags(self):
         n = 200
@@ -62,7 +88,7 @@ def _ones(n, *idxs):
 
 
 class TestEngineMarketBiasStep(unittest.TestCase):
-    def test_does_not_fire_until_confirm_bias(self):
+    def test_does_not_fire_until_dark_bias(self):
         n = 6
         always = _all(n)
         never = _all(n, False)

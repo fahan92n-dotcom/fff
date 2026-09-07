@@ -6,7 +6,8 @@ Faithful to the Pine implementation:
 - all conditions read from the LAST CLOSED candle of each timeframe
 - engine advances on chart (5m) bars; fills at the close of the rollover bar
 - cancellation: same-direction SMI-saturated close on the next-larger main TF
-- confirm Market Bias (CEREBR): period 50, smoothing 10; long osc_bias>0, short <0
+- main-TF Market Bias (CEREBR): period 50, smoothing 10, osc 7;
+  long = dark green (osc_bias>0 and >= osc_smooth), short = dark red (<0 and <= smooth)
 - TP 1.00% / SL 0.75% brackets
 Variants measured: with/without RSI gate, no-delay entry, inverted TP/SL,
 random-entry benchmark.
@@ -77,8 +78,8 @@ def tf_frame(df5, minutes):
     return out
 
 
-def market_bias_osc(o, h, l, c, ha_len=50, ha_smooth=10):
-    """CEREBR Market Bias osc_bias with ha_htf = chart (Professeur_X)."""
+def market_bias_osc(o, h, l, c, ha_len=50, ha_smooth=10, osc_len=7):
+    """CEREBR Market Bias osc_bias and osc_smooth (ha_htf = chart)."""
     o_e = ema_tv(o, ha_len)
     c_e = ema_tv(c, ha_len)
     h_e = ema_tv(h, ha_len)
@@ -98,7 +99,9 @@ def market_bias_osc(o, h, l, c, ha_len=50, ha_smooth=10):
             ho[i] = (x[i - 1] + hc[i - 1]) / 2.0
     o2 = ema_tv(pd.Series(ho, index=c.index), ha_smooth)
     c2 = ema_tv(haclose, ha_smooth)
-    return (100.0 * (c2 - o2)).to_numpy()
+    bias = 100.0 * (c2 - o2)
+    smooth = ema_tv(bias, osc_len)
+    return bias.to_numpy(), smooth.to_numpy()
 
 
 def indicators_for(tfd):
@@ -111,8 +114,8 @@ def indicators_for(tfd):
     rsi = calc_rsi_tv(c, 14)
     rsi_ma = rsi.rolling(14, min_periods=14).mean()
     k, _ = calc_stoch_tv(c, h, l, 15, 3, 3)
-    bias = market_bias_osc(o, h, l, c, 50, 10)
-    mb_ok = np.isfinite(bias)
+    bias, sm = market_bias_osc(o, h, l, c, 50, 10, 7)
+    mb_ok = np.isfinite(bias) & np.isfinite(sm)
     z = {
         "satL": (smi <= -40).to_numpy(), "satS": (smi >= 40).to_numpy(),
         "macdL": ((hist < 0) & (macd >= hist)).to_numpy(),
@@ -120,7 +123,9 @@ def indicators_for(tfd):
         "donG": (don == 1).to_numpy(), "donR": (don == -1).to_numpy(),
         "emaL": (c < ema50).to_numpy(), "emaS": (c > ema50).to_numpy(),
         "histG": (hist > 0).to_numpy(), "histR": (hist < 0).to_numpy(),
-        "mbU": mb_ok & (bias > 0), "mbD": mb_ok & (bias < 0),
+        # CEREBR dark (strong): lime/red transparency 35
+        "mbU": mb_ok & (bias > 0) & (bias >= sm),
+        "mbD": mb_ok & (bias < 0) & (bias <= sm),
         "rsi": rsi.to_numpy(),
         "touchL": (rsi <= 35).to_numpy(), "touchS": (rsi >= 65).to_numpy(),
         "stUp": (k > 20).to_numpy(), "stDn": (k < 80).to_numpy(),
@@ -264,12 +269,12 @@ def main():
                 gL = np.ones(n, dtype=bool); gS = np.ones(n, dtype=bool)
             fL, rL, bL = run_engine(n, xnew & at(X["satL"], xi), mnew,
                 at(D["satL"], mi), at(D["macdL"], mi), at(D["donG"], mi), at(D["emaL"], mi),
-                at(C["histG"], ci), at(C["mbU"], ci), at(E["donR"], ei), enew,
+                at(C["histG"], ci), at(D["mbU"], mi), at(E["donR"], ei), enew,
                 at(E["satL"], ei), at(E["touchL"], ei), at(E["crossUp"], ei),
                 at(E["stUp"], ei), gL)
             fS, rS, bS = run_engine(n, xnew & at(X["satS"], xi), mnew,
                 at(D["satS"], mi), at(D["macdS"], mi), at(D["donR"], mi), at(D["emaS"], mi),
-                at(C["histR"], ci), at(C["mbD"], ci), at(E["donG"], ei), enew,
+                at(C["histR"], ci), at(D["mbD"], mi), at(E["donG"], ei), enew,
                 at(E["satS"], ei), at(E["touchS"], ei), at(E["crossDn"], ei),
                 at(E["stDn"], ei), gS)
             tag = f"{mn}/{cf}/{en}"
