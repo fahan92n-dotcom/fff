@@ -6,6 +6,8 @@ Faithful to the Pine implementation:
 - all conditions read from the LAST CLOSED candle of each timeframe
 - engine advances on chart (5m) bars; fills at the close of the rollover bar
 - cancellation: same-direction SMI-saturated close on the next-larger main TF
+- confirm ROC: roc=(close-close[48])/close[48]*100 then maroc=ema(roc,48)
+  long when maroc>0, short when maroc is not >0 (same as the indicator color)
 - TP 1.00% / SL 0.75% brackets
 Variants measured: with/without RSI gate, no-delay entry, inverted TP/SL,
 random-entry benchmark.
@@ -86,6 +88,12 @@ def indicators_for(tfd):
     rsi = calc_rsi_tv(c, 14)
     rsi_ma = rsi.rolling(14, min_periods=14).mean()
     k, _ = calc_stoch_tv(c, h, l, 15, 3, 3)
+    prev = c.shift(48).to_numpy()
+    cv = c.to_numpy()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        roc = np.where(prev != 0, (cv - prev) / prev * 100.0, 0.0)
+    maroc = ema_tv(pd.Series(roc, index=c.index), 48).to_numpy()
+    roc_ok = np.isfinite(maroc)
     z = {
         "satL": (smi <= -40).to_numpy(), "satS": (smi >= 40).to_numpy(),
         "macdL": ((hist < 0) & (macd >= hist)).to_numpy(),
@@ -93,6 +101,8 @@ def indicators_for(tfd):
         "donG": (don == 1).to_numpy(), "donR": (don == -1).to_numpy(),
         "emaL": (c < ema50).to_numpy(), "emaS": (c > ema50).to_numpy(),
         "histG": (hist > 0).to_numpy(), "histR": (hist < 0).to_numpy(),
+        "rocU": roc_ok & (maroc > 0),
+        "rocD": roc_ok & ~(maroc > 0),
         "rsi": rsi.to_numpy(),
         "touchL": (rsi <= 35).to_numpy(), "touchS": (rsi >= 65).to_numpy(),
         "stUp": (k > 20).to_numpy(), "stDn": (k < 80).to_numpy(),
@@ -133,11 +143,11 @@ def fat(vals, idx):
     return out
 
 
-def run_engine(n, cancel, mainNew, s1, s2, s3, s4, s5, s6, entryNew,
-               s7, s8t, s8c, s9st, s9gate):
+def run_engine(n, cancel, mainNew, s1, s2, s3, s4, s5, s6roc, s7don, entryNew,
+               s8, s9t, s9c, s10st, s11gate):
     st = 0; gap = 0
     fires = []
-    reach = np.zeros(10, dtype=int)
+    reach = np.zeros(11, dtype=int)
     gate_blocks = 0
     for t in range(n):
         just = False
@@ -153,21 +163,23 @@ def run_engine(n, cancel, mainNew, s1, s2, s3, s4, s5, s6, entryNew,
             st = 4; reach[4] += 1
         if st == 4 and s5[t]:
             st = 5; reach[5] += 1
-        if st == 5 and s6[t]:
+        if st == 5 and s6roc[t]:
             st = 6; reach[6] += 1
-        if st == 6 and entryNew[t] and s7[t]:
+        if st == 6 and s7don[t]:
             st = 7; reach[7] += 1
-        if st == 7 and entryNew[t] and s8t[t]:
+        if st == 7 and entryNew[t] and s8[t]:
             st = 8; reach[8] += 1
-        if st in (8, 9) and entryNew[t] and s8c[t]:
-            st = 9; gap = 0; just = True; reach[9] += 1
-        if st == 9 and entryNew[t]:
+        if st == 8 and entryNew[t] and s9t[t]:
+            st = 9; reach[9] += 1
+        if st in (9, 10) and entryNew[t] and s9c[t]:
+            st = 10; gap = 0; just = True; reach[10] += 1
+        if st == 10 and entryNew[t]:
             if not just:
                 gap += 1
             if gap > GAP_MAX:
-                st = 8
-            elif s9st[t]:
-                if s9gate[t]:
+                st = 9
+            elif s10st[t]:
+                if s11gate[t]:
                     fires.append(t)
                     st = 0
                 else:
@@ -234,12 +246,12 @@ def main():
                 gL = np.ones(n, dtype=bool); gS = np.ones(n, dtype=bool)
             fL, rL, bL = run_engine(n, xnew & at(X["satL"], xi), mnew,
                 at(D["satL"], mi), at(D["macdL"], mi), at(D["donG"], mi), at(D["emaL"], mi),
-                at(C["histG"], ci), at(E["donR"], ei), enew,
+                at(C["histG"], ci), at(C["rocU"], ci), at(E["donR"], ei), enew,
                 at(E["satL"], ei), at(E["touchL"], ei), at(E["crossUp"], ei),
                 at(E["stUp"], ei), gL)
             fS, rS, bS = run_engine(n, xnew & at(X["satS"], xi), mnew,
                 at(D["satS"], mi), at(D["macdS"], mi), at(D["donR"], mi), at(D["emaS"], mi),
-                at(C["histR"], ci), at(E["donG"], ei), enew,
+                at(C["histR"], ci), at(C["rocD"], ci), at(E["donG"], ei), enew,
                 at(E["satS"], ei), at(E["touchS"], ei), at(E["crossDn"], ei),
                 at(E["stDn"], ei), gS)
             tag = f"{mn}/{cf}/{en}"
