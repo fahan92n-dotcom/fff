@@ -86,10 +86,7 @@ def indicators_for(tfd):
     rsi = calc_rsi_tv(c, 14)
     rsi_ma = rsi.rolling(14, min_periods=14).mean()
     k, _ = calc_stoch_tv(c, h, l, 15, 3, 3)
-    med = (h + l) / 2.0
-    ao = med.rolling(5, min_periods=5).mean() - med.rolling(34, min_periods=34).mean()
     z = {
-        "aoUp": (ao > 0).to_numpy(), "aoDn": (ao < 0).to_numpy(),
         "satL": (smi <= -40).to_numpy(), "satS": (smi >= 40).to_numpy(),
         "macdL": ((hist < 0) & (macd >= hist)).to_numpy(),
         "macdS": ((hist > 0) & (macd <= hist)).to_numpy(),
@@ -136,11 +133,11 @@ def fat(vals, idx):
     return out
 
 
-def run_engine(n, cancel, mainNew, s1, s2, s3, s4, s5, s5b, s6, entryNew,
+def run_engine(n, cancel, mainNew, s1, s2, s3, s4, s5, s6, entryNew,
                s7, s8t, s8c, s9st, s9gate):
     st = 0; gap = 0
     fires = []
-    reach = np.zeros(11, dtype=int)
+    reach = np.zeros(10, dtype=int)
     gate_blocks = 0
     for t in range(n):
         just = False
@@ -156,21 +153,19 @@ def run_engine(n, cancel, mainNew, s1, s2, s3, s4, s5, s5b, s6, entryNew,
             st = 4; reach[4] += 1
         if st == 4 and s5[t]:
             st = 5; reach[5] += 1
-        if st == 5 and s5b[t]:
+        if st == 5 and s6[t]:
             st = 6; reach[6] += 1
-        if st == 6 and s6[t]:
+        if st == 6 and entryNew[t] and s7[t]:
             st = 7; reach[7] += 1
-        if st == 7 and entryNew[t] and s7[t]:
+        if st == 7 and entryNew[t] and s8t[t]:
             st = 8; reach[8] += 1
-        if st == 8 and entryNew[t] and s8t[t]:
-            st = 9; reach[9] += 1
-        if st in (9, 10) and entryNew[t] and s8c[t]:
-            st = 10; gap = 0; just = True; reach[10] += 1
-        if st == 10 and entryNew[t]:
+        if st in (8, 9) and entryNew[t] and s8c[t]:
+            st = 9; gap = 0; just = True; reach[9] += 1
+        if st == 9 and entryNew[t]:
             if not just:
                 gap += 1
             if gap > GAP_MAX:
-                st = 9
+                st = 8
             elif s9st[t]:
                 if s9gate[t]:
                     fires.append(t)
@@ -239,12 +234,12 @@ def main():
                 gL = np.ones(n, dtype=bool); gS = np.ones(n, dtype=bool)
             fL, rL, bL = run_engine(n, xnew & at(X["satL"], xi), mnew,
                 at(D["satL"], mi), at(D["macdL"], mi), at(D["donG"], mi), at(D["emaL"], mi),
-                at(C["histG"], ci), at(C["aoUp"], ci), at(E["donR"], ei), enew,
+                at(C["histG"], ci), at(E["donR"], ei), enew,
                 at(E["satL"], ei), at(E["touchL"], ei), at(E["crossUp"], ei),
                 at(E["stUp"], ei), gL)
             fS, rS, bS = run_engine(n, xnew & at(X["satS"], xi), mnew,
                 at(D["satS"], mi), at(D["macdS"], mi), at(D["donR"], mi), at(D["emaS"], mi),
-                at(C["histR"], ci), at(C["aoDn"], ci), at(E["donG"], ei), enew,
+                at(C["histR"], ci), at(E["donG"], ei), enew,
                 at(E["satS"], ei), at(E["touchS"], ei), at(E["crossDn"], ei),
                 at(E["stDn"], ei), gS)
             tag = f"{mn}/{cf}/{en}"
