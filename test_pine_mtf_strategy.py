@@ -260,6 +260,31 @@ class TestReplaySequence(unittest.TestCase):
         trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts"]))
         self.assertEqual(trades, [])
 
+    def test_records_rsi_gate_near_miss(self):
+        start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        rows = pine.WARMUP_BARS + 10
+        chart = _blank_chart(rows, start)
+        i0 = pine.WARMUP_BARS
+        chart.loc[i0 - 1, "smi_main"] = -39.0
+        chart.loc[i0, "smi_main"] = -41.0
+        chart.loc[i0 + 1, ["hist_main", "macd_main"]] = [-1.0, 0.0]
+        chart.loc[i0 + 2, "trend_main"] = 1.0
+        chart.loc[i0 + 2, ["close_main", "ema50_main"]] = [100.0, 99.0]
+        chart.loc[i0 + 3, ["close_main", "ema50_main"]] = [98.0, 99.0]
+        chart.loc[i0 + 4, ["macd_main", "hist_confirm"]] = [-0.5, 0.4]
+        chart.loc[i0 + 5, "trend"] = -1.0
+        chart.loc[i0 + 5, "smi"] = -39.0
+        chart.loc[i0 + 6, "smi"] = -41.0
+        chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [30.0, 40.0]
+        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [32.0, 31.0]
+        chart.loc[i0 + 7, "stoch_k"] = 15.0
+        chart.loc[i0 + 8, "stoch_k"] = 25.0
+        chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [55.0, 54.0]  # gap < 3
+        misses = []
+        trades = pine.replay_signals(chart, pd.DataFrame(columns=["ts"]), near_misses=misses)
+        self.assertEqual(trades, [])
+        self.assertTrue(any(m["reason"] == "rsi_gate" for m in misses))
+
 
 class TestFormatReport(unittest.TestCase):
     def test_splits_wins_and_losses(self):

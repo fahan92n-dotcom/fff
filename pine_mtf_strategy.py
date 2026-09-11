@@ -222,8 +222,10 @@ def _entry_levels(signal_type, signal_close):
     )
 
 
-def replay_signals(chart, raw_1m):
+def replay_signals(chart, raw_1m, near_misses=None):
     """Walk chart bars with the Pine sequential state machine."""
+    if near_misses is None:
+        near_misses = []
     if chart is None or chart.empty:
         return []
 
@@ -324,25 +326,57 @@ def replay_signals(chart, raw_1m):
         short_entry = False
         if long_step == 8 and long_rsi_cross_bar is not None:
             bars_since = i - long_rsi_cross_bar
-            if (
-                bool(stoch_buy_cross[i])
-                and bars_since <= MAX_BARS_GAP
-                and buy_rsi_gate(rsi_confirm[i], rsi_main[i])
-            ):
-                long_entry = True
-                long_step = 0
+            if bool(stoch_buy_cross[i]) and bars_since <= MAX_BARS_GAP:
+                if buy_rsi_gate(rsi_confirm[i], rsi_main[i]):
+                    long_entry = True
+                    long_step = 0
+                else:
+                    near_misses.append(
+                        {
+                            "type": "buy",
+                            "ts": _utc(ts_values[i]),
+                            "reason": "rsi_gate",
+                            "rsi_confirm": float(rsi_confirm[i]),
+                            "rsi_main": float(rsi_main[i]),
+                        }
+                    )
             elif bars_since > MAX_BARS_GAP:
+                near_misses.append(
+                    {
+                        "type": "buy",
+                        "ts": _utc(ts_values[i]),
+                        "reason": "stoch_gap",
+                        "rsi_confirm": float(rsi_confirm[i]),
+                        "rsi_main": float(rsi_main[i]),
+                    }
+                )
                 long_step = 0
         if short_step == 8 and short_rsi_cross_bar is not None:
             bars_since = i - short_rsi_cross_bar
-            if (
-                bool(stoch_sell_cross[i])
-                and bars_since <= MAX_BARS_GAP
-                and sell_rsi_gate(rsi_confirm[i], rsi_main[i])
-            ):
-                short_entry = True
-                short_step = 0
+            if bool(stoch_sell_cross[i]) and bars_since <= MAX_BARS_GAP:
+                if sell_rsi_gate(rsi_confirm[i], rsi_main[i]):
+                    short_entry = True
+                    short_step = 0
+                else:
+                    near_misses.append(
+                        {
+                            "type": "sell",
+                            "ts": _utc(ts_values[i]),
+                            "reason": "rsi_gate",
+                            "rsi_confirm": float(rsi_confirm[i]),
+                            "rsi_main": float(rsi_main[i]),
+                        }
+                    )
             elif bars_since > MAX_BARS_GAP:
+                near_misses.append(
+                    {
+                        "type": "sell",
+                        "ts": _utc(ts_values[i]),
+                        "reason": "stoch_gap",
+                        "rsi_confirm": float(rsi_confirm[i]),
+                        "rsi_main": float(rsi_main[i]),
+                    }
+                )
                 short_step = 0
 
         if not long_entry and not short_entry:
@@ -435,9 +469,13 @@ def scan_week(raw_1m=None, now=None, days=WEEK_DAYS, market=None):
     chart = build_chart(raw_1m, CHART_TF)
     if chart.empty:
         raise RuntimeError("Failed to build MTF chart")
-    signals = replay_signals(chart, raw_1m)
+    near_misses = []
+    signals = replay_signals(chart, raw_1m, near_misses=near_misses)
     start, end = period_bounds(now=now, days=days)
     week = filter_week(signals, start, end)
+    week_misses = [
+        miss for miss in near_misses if start <= miss["ts"] < end
+    ]
     result = summarize(week)
     result["start"] = start
     result["end"] = end
@@ -446,6 +484,7 @@ def scan_week(raw_1m=None, now=None, days=WEEK_DAYS, market=None):
     result["bars_1m"] = len(raw_1m)
     result["chart_bars"] = len(chart)
     result["all_signals"] = len(signals)
+    result["near_misses"] = week_misses
     return result
 
 
@@ -491,6 +530,7 @@ def format_report(result):
         f"خاسرة: {len(losses)}",
         f"مفتوحة: {len(opens)}",
         f"صافي تقديري (بدون رسوم): {result['net_pct']:+.2f}%",
+        f"إشارات كامل العينة المحمّلة: {result.get('all_signals', 0)}",
         "",
         "تحذير: النسخة lookahead_on تعيد الرسم (repainting)؛ النتائج غير واقعية للتداول الحي.",
         "",
@@ -513,6 +553,22 @@ def format_report(result):
     if not result["trades"]:
         lines.append("")
         lines.append("— لا توجد صفقات في هذه الفترة")
+    misses = result.get("near_misses") or []
+    if misses:
+        lines.append("")
+        lines.append("وصلت للخطوة 8 دون دخول:")
+        for miss in misses:
+            side = _side_ar(miss["type"])
+            when = miss["ts"].strftime("%Y-%m-%d %H:%M")
+            reason = (
+                "بوابة RSI"
+                if miss["reason"] == "rsi_gate"
+                else "انتهت نافذة الستوكاستك"
+            )
+            lines.append(
+                f"{when} UTC | {side} | {reason} | "
+                f"RSI تأكيد {miss['rsi_confirm']:.2f} / رئيسي {miss['rsi_main']:.2f}"
+            )
     return "\n".join(lines)
 
 
