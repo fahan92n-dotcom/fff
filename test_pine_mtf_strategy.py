@@ -212,7 +212,7 @@ class TestReplaySequence(unittest.TestCase):
         chart.loc[i0 + 5, "smi"] = 39.0
         chart.loc[i0 + 6, "smi"] = 41.0  # c7
         chart.loc[i0 + 6, ["rsi", "rsi_ma"]] = [70.0, 60.0]
-        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [58.0, 59.0]  # touch + RSI cross
+        chart.loc[i0 + 7, ["rsi", "rsi_ma"]] = [66.0, 67.0]  # touch (>=65) + RSI crossunder
         chart.loc[i0 + 7, "stoch_k"] = 85.0
         chart.loc[i0 + 8, "stoch_k"] = 75.0  # stoch cross + RSI gate
         chart.loc[i0 + 8, ["rsi_confirm", "rsi_main"]] = [45.0, 50.0]
